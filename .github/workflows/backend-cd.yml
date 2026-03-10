@@ -49,14 +49,15 @@ jobs:
       DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
       DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
       DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+      RUNTIME_ENV_FILE: ${{ secrets.RUNTIME_ENV_FILE }}
 
     steps:
       - name: Skip deploy if secrets are missing
-        if: ${{ env.DEPLOY_HOST == '' || env.DEPLOY_USER == '' || env.DEPLOY_SSH_KEY == '' || env.DEPLOY_PATH == '' }}
+        if: ${{ env.DEPLOY_HOST == '' || env.DEPLOY_USER == '' || env.DEPLOY_SSH_KEY == '' || env.DEPLOY_PATH == '' || env.RUNTIME_ENV_FILE == '' }}
         run: echo "Secrets deploy mancanti, salto il deploy SSH."
 
       - name: Deploy via SSH
-        if: ${{ env.DEPLOY_HOST != '' && env.DEPLOY_USER != '' && env.DEPLOY_SSH_KEY != '' && env.DEPLOY_PATH != '' }}
+        if: ${{ env.DEPLOY_HOST != '' && env.DEPLOY_USER != '' && env.DEPLOY_SSH_KEY != '' && env.DEPLOY_PATH != '' && env.RUNTIME_ENV_FILE != '' }}
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ env.DEPLOY_HOST }}
@@ -69,5 +70,15 @@ jobs:
             git checkout main
             git pull --ff-only origin main
             cd infra
-            export API_IMAGE="ghcr.io/carlobonvicini/work-hours-api:latest"
+            cat > .env <<'EOF_ENV'
+${{ env.RUNTIME_ENV_FILE }}
+EOF_ENV
+
+            API_IMAGE="ghcr.io/carlobonvicini/work-hours-api:latest"
+            if [ -f .env ] && grep -q '^API_IMAGE=' .env; then
+              sed -i "s|^API_IMAGE=.*|API_IMAGE=${API_IMAGE}|" .env
+            else
+              printf '\nAPI_IMAGE=%s\n' "${API_IMAGE}" >> .env
+            fi
+
             sh deploy.sh

@@ -40,6 +40,15 @@ Nel repository `work-hours-platform`, aggiungi questi secrets:
 2. `DEPLOY_USER` - utente SSH
 3. `DEPLOY_SSH_KEY` - chiave privata SSH usata da GitHub Actions
 4. `DEPLOY_PATH` - path repo sul server (es: `/opt/work-hours-platform`)
+5. `RUNTIME_ENV_FILE` - contenuto completo del file `infra/.env` (multi-line)
+
+Esempio `RUNTIME_ENV_FILE`:
+
+```dotenv
+HOST=0.0.0.0
+PORT=8080
+API_IMAGE=ghcr.io/carlobonvicini/work-hours-api:latest
+```
 
 ## Step 4 - Come funziona il deploy automatico
 
@@ -49,9 +58,11 @@ Ad ogni push su `main`, il workflow `Backend CD` esegue:
 2. Push su GHCR (`latest` + tag SHA).
 3. SSH nel server.
 4. `git pull --ff-only` nel path deploy.
-5. `docker compose pull`.
-6. `docker compose up -d --remove-orphans`.
-7. `docker image prune -f`.
+5. Rigenera automaticamente `infra/.env` da `RUNTIME_ENV_FILE`.
+6. Aggiorna `API_IMAGE` nel `.env` alla versione deployata.
+7. `docker compose pull`.
+8. `docker compose up -d --remove-orphans`.
+9. `docker image prune -f`.
 
 ## Verifica rapida
 
@@ -70,5 +81,5 @@ docker compose logs -f api
 
 1. Questo modello evita build pesanti sul server.
 2. Il server aggiorna solo codice e immagini.
-3. Se non vuoi aggiornare codice ad ogni deploy, puoi togliere il `git pull` dal workflow.
-
+3. Non devi piu fare `nano .env` a mano sul server se usi `RUNTIME_ENV_FILE`.
+4. Se non vuoi aggiornare codice ad ogni deploy, puoi togliere il `git pull` dal workflow.
