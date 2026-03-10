@@ -43,23 +43,31 @@ jobs:
 
   deploy:
     needs: build_and_push
-    if: ${{ secrets.DEPLOY_HOST != '' && secrets.DEPLOY_USER != '' && secrets.DEPLOY_SSH_KEY != '' && secrets.DEPLOY_PATH != '' }}
     runs-on: ubuntu-latest
+    env:
+      DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+      DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+      DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+      DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
 
     steps:
+      - name: Skip deploy if secrets are missing
+        if: ${{ env.DEPLOY_HOST == '' || env.DEPLOY_USER == '' || env.DEPLOY_SSH_KEY == '' || env.DEPLOY_PATH == '' }}
+        run: echo "Secrets deploy mancanti, salto il deploy SSH."
+
       - name: Deploy via SSH
+        if: ${{ env.DEPLOY_HOST != '' && env.DEPLOY_USER != '' && env.DEPLOY_SSH_KEY != '' && env.DEPLOY_PATH != '' }}
         uses: appleboy/ssh-action@v1.2.0
         with:
-          host: ${{ secrets.DEPLOY_HOST }}
-          username: ${{ secrets.DEPLOY_USER }}
-          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          host: ${{ env.DEPLOY_HOST }}
+          username: ${{ env.DEPLOY_USER }}
+          key: ${{ env.DEPLOY_SSH_KEY }}
           script: |
             set -eu
-            cd "${{ secrets.DEPLOY_PATH }}"
+            cd "${{ env.DEPLOY_PATH }}"
             git fetch origin main --tags
             git checkout main
             git pull --ff-only origin main
             cd infra
             export API_IMAGE="ghcr.io/carlobonvicini/work-hours-api:latest"
             sh deploy.sh
-
