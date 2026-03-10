@@ -3,6 +3,7 @@ import type {
   Profile,
   WorkEntry
 } from "../domain/types.js";
+import type { AppStore } from "./store.js";
 
 const DEFAULT_PROFILE: Profile = {
   id: "default-profile",
@@ -10,7 +11,7 @@ const DEFAULT_PROFILE: Profile = {
   dailyTargetMinutes: 480
 };
 
-export class InMemoryStore {
+export class InMemoryStore implements AppStore {
   private profile: Profile = { ...DEFAULT_PROFILE };
   private workEntries: WorkEntry[] = [];
   private leaveEntries: LeaveEntry[] = [];

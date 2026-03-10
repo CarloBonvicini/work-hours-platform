@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import Fastify from "fastify";
 import { InMemoryStore } from "./data/in-memory-store.js";
+import type { AppStore } from "./data/store.js";
 import {
   buildMonthlySummary,
   isIsoDate,
@@ -12,7 +13,7 @@ import type {
 } from "./domain/types.js";
 
 interface BuildAppOptions {
-  store?: InMemoryStore;
+  store?: AppStore;
 }
 
 function parseMonthQuery(query: unknown): string | null | undefined {
@@ -41,7 +42,7 @@ function isLeaveType(value: unknown): value is LeaveType {
 }
 
 export function buildApp(options: BuildAppOptions = {}) {
-  const store = options.store ?? new InMemoryStore();
+  const store: AppStore = options.store ?? new InMemoryStore();
 
   const app = Fastify({
     logger: true
@@ -56,7 +57,7 @@ export function buildApp(options: BuildAppOptions = {}) {
   });
 
   app.get("/profile", async () => {
-    return store.getProfile();
+    return await store.getProfile();
   });
 
   app.put("/profile", async (request, reply) => {
@@ -80,7 +81,7 @@ export function buildApp(options: BuildAppOptions = {}) {
       dailyTargetMinutes: body.dailyTargetMinutes
     };
 
-    return store.saveProfile(profile);
+    return await store.saveProfile(profile);
   });
 
   app.get("/work-entries", async (request, reply) => {
@@ -90,7 +91,7 @@ export function buildApp(options: BuildAppOptions = {}) {
     }
 
     return {
-      items: store.listWorkEntries(month)
+      items: await store.listWorkEntries(month)
     };
   });
 
@@ -113,7 +114,7 @@ export function buildApp(options: BuildAppOptions = {}) {
       return reply.code(400).send({ error: "note must be a string" });
     }
 
-    const entry = store.addWorkEntry({
+    const entry = await store.addWorkEntry({
       id: randomUUID(),
       date: body.date,
       minutes: body.minutes,
@@ -130,7 +131,7 @@ export function buildApp(options: BuildAppOptions = {}) {
     }
 
     return {
-      items: store.listLeaveEntries(month)
+      items: await store.listLeaveEntries(month)
     };
   });
 
@@ -157,7 +158,7 @@ export function buildApp(options: BuildAppOptions = {}) {
       return reply.code(400).send({ error: "note must be a string" });
     }
 
-    const entry = store.addLeaveEntry({
+    const entry = await store.addLeaveEntry({
       id: randomUUID(),
       date: body.date,
       minutes: body.minutes,
@@ -175,11 +176,15 @@ export function buildApp(options: BuildAppOptions = {}) {
     }
 
     const month = params.month;
+    const profile = await store.getProfile();
+    const workEntries = await store.listWorkEntries(month);
+    const leaveEntries = await store.listLeaveEntries(month);
+
     return buildMonthlySummary(
       month,
-      store.getProfile(),
-      store.listWorkEntries(month),
-      store.listLeaveEntries(month)
+      profile,
+      workEntries,
+      leaveEntries
     );
   });
 
