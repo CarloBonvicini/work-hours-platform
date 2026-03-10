@@ -2,7 +2,7 @@ name: work-hours-platform
 
 services:
   api:
-    image: ghcr.io/your-github-user/work-hours-api:latest
+    image: ${API_IMAGE:-ghcr.io/carlobonvicini/work-hours-api:latest}
     env_file:
       - .env
     ports:
@@ -19,4 +19,3 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
-

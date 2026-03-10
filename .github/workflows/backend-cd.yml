@@ -15,7 +15,7 @@ permissions:
   packages: write
 
 env:
-  IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/work-hours-api
+  DEPLOY_BRANCH: main
 
 jobs:
   build-and-push:
@@ -24,6 +24,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Prepare image name
+        id: prep
+        run: |
+          echo "image_name=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/work-hours-api" >> "$GITHUB_OUTPUT"
 
       - name: Setup Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -39,7 +44,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.IMAGE_NAME }}
+          images: ${{ steps.prep.outputs.image_name }}
           tags: |
             type=sha
             type=raw,value=latest
@@ -55,13 +60,10 @@ jobs:
 
   deploy:
     needs: build-and-push
-    if: ${{ secrets.DEPLOY_HOST != '' && secrets.DEPLOY_USER != '' && secrets.DEPLOY_SSH_KEY != '' }}
+    if: ${{ secrets.DEPLOY_HOST != '' && secrets.DEPLOY_USER != '' && secrets.DEPLOY_SSH_KEY != '' && secrets.DEPLOY_PATH != '' }}
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.2.0
         with:
@@ -69,7 +71,12 @@ jobs:
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           script: |
-            cd ${{ secrets.DEPLOY_PATH }}
+            set -eu
+            cd "${{ secrets.DEPLOY_PATH }}"
+            git fetch origin "${{ env.DEPLOY_BRANCH }}"
+            git checkout "${{ env.DEPLOY_BRANCH }}"
+            git pull --ff-only origin "${{ env.DEPLOY_BRANCH }}"
+            cd infra
             docker compose pull
             docker compose up -d --remove-orphans
-
+            docker image prune -f
