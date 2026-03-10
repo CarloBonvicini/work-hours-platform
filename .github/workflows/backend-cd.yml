@@ -90,7 +90,7 @@ jobs:
           git tag "${{ steps.bump.outputs.version }}" "$GITHUB_SHA"
           git push origin "${{ steps.bump.outputs.version }}"
 
-  build-and-push:
+  build_and_push:
     needs: version
     runs-on: ubuntu-latest
     outputs:
@@ -137,7 +137,7 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
 
   deploy:
-    needs: [version, build-and-push]
+    needs: [version, build_and_push]
     if: ${{ secrets.DEPLOY_HOST != '' && secrets.DEPLOY_USER != '' && secrets.DEPLOY_SSH_KEY != '' && secrets.DEPLOY_PATH != '' }}
     runs-on: ubuntu-latest
 
@@ -155,5 +155,5 @@ jobs:
             git checkout "${{ env.DEPLOY_BRANCH }}"
             git pull --ff-only origin "${{ env.DEPLOY_BRANCH }}"
             cd infra
-            export API_IMAGE="${{ needs.build-and-push.outputs.image_name }}:${{ needs.version.outputs.version }}"
+            export API_IMAGE="${{ needs.build_and_push.outputs.image_name }}:${{ needs.version.outputs.version }}"
             sh deploy.sh
