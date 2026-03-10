@@ -92,6 +92,15 @@ jobs:
         shell: bash
         run: |
           set -eu
+          # Evita endpoint Docker ereditati dal runner service.
+          unset DOCKER_HOST DOCKER_TLS_VERIFY DOCKER_CERT_PATH
+
+          if ! docker info >/dev/null 2>&1; then
+            echo "Docker daemon non raggiungibile dal runner."
+            echo "Verifica che Docker sia avviato e che l'utente del runner sia nel gruppo docker."
+            exit 1
+          fi
+
           cd infra
 
           if docker compose version >/dev/null 2>&1; then
