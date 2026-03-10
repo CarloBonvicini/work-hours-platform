@@ -14,7 +14,7 @@
    - `backend/Dockerfile`
    - healthcheck nel container
 5. Abbiamo preparato infrastruttura deploy:
-   - `infra/compose.yml`
+   - `infra/docker-compose.yml`
    - `infra/deploy.sh`
 6. Abbiamo creato workflow GitHub Actions:
    - `backend-ci.yml` (test + build backend)
@@ -56,4 +56,3 @@ Consideriamo il setup base completato quando:
 2. CI backend passa su GitHub.
 3. `GET /health` risponde in locale e in ambiente deploy.
 4. Mobile Flutter e inizializzato con struttura a layer.
-

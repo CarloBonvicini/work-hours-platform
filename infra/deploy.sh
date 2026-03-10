@@ -13,6 +13,17 @@ fi
 
 cd "$SCRIPT_DIR"
 
-docker compose pull
-docker compose up -d --remove-orphans
+compose() {
+  if docker compose version >/dev/null 2>&1; then
+    docker compose "$@"
+  elif command -v docker-compose >/dev/null 2>&1; then
+    docker-compose "$@"
+  else
+    echo "Docker Compose non trovato. Installa docker compose plugin o docker-compose." >&2
+    exit 1
+  fi
+}
+
+compose -f docker-compose.yml pull
+compose -f docker-compose.yml up -d --remove-orphans
 docker image prune -f

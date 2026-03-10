@@ -127,7 +127,7 @@ Rendere il deploy ripetibile, osservabile e stabile.
 ### Componenti
 
 1. `Dockerfile` backend
-2. `compose.yml`
+2. `docker-compose.yml`
 3. `.env` per ambiente
 4. Volumi persistenti dove necessari
 5. Restart policy + healthcheck
@@ -284,4 +284,3 @@ Ridurre superficie di rischio gia dalla v1.
 2. Lead time da merge a deploy
 3. Crash rate app in beta
 4. Tempo medio per diagnosi incident (MTTD base)
-
