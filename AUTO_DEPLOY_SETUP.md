@@ -49,6 +49,18 @@ COMPOSE_PROJECT_NAME=work-hours-platform
 HOST=0.0.0.0
 PORT=8080
 API_IMAGE=ghcr.io/carlobonvicini/work-hours-api:latest
+DATA_PROVIDER=memory
+```
+
+Per modalita scalabile con PostgreSQL:
+
+```dotenv
+COMPOSE_PROJECT_NAME=work-hours-platform
+HOST=0.0.0.0
+PORT=8080
+API_IMAGE=ghcr.io/carlobonvicini/work-hours-api:latest
+DATA_PROVIDER=postgres
+DATABASE_URL=postgres://<user>:<password>@<host>:5432/<database>
 ```
 
 ## Step 3 - Cosa fa il workflow `Backend CD`
