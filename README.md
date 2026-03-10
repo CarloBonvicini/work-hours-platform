@@ -7,6 +7,11 @@ Monorepo iniziale con separazione logica tra:
 - `infra/` deploy Docker Compose
 - `.github/workflows/` pipeline CI/CD
 
+Documenti di gestione:
+
+- `STATUS_AND_NEXT_STEPS.md`
+- `ROADMAP_COMPLETA.md`
+
 ## Perche monorepo adesso
 
 - setup piu rapido
@@ -63,4 +68,3 @@ La strategia e:
 1. build immagine in GitHub Actions
 2. push su registry (es. GHCR)
 3. server fa solo `docker compose pull` + `docker compose up -d`
-
