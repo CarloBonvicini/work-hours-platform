@@ -1,4 +1,4 @@
-name: work-hours-platform
+version: "3.8"
 
 services:
   api:
