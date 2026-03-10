@@ -26,8 +26,9 @@
 
 - Backend locale: pronto e testato.
 - Pipeline: definite nei workflow.
+- Auto-deploy: attivo e funzionante su server (smoke test del 10 marzo 2026).
 - Mobile: cartella pronta, ma Flutter va ancora installato su questa macchina.
-- Remoto GitHub: da creare (repo private) e collegare al repo locale.
+- Remoto GitHub: repository private configurato e sincronizzato.
 
 ## Next step immediati
 
