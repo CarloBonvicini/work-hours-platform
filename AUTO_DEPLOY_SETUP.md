@@ -1,85 +1,85 @@
-# Auto Deploy Setup (Prima Pull Manuale, Poi Automatico)
+# Auto Deploy Setup (Self-hosted Runner, No SSH)
 
-Questa configurazione implementa esattamente questo flusso:
+Questa configurazione implementa questo flusso:
 
-1. Prima volta: clone/pull manuale sul server.
-2. Dopo: ogni push su `main` aggiorna automaticamente il server.
+1. Push su `main`.
+2. GitHub Actions builda l'immagine backend su runner GitHub-hosted.
+3. Job di deploy gira sul tuo portatile (self-hosted runner), fa pull immagine e aggiorna i container.
 
-## Requisiti server
+Non servono `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY`, `DEPLOY_PATH`.
 
-1. Docker + Docker Compose plugin installati.
-2. Git installato.
-3. Utente deploy dedicato (consigliato) con accesso Docker.
-4. Accesso SSH dal workflow GitHub Actions al server.
+## Requisiti sul portatile runner
 
-## Step 1 - Prima configurazione manuale sul server (una sola volta)
+1. Docker installato.
+2. Docker Compose disponibile (`docker compose` o `docker-compose`).
+3. Runner GitHub self-hosted installato come servizio.
+4. Utente del runner con permessi Docker.
 
-```bash
-mkdir -p /opt/work-hours-platform
-cd /opt
-git clone git@github.com:CarloBonvicini/work-hours-platform.git
-cd /opt/work-hours-platform/infra
-cp .env.example .env
+## Step 1 - Registra il self-hosted runner
+
+Nel repository GitHub:
+
+1. `Settings`
+2. `Actions`
+3. `Runners`
+4. `New self-hosted runner`
+5. Scegli Linux (se il portatile usa Linux) e segui i comandi mostrati da GitHub.
+
+Verifica finale: il runner deve apparire `Idle` (online).
+
+## Step 2 - Crea il secret runtime
+
+Nel repository GitHub:
+
+1. `Settings`
+2. `Secrets and variables`
+3. `Actions`
+4. `New repository secret`
+
+Nome:
+
+```text
+RUNTIME_ENV_FILE
 ```
 
-Poi modifica `infra/.env` secondo le tue esigenze.
-
-## Step 2 - Login GHCR sul server (una sola volta)
-
-Per immagini private GHCR:
-
-```bash
-echo "<GHCR_PAT_READ_PACKAGES>" | docker login ghcr.io -u CarloBonvicini --password-stdin
-```
-
-## Step 3 - Configura Secrets su GitHub
-
-Nel repository `work-hours-platform`, aggiungi questi secrets:
-
-1. `DEPLOY_HOST` - host/IP server
-2. `DEPLOY_USER` - utente SSH
-3. `DEPLOY_SSH_KEY` - chiave privata SSH usata da GitHub Actions
-4. `DEPLOY_PATH` - path repo sul server (es: `/opt/work-hours-platform`)
-5. `RUNTIME_ENV_FILE` - contenuto completo del file `infra/.env` (multi-line)
-
-Esempio `RUNTIME_ENV_FILE`:
+Valore (multi-line, esempio):
 
 ```dotenv
+COMPOSE_PROJECT_NAME=work-hours-platform
 HOST=0.0.0.0
 PORT=8080
 API_IMAGE=ghcr.io/carlobonvicini/work-hours-api:latest
 ```
 
-## Step 4 - Come funziona il deploy automatico
+## Step 3 - Cosa fa il workflow `Backend CD`
 
-Ad ogni push su `main`, il workflow `Backend CD` esegue:
+Ad ogni push su `main`:
 
-1. Build immagine backend in GitHub Actions.
-2. Push su GHCR (`latest` + tag SHA).
-3. SSH nel server.
-4. `git pull --ff-only` nel path deploy.
-5. Rigenera automaticamente `infra/.env` da `RUNTIME_ENV_FILE`.
-6. Aggiorna `API_IMAGE` nel `.env` alla versione deployata.
-7. `docker compose pull`.
-8. `docker compose up -d --remove-orphans`.
-9. `docker image prune -f`.
+1. Build e push immagine su GHCR (`latest` + `sha-<commit>`).
+2. Job `deploy` sul self-hosted runner.
+3. Scrive `infra/.env` dal secret `RUNTIME_ENV_FILE`.
+4. Forza `API_IMAGE` a `ghcr.io/carlobonvicini/work-hours-api:latest`.
+5. Esegue:
+   - `docker compose pull` (oppure `docker-compose pull`)
+   - `docker compose up -d --remove-orphans`
+   - `docker image prune -f`
 
 ## Verifica rapida
 
-Dopo un push su `main`:
-
-1. Controlla tab Actions su GitHub.
-2. Sul server:
+1. Fai un push su `main`.
+2. In GitHub `Actions`, verifica workflow `Backend CD` verde.
+3. Sul portatile runner:
 
 ```bash
-cd /opt/work-hours-platform/infra
+cd <workspace-runner>/<repo>/infra
 docker compose ps
 docker compose logs -f api
 ```
 
+Se usi `docker-compose` v1, sostituisci i comandi.
+
 ## Note importanti
 
-1. Questo modello evita build pesanti sul server.
-2. Il server aggiorna solo codice e immagini.
-3. Non devi piu fare `nano .env` a mano sul server se usi `RUNTIME_ENV_FILE`.
-4. Se non vuoi aggiornare codice ad ogni deploy, puoi togliere il `git pull` dal workflow.
+1. Puoi pushare da qualsiasi PC: il deploy parte comunque, perche triggerato da GitHub.
+2. Il portatile runner deve essere acceso e online.
+3. Niente SSH nel deploy pipeline.

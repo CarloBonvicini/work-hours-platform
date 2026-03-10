@@ -42,43 +42,67 @@ jobs:
             ${{ env.IMAGE_NAME }}:sha-${{ github.sha }}
 
   deploy:
+    name: Deploy (Self-hosted runner)
     needs: build_and_push
-    runs-on: ubuntu-latest
-    env:
-      DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-      DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
-      DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
-      DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
-      RUNTIME_ENV_FILE: ${{ secrets.RUNTIME_ENV_FILE }}
+    runs-on: self-hosted
+    permissions:
+      contents: read
+      packages: read
 
     steps:
-      - name: Skip deploy if secrets are missing
-        if: ${{ env.DEPLOY_HOST == '' || env.DEPLOY_USER == '' || env.DEPLOY_SSH_KEY == '' || env.DEPLOY_PATH == '' || env.RUNTIME_ENV_FILE == '' }}
-        run: echo "Secrets deploy mancanti, salto il deploy SSH."
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Deploy via SSH
-        if: ${{ env.DEPLOY_HOST != '' && env.DEPLOY_USER != '' && env.DEPLOY_SSH_KEY != '' && env.DEPLOY_PATH != '' && env.RUNTIME_ENV_FILE != '' }}
-        uses: appleboy/ssh-action@v1.2.0
+      - name: Verify RUNTIME_ENV_FILE
+        shell: bash
+        env:
+          RUNTIME_ENV_FILE: ${{ secrets.RUNTIME_ENV_FILE }}
+        run: |
+          set -eu
+          if [ -z "$RUNTIME_ENV_FILE" ]; then
+            echo "Secret RUNTIME_ENV_FILE mancante. Configuralo in Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+
+      - name: Login to GHCR (pull private image)
+        uses: docker/login-action@v3
         with:
-          host: ${{ env.DEPLOY_HOST }}
-          username: ${{ env.DEPLOY_USER }}
-          key: ${{ env.DEPLOY_SSH_KEY }}
-          script: |
-            set -eu
-            cd "${{ env.DEPLOY_PATH }}"
-            git fetch origin main --tags
-            git checkout main
-            git pull --ff-only origin main
-            cd infra
-            cat > .env <<'EOF_ENV'
-            ${{ env.RUNTIME_ENV_FILE }}
-            EOF_ENV
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-            API_IMAGE="ghcr.io/carlobonvicini/work-hours-api:latest"
-            if [ -f .env ] && grep -q '^API_IMAGE=' .env; then
-              sed -i "s|^API_IMAGE=.*|API_IMAGE=${API_IMAGE}|" .env
-            else
-              printf '\nAPI_IMAGE=%s\n' "${API_IMAGE}" >> .env
-            fi
+      - name: Write infra/.env from secret
+        shell: bash
+        env:
+          RUNTIME_ENV_FILE: ${{ secrets.RUNTIME_ENV_FILE }}
+        run: |
+          set -eu
+          cat > infra/.env <<'EOF_ENV'
+          ${{ secrets.RUNTIME_ENV_FILE }}
+          EOF_ENV
 
-            sh deploy.sh
+          API_IMAGE="ghcr.io/carlobonvicini/work-hours-api:latest"
+          if grep -q '^API_IMAGE=' infra/.env; then
+            sed -i "s|^API_IMAGE=.*|API_IMAGE=${API_IMAGE}|" infra/.env
+          else
+            printf '\nAPI_IMAGE=%s\n' "${API_IMAGE}" >> infra/.env
+          fi
+
+      - name: Pull and restart containers
+        shell: bash
+        run: |
+          set -eu
+          cd infra
+
+          if docker compose version >/dev/null 2>&1; then
+            COMPOSE_CMD="docker compose"
+          elif command -v docker-compose >/dev/null 2>&1; then
+            COMPOSE_CMD="docker-compose"
+          else
+            echo "Docker Compose non trovato sul self-hosted runner."
+            exit 1
+          fi
+
+          $COMPOSE_CMD -f docker-compose.yml pull
+          $COMPOSE_CMD -f docker-compose.yml up -d --remove-orphans
+          docker image prune -f
