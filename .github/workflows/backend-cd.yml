@@ -71,8 +71,8 @@ jobs:
             git pull --ff-only origin main
             cd infra
             cat > .env <<'EOF_ENV'
-${{ env.RUNTIME_ENV_FILE }}
-EOF_ENV
+            ${{ env.RUNTIME_ENV_FILE }}
+            EOF_ENV
 
             API_IMAGE="ghcr.io/carlobonvicini/work-hours-api:latest"
             if [ -f .env ] && grep -q '^API_IMAGE=' .env; then
