@@ -1,5 +1,10 @@
 # Versioning Automatico
 
+## Stato attuale
+
+Versioning automatico temporaneamente disattivato nel workflow CD per stabilizzare il deploy.
+Appena il deploy torna verde in modo stabile, si riattiva la logica `patch/minor/major`.
+
 ## Regola
 
 Partiamo da `v0.0.0`.
@@ -40,4 +45,3 @@ Il tag versione viene usato anche per l immagine Docker:
 ## Nota importante
 
 La decisione major/minor/patch viene calcolata dal messaggio dell ultimo commit del push (`head commit`).
-
