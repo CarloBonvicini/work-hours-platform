@@ -12,6 +12,7 @@ Documenti di gestione:
 - `STATUS_AND_NEXT_STEPS.md`
 - `ROADMAP_COMPLETA.md`
 - `AUTO_DEPLOY_SETUP.md`
+- `VERSIONING.md`
 
 ## Perche monorepo adesso
 
