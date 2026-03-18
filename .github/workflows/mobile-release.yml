@@ -1,0 +1,110 @@
+name: Mobile Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Tag della release (es. mobile-v0.1.0)
+        required: true
+        type: string
+      build_name:
+        description: Versione app (es. 0.1.0)
+        required: true
+        type: string
+      build_number:
+        description: Build number Android
+        required: true
+        default: "1"
+        type: string
+      release_name:
+        description: Titolo release
+        required: true
+        default: "Work Hours Mobile"
+        type: string
+  push:
+    tags:
+      - "mobile-v*"
+
+jobs:
+  build-and-release-android:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    defaults:
+      run:
+        working-directory: mobile
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve release metadata
+        id: meta
+        shell: bash
+        working-directory: .
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "release_tag=${{ inputs.release_tag }}" >> "$GITHUB_OUTPUT"
+            echo "build_name=${{ inputs.build_name }}" >> "$GITHUB_OUTPUT"
+            echo "build_number=${{ inputs.build_number }}" >> "$GITHUB_OUTPUT"
+            echo "release_name=${{ inputs.release_name }}" >> "$GITHUB_OUTPUT"
+          else
+            tag="${GITHUB_REF_NAME}"
+            version="${tag#mobile-v}"
+            echo "release_tag=$tag" >> "$GITHUB_OUTPUT"
+            echo "build_name=$version" >> "$GITHUB_OUTPUT"
+            echo "build_number=${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+            echo "release_name=Work Hours Mobile $version" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Tests
+        run: flutter test
+
+      - name: Build release APK
+        run: >
+          flutter build apk --release
+          --build-name="${{ steps.meta.outputs.build_name }}"
+          --build-number="${{ steps.meta.outputs.build_number }}"
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: work-hours-android-apk-${{ steps.meta.outputs.build_name }}
+          path: mobile/build/app/outputs/flutter-apk/app-release.apk
+
+      - name: Create or update GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        working-directory: .
+        run: |
+          tag="${{ steps.meta.outputs.release_tag }}"
+          title="${{ steps.meta.outputs.release_name }}"
+          version="${{ steps.meta.outputs.build_name }}"
+          build_number="${{ steps.meta.outputs.build_number }}"
+          notes="Android APK build $version ($build_number)."
+
+          if ! gh release view "$tag" >/dev/null 2>&1; then
+            gh release create "$tag" --title "$title" --notes "$notes"
+          fi
+
+          gh release upload "$tag" mobile/build/app/outputs/flutter-apk/app-release.apk --clobber

@@ -1,17 +1,21 @@
 # Mobile App (Flutter)
 
-Questa cartella ospita il client mobile.
+Questa cartella ospita il client Flutter di Work Hours Platform.
 
-## Primo setup
+## Stato
 
-1. Installa Flutter SDK
-2. Esegui:
+Il bootstrap del progetto e pronto. La prima distribuzione prevista e un APK scaricabile da GitHub Releases.
+
+## Comandi utili
 
 ```bash
-flutter create .
+flutter pub get
+flutter analyze
+flutter test
+flutter build apk --release
 ```
 
-## Struttura consigliata
+## Struttura
 
 ```text
 lib/
@@ -21,10 +25,14 @@ lib/
   data/
 ```
 
-## Obiettivi Sprint 1
+## Prossimi step
 
-- onboarding base
-- profilo utente
-- inserimento ore giornaliero
-- dashboard mensile base
+- collegare i dati reali del backend
+- sostituire i dati in-memory con repository applicativi
+- configurare workflow release APK su GitHub
 
+## Release APK
+
+- workflow manuale: `Mobile Release`
+- trigger automatico: push di un tag tipo `mobile-v0.1.0`
+- package id Android: `com.carlobonvicini.workhours`

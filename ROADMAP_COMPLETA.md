@@ -2,7 +2,7 @@
 
 ## Visione
 
-Costruire una app mobile Flutter per gestione ore, ferie e permessi con architettura locale-first, backend leggero evolutivo, e deploy robusto su server debole tramite CI/CD e immagini Docker.
+Costruire una app mobile Flutter per gestione ore, ferie e permessi con architettura locale-first, backend leggero evolutivo, e deploy robusto su server debole tramite CI/CD e immagini Docker. La prima milestone distributiva deve essere un APK scaricabile direttamente da GitHub Releases.
 
 ## Principi guida
 
@@ -27,6 +27,7 @@ Definire con precisione cosa entra in v1 e cosa e rinviato.
 6. Dashboard mensile
 7. Notifiche locali
 8. Export PDF
+9. APK Android pubblicato su GitHub Releases con istruzioni minime di installazione
 
 ### Out of scope v1
 
@@ -174,7 +175,7 @@ Automatizzare quality gate e deploy evitando build in server.
 
 ### Obiettivo
 
-Separare chiaramente deploy backend da rilascio app mobile.
+Separare chiaramente deploy backend e rilascio app mobile con distribuzione via GitHub Releases.
 
 ### Pipeline mobile
 
@@ -182,11 +183,13 @@ Separare chiaramente deploy backend da rilascio app mobile.
 2. `flutter test`
 3. Build Android artifact
 4. Build iOS in runner macOS (quando necessario)
+5. Pubblicazione APK su GitHub Releases
 
 ### Output fase
 
 1. Artifact mobile riproducibili
 2. Processo release controllato
+3. APK versionato disponibile su GitHub Releases
 
 ## Fase 8 - Osservabilita minima
 
@@ -229,13 +232,15 @@ Ridurre superficie di rischio gia dalla v1.
 ### Sprint 1 - Fondamenta prodotto e app
 
 1. Definizione MVP finale
-2. Modelli dati
-3. Wireframe principali
-4. Setup Flutter
-5. Profilo utente
-6. Inserimento ore
-7. Motore calcolo base
-8. Dashboard base
+2. Wireframe principali
+3. Setup Flutter
+4. Definizione canale distribuzione con GitHub Releases
+5. Prima build Android distribuibile
+6. Modelli dati
+7. Profilo utente
+8. Inserimento ore
+9. Motore calcolo base
+10. Dashboard base
 
 ### Sprint 2 - Funzioni core utente
 
@@ -262,7 +267,7 @@ Ridurre superficie di rischio gia dalla v1.
 ## Milestone pratiche
 
 1. `M1`: setup monorepo + backend health + test verdi
-2. `M2`: mobile bootstrap + primo flusso inserimento ore
+2. `M2`: mobile bootstrap + primo APK pubblicato su GitHub Releases
 3. `M3`: API v1 profile/work/leave
 4. `M4`: deploy automatico su server con pull+restart
 5. `M5`: rilascio beta interna mobile
