@@ -85,12 +85,6 @@ jobs:
           --build-name="${{ steps.meta.outputs.build_name }}"
           --build-number="${{ steps.meta.outputs.build_number }}"
 
-      - name: Upload APK artifact
-        uses: actions/upload-artifact@v6
-        with:
-          name: work-hours-android-apk-${{ steps.meta.outputs.build_name }}
-          path: mobile/build/app/outputs/flutter-apk/app-release.apk
-
       - name: Create or update GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
