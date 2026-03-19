@@ -92,6 +92,18 @@ void main() {
       find.byKey(const ValueKey('calendar-record-start-button')),
       findsOneWidget,
     );
+    await tester.tap(
+      find.byKey(const ValueKey('calendar-record-start-button')),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('calendar-start-break-button')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('calendar-end-workday-button')),
+      findsOneWidget,
+    );
 
     await tester.tap(find.byKey(const ValueKey('calendar-day-2026-03-04')));
     await tester.pumpAndSettle();
@@ -449,21 +461,21 @@ class _FakeThemePreferenceStore implements ThemePreferenceStore {
 }
 
 class _FakeWorkdayStartStore implements WorkdayStartStore {
-  final Map<String, int> _values = {};
+  final Map<String, WorkdaySession> _values = {};
 
   @override
-  Future<void> clearStartMinutes(String isoDate) async {
+  Future<void> clearSession(String isoDate) async {
     _values.remove(isoDate);
   }
 
   @override
-  Future<int?> loadStartMinutes(String isoDate) async {
+  Future<WorkdaySession?> loadSession(String isoDate) async {
     return _values[isoDate];
   }
 
   @override
-  Future<void> saveStartMinutes(String isoDate, int startMinutes) async {
-    _values[isoDate] = startMinutes;
+  Future<void> saveSession(String isoDate, WorkdaySession session) async {
+    _values[isoDate] = session;
   }
 }
 

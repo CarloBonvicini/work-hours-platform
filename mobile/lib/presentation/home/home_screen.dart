@@ -48,6 +48,8 @@ enum _TodayOverridePreset { startLater, finishEarlier, longerBreak, dayOff }
 
 enum _CalendarTimeField { start, end }
 
+enum _WorkdaySessionStatus { notStarted, active, onBreak, completed }
+
 const _mainNavigationSections = [
   _HomeSection.calendar,
   _HomeSection.profile,
@@ -144,11 +146,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _isShowingOnboardingDialog = false;
   bool _isLoadingCalendarData = false;
   bool _isUpdatingThemeMode = false;
-  bool _isSavingWorkdayStart = false;
+  bool _isSavingWorkdaySession = false;
   late bool _hasCompletedInitialSetup;
   _HomeSection _selectedSection = _HomeSection.calendar;
   SupportTicketCategory _selectedTicketCategory = SupportTicketCategory.bug;
-  int? _recordedWorkdayStartMinutes;
+  WorkdaySession? _workdaySession;
 
   @override
   void initState() {
@@ -161,7 +163,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _selectedDate,
     );
     _loadSnapshot();
-    unawaited(_loadRecordedWorkdayStartForDate(_selectedDate));
+    unawaited(_loadWorkdaySessionForDate(_selectedDate));
     if (_hasCompletedInitialSetup) {
       unawaited(_checkForUpdate());
     } else {
@@ -245,7 +247,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _selectedDate = resolvedSelectedDate;
         _isLoading = false;
       });
-      unawaited(_loadRecordedWorkdayStartForDate(resolvedSelectedDate));
+      unawaited(_loadWorkdaySessionForDate(resolvedSelectedDate));
       unawaited(_ensureCalendarDataForCurrentView());
       unawaited(_ensureUpcomingWeekData());
       await _maybeShowInitialSetup(snapshot);
@@ -408,17 +410,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     ]);
   }
 
-  Future<void> _loadRecordedWorkdayStartForDate(DateTime date) async {
+  Future<void> _loadWorkdaySessionForDate(DateTime date) async {
     final isoDate = DashboardService.defaultEntryDateOf(date);
-    final startMinutes = await widget.workdayStartStore.loadStartMinutes(
-      isoDate,
-    );
+    final session = await widget.workdayStartStore.loadSession(isoDate);
     if (!mounted || !_isSameDay(_selectedDate, date)) {
       return;
     }
 
     setState(() {
-      _recordedWorkdayStartMinutes = startMinutes;
+      _workdaySession = session;
     });
   }
 
@@ -432,18 +432,19 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final isoDate = DashboardService.defaultEntryDateOf(_selectedDate);
 
     setState(() {
-      _isSavingWorkdayStart = true;
+      _isSavingWorkdaySession = true;
     });
 
     try {
-      await widget.workdayStartStore.saveStartMinutes(isoDate, startMinutes);
+      final session = WorkdaySession(startMinutes: startMinutes);
+      await widget.workdayStartStore.saveSession(isoDate, session);
       if (!mounted) {
         return;
       }
 
       setState(() {
-        _recordedWorkdayStartMinutes = startMinutes;
-        _isSavingWorkdayStart = false;
+        _workdaySession = session;
+        _isSavingWorkdaySession = false;
       });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -458,27 +459,39 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       }
 
       setState(() {
-        _isSavingWorkdayStart = false;
+        _isSavingWorkdaySession = false;
         _errorMessage = 'Impossibile registrare l entrata in questo momento.';
       });
     }
   }
 
-  Future<void> _clearRecordedWorkdayStart() async {
+  Future<void> _startWorkdayBreakNow() async {
+    final session = _workdaySession;
+    if (!_isSameDay(_selectedDate, _todayDate) ||
+        session == null ||
+        session.isOnBreak ||
+        session.isCompleted) {
+      return;
+    }
+
+    final now = DateTime.now();
     final isoDate = DashboardService.defaultEntryDateOf(_selectedDate);
     setState(() {
-      _isSavingWorkdayStart = true;
+      _isSavingWorkdaySession = true;
     });
 
     try {
-      await widget.workdayStartStore.clearStartMinutes(isoDate);
+      final updatedSession = session.copyWith(
+        breakStartedMinutes: (now.hour * 60) + now.minute,
+      );
+      await widget.workdayStartStore.saveSession(isoDate, updatedSession);
       if (!mounted) {
         return;
       }
 
       setState(() {
-        _recordedWorkdayStartMinutes = null;
-        _isSavingWorkdayStart = false;
+        _workdaySession = updatedSession;
+        _isSavingWorkdaySession = false;
       });
     } catch (error) {
       if (!mounted) {
@@ -486,8 +499,128 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       }
 
       setState(() {
-        _isSavingWorkdayStart = false;
-        _errorMessage = 'Impossibile rimuovere l entrata registrata.';
+        _isSavingWorkdaySession = false;
+        _errorMessage = 'Impossibile avviare la pausa in questo momento.';
+      });
+    }
+  }
+
+  Future<void> _resumeWorkdayNow() async {
+    final session = _workdaySession;
+    final breakStartedMinutes = session?.breakStartedMinutes;
+    if (!_isSameDay(_selectedDate, _todayDate) ||
+        session == null ||
+        breakStartedMinutes == null ||
+        session.isCompleted) {
+      return;
+    }
+
+    final now = DateTime.now();
+    final nowMinutes = (now.hour * 60) + now.minute;
+    final isoDate = DashboardService.defaultEntryDateOf(_selectedDate);
+    setState(() {
+      _isSavingWorkdaySession = true;
+    });
+
+    try {
+      final addedBreakMinutes = math.max(0, nowMinutes - breakStartedMinutes);
+      final updatedSession = session.copyWith(
+        breakStartedMinutes: null,
+        accumulatedBreakMinutes:
+            session.accumulatedBreakMinutes + addedBreakMinutes,
+      );
+      await widget.workdayStartStore.saveSession(isoDate, updatedSession);
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _workdaySession = updatedSession;
+        _isSavingWorkdaySession = false;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _isSavingWorkdaySession = false;
+        _errorMessage = 'Impossibile riprendere la giornata in questo momento.';
+      });
+    }
+  }
+
+  Future<void> _finishWorkdayNow() async {
+    final session = _workdaySession;
+    if (!_isSameDay(_selectedDate, _todayDate) ||
+        session == null ||
+        session.isCompleted) {
+      return;
+    }
+
+    final now = DateTime.now();
+    final nowMinutes = (now.hour * 60) + now.minute;
+    final isoDate = DashboardService.defaultEntryDateOf(_selectedDate);
+    setState(() {
+      _isSavingWorkdaySession = true;
+    });
+
+    try {
+      final totalBreakMinutes = session.breakStartedMinutes == null
+          ? session.accumulatedBreakMinutes
+          : session.accumulatedBreakMinutes +
+                    math.max(0, nowMinutes - session.breakStartedMinutes!)
+                as int;
+      final updatedSession = session.copyWith(
+        breakStartedMinutes: null,
+        accumulatedBreakMinutes: totalBreakMinutes,
+        endMinutes: nowMinutes,
+      );
+      await widget.workdayStartStore.saveSession(isoDate, updatedSession);
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _workdaySession = updatedSession;
+        _isSavingWorkdaySession = false;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _isSavingWorkdaySession = false;
+        _errorMessage = 'Impossibile registrare l uscita in questo momento.';
+      });
+    }
+  }
+
+  Future<void> _clearWorkdaySession() async {
+    final isoDate = DashboardService.defaultEntryDateOf(_selectedDate);
+    setState(() {
+      _isSavingWorkdaySession = true;
+    });
+
+    try {
+      await widget.workdayStartStore.clearSession(isoDate);
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _workdaySession = null;
+        _isSavingWorkdaySession = false;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _isSavingWorkdaySession = false;
+        _errorMessage = 'Impossibile rimuovere la giornata registrata.';
       });
     }
   }
@@ -1287,7 +1420,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     setState(() {
       _selectedDate = nextSelectedDate;
     });
-    unawaited(_loadRecordedWorkdayStartForDate(nextSelectedDate));
+    unawaited(_loadWorkdaySessionForDate(nextSelectedDate));
     final currentSnapshot = _snapshot;
     if (currentSnapshot != null) {
       _hydrateSelectedDateControllers(currentSnapshot, nextSelectedDate);
@@ -2159,10 +2292,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           onNextPeriod: () => _shiftCalendarPeriod(1),
           onSelectDate: _selectDate,
           isSelectedDateToday: _isSameDay(_selectedDate, _todayDate),
-          recordedWorkdayStartMinutes: _recordedWorkdayStartMinutes,
-          isSavingWorkdayStart: _isSavingWorkdayStart,
+          workdaySession: _workdaySession,
+          isSavingWorkdaySession: _isSavingWorkdaySession,
           onRecordWorkdayStartNow: _recordWorkdayStartNow,
-          onClearRecordedWorkdayStart: _clearRecordedWorkdayStart,
+          onStartWorkdayBreakNow: _startWorkdayBreakNow,
+          onResumeWorkdayNow: _resumeWorkdayNow,
+          onFinishWorkdayNow: _finishWorkdayNow,
+          onClearWorkdaySession: _clearWorkdaySession,
           onPickOverrideTime: _pickScheduleOverrideTime,
           onAdjustOverrideTime: _adjustScheduleOverrideTime,
           onSetOverrideBreakMinutes: _setScheduleOverrideBreakMinutes,
@@ -2433,10 +2569,13 @@ class _CalendarCard extends StatelessWidget {
     required this.onNextPeriod,
     required this.onSelectDate,
     required this.isSelectedDateToday,
-    required this.recordedWorkdayStartMinutes,
-    required this.isSavingWorkdayStart,
+    required this.workdaySession,
+    required this.isSavingWorkdaySession,
     required this.onRecordWorkdayStartNow,
-    required this.onClearRecordedWorkdayStart,
+    required this.onStartWorkdayBreakNow,
+    required this.onResumeWorkdayNow,
+    required this.onFinishWorkdayNow,
+    required this.onClearWorkdaySession,
     required this.onPickOverrideTime,
     required this.onAdjustOverrideTime,
     required this.onSetOverrideBreakMinutes,
@@ -2473,10 +2612,13 @@ class _CalendarCard extends StatelessWidget {
   final Future<void> Function() onNextPeriod;
   final ValueChanged<DateTime> onSelectDate;
   final bool isSelectedDateToday;
-  final int? recordedWorkdayStartMinutes;
-  final bool isSavingWorkdayStart;
+  final WorkdaySession? workdaySession;
+  final bool isSavingWorkdaySession;
   final Future<void> Function() onRecordWorkdayStartNow;
-  final Future<void> Function() onClearRecordedWorkdayStart;
+  final Future<void> Function() onStartWorkdayBreakNow;
+  final Future<void> Function() onResumeWorkdayNow;
+  final Future<void> Function() onFinishWorkdayNow;
+  final Future<void> Function() onClearWorkdaySession;
   final Future<void> Function(_CalendarTimeField field) onPickOverrideTime;
   final void Function(_CalendarTimeField field, int deltaMinutes)
   onAdjustOverrideTime;
@@ -2616,14 +2758,15 @@ class _CalendarCard extends StatelessWidget {
           ],
           if (isSelectedDateToday) ...[
             const SizedBox(height: 16),
-            _WorkdayStartCard(
-              startMinutes: recordedWorkdayStartMinutes,
+            _WorkdaySessionCard(
+              session: workdaySession,
               schedule: effectiveDaySchedule,
-              isBusy: isSavingWorkdayStart,
+              isBusy: isSavingWorkdaySession,
               onRecordNow: onRecordWorkdayStartNow,
-              onClear: recordedWorkdayStartMinutes == null
-                  ? null
-                  : onClearRecordedWorkdayStart,
+              onStartBreak: onStartWorkdayBreakNow,
+              onResume: onResumeWorkdayNow,
+              onFinish: onFinishWorkdayNow,
+              onClear: workdaySession == null ? null : onClearWorkdaySession,
             ),
           ],
           const SizedBox(height: 16),
@@ -2841,27 +2984,42 @@ class _CalendarQuickScheduleEditor extends StatelessWidget {
   }
 }
 
-class _WorkdayStartCard extends StatelessWidget {
-  const _WorkdayStartCard({
-    required this.startMinutes,
+class _WorkdaySessionCard extends StatelessWidget {
+  const _WorkdaySessionCard({
+    required this.session,
     required this.schedule,
     required this.isBusy,
     required this.onRecordNow,
+    required this.onStartBreak,
+    required this.onResume,
+    required this.onFinish,
     this.onClear,
   });
 
-  final int? startMinutes;
+  final WorkdaySession? session;
   final DaySchedule schedule;
   final bool isBusy;
   final Future<void> Function() onRecordNow;
+  final Future<void> Function() onStartBreak;
+  final Future<void> Function() onResume;
+  final Future<void> Function() onFinish;
   final Future<void> Function()? onClear;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final now = DateTime.now();
+    final nowMinutes = (now.hour * 60) + now.minute;
+    final status = _resolveWorkdaySessionStatus(session);
+    final statusMeta = _workdaySessionStatusMeta(context, status);
+    final currentBreakMinutes = _currentSessionBreakMinutes(
+      session,
+      nowMinutes,
+    );
     final expectedEndInfo = _resolveExpectedEndInfo(
-      startMinutes: startMinutes,
+      session: session,
       schedule: schedule,
+      nowMinutes: nowMinutes,
     );
 
     return Container(
@@ -2880,19 +3038,26 @@ class _WorkdayStartCard extends StatelessWidget {
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
-                  'Entrata di oggi',
+                  'Giornata di oggi',
                   style: theme.textTheme.titleSmall?.copyWith(
                     fontWeight: FontWeight.w800,
                   ),
                 ),
               ),
+              _TodayStatusBadge(
+                label: statusMeta.label,
+                color: statusMeta.color,
+                icon: statusMeta.icon,
+              ),
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 10),
           Text(
-            startMinutes == null
-                ? 'Premi Entrata e salvo l orario attuale. Da li ti mostro subito quando puoi uscire.'
-                : 'Entrata registrata alle ${formatTimeInput(startMinutes!)}.',
+            _workdaySessionDescription(
+              session: session,
+              status: status,
+              currentBreakMinutes: currentBreakMinutes,
+            ),
             style: theme.textTheme.bodyMedium,
           ),
           if (expectedEndInfo != null) ...[
@@ -2905,26 +3070,51 @@ class _WorkdayStartCard extends StatelessWidget {
               ),
             ),
           ],
+          if (session?.endMinutes != null) ...[
+            const SizedBox(height: 10),
+            Text(
+              'Uscita registrata alle ${formatTimeInput(session!.endMinutes!)}.',
+              style: theme.textTheme.bodyMedium,
+            ),
+          ],
           const SizedBox(height: 14),
           Wrap(
             spacing: 10,
             runSpacing: 10,
             children: [
-              FilledButton.icon(
-                key: const ValueKey('calendar-record-start-button'),
-                onPressed: isBusy ? null : onRecordNow,
-                icon: const Icon(Icons.play_arrow_rounded),
-                label: Text(
-                  isBusy
-                      ? 'Salvo...'
-                      : startMinutes == null
-                      ? 'Entrata'
-                      : 'Aggiorna entrata',
+              if (session == null || session!.isCompleted)
+                FilledButton.icon(
+                  key: const ValueKey('calendar-record-start-button'),
+                  onPressed: isBusy ? null : onRecordNow,
+                  icon: const Icon(Icons.play_arrow_rounded),
+                  label: Text(isBusy ? 'Salvo...' : 'Entrata'),
                 ),
-              ),
+              if (session != null &&
+                  !session!.isCompleted &&
+                  !session!.isOnBreak)
+                FilledButton.tonalIcon(
+                  key: const ValueKey('calendar-start-break-button'),
+                  onPressed: isBusy ? null : onStartBreak,
+                  icon: const Icon(Icons.coffee_outlined),
+                  label: const Text('Pausa'),
+                ),
+              if (session?.isOnBreak == true)
+                FilledButton.tonalIcon(
+                  key: const ValueKey('calendar-resume-workday-button'),
+                  onPressed: isBusy ? null : onResume,
+                  icon: const Icon(Icons.play_circle_outline_rounded),
+                  label: const Text('Riprendi'),
+                ),
+              if (session != null && !session!.isCompleted)
+                FilledButton.icon(
+                  key: const ValueKey('calendar-end-workday-button'),
+                  onPressed: isBusy ? null : onFinish,
+                  icon: const Icon(Icons.logout_rounded),
+                  label: const Text('Uscita'),
+                ),
               if (onClear != null)
                 OutlinedButton.icon(
-                  key: const ValueKey('calendar-clear-start-button'),
+                  key: const ValueKey('calendar-clear-workday-session-button'),
                   onPressed: isBusy ? null : onClear,
                   icon: const Icon(Icons.delete_outline),
                   label: const Text('Rimuovi'),
@@ -5649,16 +5839,64 @@ String _formatBreakInput(int minutes) {
   return minutes == 0 ? '' : formatHoursInput(minutes);
 }
 
-String? _resolveExpectedEndInfo({
-  required int? startMinutes,
-  required DaySchedule schedule,
+int _currentSessionBreakMinutes(WorkdaySession? session, int nowMinutes) {
+  if (session == null) {
+    return 0;
+  }
+
+  final runningBreakMinutes = session.breakStartedMinutes == null
+      ? 0
+      : math.max(0, nowMinutes - session.breakStartedMinutes!);
+  return session.accumulatedBreakMinutes + runningBreakMinutes;
+}
+
+_WorkdaySessionStatus _resolveWorkdaySessionStatus(WorkdaySession? session) {
+  if (session == null) {
+    return _WorkdaySessionStatus.notStarted;
+  }
+  if (session.isCompleted) {
+    return _WorkdaySessionStatus.completed;
+  }
+  if (session.isOnBreak) {
+    return _WorkdaySessionStatus.onBreak;
+  }
+
+  return _WorkdaySessionStatus.active;
+}
+
+String _workdaySessionDescription({
+  required WorkdaySession? session,
+  required _WorkdaySessionStatus status,
+  required int currentBreakMinutes,
 }) {
-  if (startMinutes == null || schedule.targetMinutes <= 0) {
+  return switch (status) {
+    _WorkdaySessionStatus.notStarted =>
+      'Premi Entrata e salvo l orario attuale. Da li ti mostro subito quando puoi uscire.',
+    _WorkdaySessionStatus.active =>
+      'Entrata registrata alle ${formatTimeInput(session!.startMinutes)}.',
+    _WorkdaySessionStatus.onBreak =>
+      'Sei in pausa dalle ${formatTimeInput(session!.breakStartedMinutes!)}. Pausa totale: ${currentBreakMinutes.toString()} min.',
+    _WorkdaySessionStatus.completed =>
+      'Giornata chiusa. Entrata ${formatTimeInput(session!.startMinutes)}, uscita ${formatTimeInput(session.endMinutes!)}.',
+  };
+}
+
+String? _resolveExpectedEndInfo({
+  required WorkdaySession? session,
+  required DaySchedule schedule,
+  required int nowMinutes,
+}) {
+  if (session == null || schedule.targetMinutes <= 0) {
     return null;
   }
 
+  final actualBreakMinutes = _currentSessionBreakMinutes(session, nowMinutes);
+  final effectiveBreakMinutes = math.max(
+    schedule.breakMinutes,
+    actualBreakMinutes,
+  );
   final totalMinutes =
-      startMinutes + schedule.targetMinutes + schedule.breakMinutes;
+      session.startMinutes + schedule.targetMinutes + effectiveBreakMinutes;
   final normalizedMinutes = totalMinutes % (24 * 60);
   final nextDaySuffix = totalMinutes >= (24 * 60) ? ' del giorno dopo' : '';
   return 'Puoi uscire alle ${formatTimeInput(normalizedMinutes)}$nextDaySuffix.';
@@ -6129,6 +6367,34 @@ class _TodayReminderCard extends StatelessWidget {
       ),
     );
   }
+}
+
+({String label, IconData icon, Color color}) _workdaySessionStatusMeta(
+  BuildContext context,
+  _WorkdaySessionStatus status,
+) {
+  return switch (status) {
+    _WorkdaySessionStatus.notStarted => (
+      label: 'Da iniziare',
+      icon: Icons.play_circle_outline,
+      color: Theme.of(context).colorScheme.secondary,
+    ),
+    _WorkdaySessionStatus.active => (
+      label: 'Dentro',
+      icon: Icons.badge_outlined,
+      color: const Color(0xFF0B6E69),
+    ),
+    _WorkdaySessionStatus.onBreak => (
+      label: 'In pausa',
+      icon: Icons.free_breakfast_outlined,
+      color: Theme.of(context).colorScheme.secondary,
+    ),
+    _WorkdaySessionStatus.completed => (
+      label: 'Chiusa',
+      icon: Icons.check_circle_outline,
+      color: const Color(0xFF0B6E69),
+    ),
+  };
 }
 
 ({String label, IconData icon, Color color}) _todayStatusMeta(
