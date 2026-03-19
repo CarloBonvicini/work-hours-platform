@@ -50,9 +50,7 @@ jobs:
       release_tag: ${{ steps.meta.outputs.release_tag }}
       build_name: ${{ steps.meta.outputs.build_name }}
       build_number: ${{ steps.meta.outputs.build_number }}
-      update_base_url: ${{ steps.update.outputs.update_base_url }}
-      update_feed_url: ${{ steps.update.outputs.update_feed_url }}
-      update_page_url: ${{ steps.update.outputs.update_page_url }}
+      publish_update_feed: ${{ steps.update.outputs.publish_update_feed }}
 
     defaults:
       run:
@@ -82,7 +80,6 @@ jobs:
           fi
 
       - name: Resolve mobile API base URL
-        id: api
         shell: bash
         working-directory: .
         env:
@@ -99,7 +96,7 @@ jobs:
             exit 1
           fi
 
-          echo "api_base_url=$api_base_url" >> "$GITHUB_OUTPUT"
+          echo "API_BASE_URL=$api_base_url" >> "$GITHUB_ENV"
 
       - name: Resolve mobile update feed
         id: update
@@ -140,9 +137,14 @@ jobs:
             update_page_url="https://github.com/CarloBonvicini/work-hours-platform/releases/latest"
           fi
 
-          echo "update_base_url=$update_base_url" >> "$GITHUB_OUTPUT"
-          echo "update_feed_url=$update_feed_url" >> "$GITHUB_OUTPUT"
-          echo "update_page_url=$update_page_url" >> "$GITHUB_OUTPUT"
+          echo "UPDATE_FEED_URL=$update_feed_url" >> "$GITHUB_ENV"
+          echo "UPDATE_PAGE_URL=$update_page_url" >> "$GITHUB_ENV"
+
+          if [ -n "$update_base_url" ]; then
+            echo "publish_update_feed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish_update_feed=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Setup Java
         uses: actions/setup-java@v5
@@ -183,14 +185,15 @@ jobs:
           fi
 
       - name: Build release APK
-        run: >
-          flutter build apk --release
-          --build-name="${{ steps.meta.outputs.build_name }}"
-          --build-number="${{ steps.meta.outputs.build_number }}"
-          --dart-define=API_BASE_URL="${{ steps.api.outputs.api_base_url }}"
-          --dart-define=APP_VERSION="${{ steps.meta.outputs.build_name }}"
-          --dart-define=UPDATE_FEED_URL="${{ steps.update.outputs.update_feed_url }}"
-          --dart-define=UPDATE_PAGE_URL="${{ steps.update.outputs.update_page_url }}"
+        shell: bash
+        run: |
+          flutter build apk --release \
+            --build-name="${{ steps.meta.outputs.build_name }}" \
+            --build-number="${{ steps.meta.outputs.build_number }}" \
+            --dart-define=API_BASE_URL="${API_BASE_URL}" \
+            --dart-define=APP_VERSION="${{ steps.meta.outputs.build_name }}" \
+            --dart-define=UPDATE_FEED_URL="${UPDATE_FEED_URL}" \
+            --dart-define=UPDATE_PAGE_URL="${UPDATE_PAGE_URL}"
 
       - name: Create or update GitHub release
         env:
@@ -213,7 +216,7 @@ jobs:
   publish-mobile-update-feed:
     name: Publish Mobile Update Feed
     needs: build-and-release-android
-    if: ${{ needs.build-and-release-android.outputs.update_base_url != '' }}
+    if: ${{ needs.build-and-release-android.outputs.publish_update_feed == 'true' }}
     runs-on: self-hosted
     permissions:
       contents: read
