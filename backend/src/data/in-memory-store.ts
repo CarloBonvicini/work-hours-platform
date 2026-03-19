@@ -1,27 +1,38 @@
 import type {
   LeaveEntry,
   Profile,
+  ScheduleOverride,
   WorkEntry
 } from "../domain/types.js";
 import type { AppStore } from "./store.js";
+import { buildUniformWeekdayTargetMinutes } from "../domain/monthly-summary.js";
 
 const DEFAULT_PROFILE: Profile = {
   id: "default-profile",
   fullName: "Utente",
-  dailyTargetMinutes: 480
+  useUniformDailyTarget: true,
+  dailyTargetMinutes: 480,
+  weekdayTargetMinutes: buildUniformWeekdayTargetMinutes(480)
 };
 
 export class InMemoryStore implements AppStore {
   private profile: Profile = { ...DEFAULT_PROFILE };
   private workEntries: WorkEntry[] = [];
   private leaveEntries: LeaveEntry[] = [];
+  private scheduleOverrides: ScheduleOverride[] = [];
 
   getProfile(): Profile {
-    return { ...this.profile };
+    return {
+      ...this.profile,
+      weekdayTargetMinutes: { ...this.profile.weekdayTargetMinutes }
+    };
   }
 
   saveProfile(profile: Profile): Profile {
-    this.profile = { ...profile };
+    this.profile = {
+      ...profile,
+      weekdayTargetMinutes: { ...profile.weekdayTargetMinutes }
+    };
     return this.getProfile();
   }
 
@@ -55,5 +66,32 @@ export class InMemoryStore implements AppStore {
     return filtered
       .map((entry) => ({ ...entry }))
       .sort((left, right) => left.date.localeCompare(right.date));
+  }
+
+  saveScheduleOverride(entry: ScheduleOverride): ScheduleOverride {
+    const saved = { ...entry };
+    this.scheduleOverrides = this.scheduleOverrides.filter(
+      (item) => item.date !== saved.date
+    );
+    this.scheduleOverrides.push(saved);
+    return { ...saved };
+  }
+
+  listScheduleOverrides(month?: string): ScheduleOverride[] {
+    const filtered = month
+      ? this.scheduleOverrides.filter((entry) => entry.date.startsWith(month))
+      : this.scheduleOverrides;
+
+    return filtered
+      .map((entry) => ({ ...entry }))
+      .sort((left, right) => left.date.localeCompare(right.date));
+  }
+
+  removeScheduleOverride(date: string): boolean {
+    const previousLength = this.scheduleOverrides.length;
+    this.scheduleOverrides = this.scheduleOverrides.filter(
+      (entry) => entry.date !== date
+    );
+    return this.scheduleOverrides.length < previousLength;
   }
 }

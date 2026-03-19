@@ -7,13 +7,16 @@ import type { FastifyRequest } from "fastify";
 import { InMemoryStore } from "./data/in-memory-store.js";
 import type { AppStore } from "./data/store.js";
 import {
+  buildUniformWeekdayTargetMinutes,
   buildMonthlySummary,
   isIsoDate,
-  isYearMonth
+  isYearMonth,
+  WEEKDAY_KEYS
 } from "./domain/monthly-summary.js";
 import type {
   LeaveType,
-  Profile
+  Profile,
+  WeekdayTargetMinutes
 } from "./domain/types.js";
 
 interface BuildAppOptions {
@@ -50,8 +53,55 @@ function isPositiveInteger(value: unknown): value is number {
   return typeof value === "number" && Number.isInteger(value) && value > 0;
 }
 
+function isNonNegativeInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0;
+}
+
 function isLeaveType(value: unknown): value is LeaveType {
   return value === "vacation" || value === "permit";
+}
+
+function parseWeekdayTargetMinutes(
+  value: unknown
+): WeekdayTargetMinutes | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const targetByWeekday = value as Record<string, unknown>;
+  const weekdayTargetMinutes = {} as WeekdayTargetMinutes;
+
+  for (const key of WEEKDAY_KEYS) {
+    const dayValue = targetByWeekday[key];
+    if (!isNonNegativeInteger(dayValue)) {
+      return null;
+    }
+
+    weekdayTargetMinutes[key] = dayValue;
+  }
+
+  return weekdayTargetMinutes;
+}
+
+function deriveDailyTargetMinutes(
+  useUniformDailyTarget: boolean,
+  dailyTargetMinutes: number | undefined,
+  weekdayTargetMinutes: WeekdayTargetMinutes
+) {
+  if (useUniformDailyTarget && dailyTargetMinutes !== undefined) {
+    return dailyTargetMinutes;
+  }
+
+  const workingDayValues = [
+    weekdayTargetMinutes.monday,
+    weekdayTargetMinutes.tuesday,
+    weekdayTargetMinutes.wednesday,
+    weekdayTargetMinutes.thursday,
+    weekdayTargetMinutes.friday
+  ];
+  const total = workingDayValues.reduce((sum, value) => sum + value, 0);
+
+  return Math.round(total / workingDayValues.length);
 }
 
 function getUpdatesDirectory() {
@@ -413,14 +463,61 @@ export function buildApp(options: BuildAppOptions = {}) {
       return reply.code(400).send({ error: "fullName is required" });
     }
 
-    if (!isPositiveInteger(body.dailyTargetMinutes)) {
-      return reply.code(400).send({ error: "dailyTargetMinutes must be a positive integer" });
+    const useUniformDailyTarget =
+      body.useUniformDailyTarget === undefined
+        ? true
+        : body.useUniformDailyTarget === true;
+    if (
+      body.useUniformDailyTarget !== undefined &&
+      typeof body.useUniformDailyTarget !== "boolean"
+    ) {
+      return reply.code(400).send({
+        error: "useUniformDailyTarget must be a boolean"
+      });
     }
+
+    const parsedWeekdayTargetMinutes = parseWeekdayTargetMinutes(
+      body.weekdayTargetMinutes
+    );
+    if (
+      body.weekdayTargetMinutes !== undefined &&
+      parsedWeekdayTargetMinutes === null
+    ) {
+      return reply.code(400).send({
+        error: "weekdayTargetMinutes must include monday-sunday non-negative integers"
+      });
+    }
+
+    if (useUniformDailyTarget && !isPositiveInteger(body.dailyTargetMinutes)) {
+      return reply.code(400).send({
+        error: "dailyTargetMinutes must be a positive integer"
+      });
+    }
+
+    const weekdayTargetMinutes = useUniformDailyTarget
+      ? buildUniformWeekdayTargetMinutes(body.dailyTargetMinutes as number)
+      : parsedWeekdayTargetMinutes;
+
+    if (!weekdayTargetMinutes) {
+      return reply.code(400).send({
+        error: "weekdayTargetMinutes is required when useUniformDailyTarget is false"
+      });
+    }
+
+    const dailyTargetMinutes = deriveDailyTargetMinutes(
+      useUniformDailyTarget,
+      isPositiveInteger(body.dailyTargetMinutes)
+        ? body.dailyTargetMinutes
+        : undefined,
+      weekdayTargetMinutes
+    );
 
     const profile: Profile = {
       id: "default-profile",
       fullName: body.fullName.trim(),
-      dailyTargetMinutes: body.dailyTargetMinutes
+      useUniformDailyTarget,
+      dailyTargetMinutes,
+      weekdayTargetMinutes
     };
 
     return await store.saveProfile(profile);
@@ -511,6 +608,62 @@ export function buildApp(options: BuildAppOptions = {}) {
     return reply.code(201).send(entry);
   });
 
+  app.get("/schedule-overrides", async (request, reply) => {
+    const month = parseMonthQuery(request.query);
+    if (month === null) {
+      return reply.code(400).send({ error: "month must be in YYYY-MM format" });
+    }
+
+    return {
+      items: await store.listScheduleOverrides(month)
+    };
+  });
+
+  app.post("/schedule-overrides", async (request, reply) => {
+    const payload = request.body;
+    if (!payload || typeof payload !== "object") {
+      return reply.code(400).send({ error: "Invalid body" });
+    }
+
+    const body = payload as Record<string, unknown>;
+    if (typeof body.date !== "string" || !isIsoDate(body.date)) {
+      return reply.code(400).send({ error: "date must be in YYYY-MM-DD format" });
+    }
+
+    if (!isNonNegativeInteger(body.targetMinutes)) {
+      return reply.code(400).send({
+        error: "targetMinutes must be a non-negative integer"
+      });
+    }
+
+    if (body.note !== undefined && typeof body.note !== "string") {
+      return reply.code(400).send({ error: "note must be a string" });
+    }
+
+    const entry = await store.saveScheduleOverride({
+      id: randomUUID(),
+      date: body.date,
+      targetMinutes: body.targetMinutes,
+      note: typeof body.note === "string" ? body.note : undefined
+    });
+
+    return reply.code(201).send(entry);
+  });
+
+  app.delete("/schedule-overrides/:date", async (request, reply) => {
+    const params = request.params as { date?: unknown };
+    if (typeof params.date !== "string" || !isIsoDate(params.date)) {
+      return reply.code(400).send({ error: "date must be in YYYY-MM-DD format" });
+    }
+
+    const wasRemoved = await store.removeScheduleOverride(params.date);
+    if (!wasRemoved) {
+      return reply.code(404).send({ error: "Schedule override not found" });
+    }
+
+    return reply.code(204).send();
+  });
+
   app.get("/monthly-summary/:month", async (request, reply) => {
     const params = request.params as { month?: unknown };
     if (typeof params.month !== "string" || !isYearMonth(params.month)) {
@@ -521,12 +674,14 @@ export function buildApp(options: BuildAppOptions = {}) {
     const profile = await store.getProfile();
     const workEntries = await store.listWorkEntries(month);
     const leaveEntries = await store.listLeaveEntries(month);
+    const scheduleOverrides = await store.listScheduleOverrides(month);
 
     return buildMonthlySummary(
       month,
       profile,
       workEntries,
-      leaveEntries
+      leaveEntries,
+      scheduleOverrides
     );
   });
 

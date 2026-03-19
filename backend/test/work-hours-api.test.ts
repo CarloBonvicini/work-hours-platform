@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
-import { countWeekdaysInMonth } from "../src/domain/monthly-summary.js";
+import {
+  buildExpectedMinutes,
+  buildUniformWeekdayTargetMinutes
+} from "../src/domain/monthly-summary.js";
 
 let app = buildApp();
 
@@ -16,7 +19,16 @@ describe("Profile API", () => {
       url: "/profile",
       payload: {
         fullName: "Carlo Bonvicini",
-        dailyTargetMinutes: 450
+        useUniformDailyTarget: false,
+        weekdayTargetMinutes: {
+          monday: 480,
+          tuesday: 360,
+          wednesday: 360,
+          thursday: 480,
+          friday: 480,
+          saturday: 0,
+          sunday: 0
+        }
       }
     });
 
@@ -24,7 +36,16 @@ describe("Profile API", () => {
     expect(updateResponse.json()).toMatchObject({
       id: "default-profile",
       fullName: "Carlo Bonvicini",
-      dailyTargetMinutes: 450
+      useUniformDailyTarget: false,
+      weekdayTargetMinutes: {
+        monday: 480,
+        tuesday: 360,
+        wednesday: 360,
+        thursday: 480,
+        friday: 480,
+        saturday: 0,
+        sunday: 0
+      }
     });
 
     const profileResponse = await app.inject({
@@ -36,19 +57,45 @@ describe("Profile API", () => {
     expect(profileResponse.json()).toMatchObject({
       id: "default-profile",
       fullName: "Carlo Bonvicini",
-      dailyTargetMinutes: 450
+      useUniformDailyTarget: false,
+      weekdayTargetMinutes: {
+        monday: 480,
+        tuesday: 360,
+        wednesday: 360,
+        thursday: 480,
+        friday: 480,
+        saturday: 0,
+        sunday: 0
+      }
     });
   });
 });
 
 describe("Work and leave entries API", () => {
-  it("creates entries and computes monthly summary", async () => {
+  it("creates entries, stores schedule overrides and computes monthly summary", async () => {
+    const profile = {
+      id: "default-profile",
+      fullName: "Carlo Bonvicini",
+      useUniformDailyTarget: false,
+      dailyTargetMinutes: 432,
+      weekdayTargetMinutes: {
+        monday: 480,
+        tuesday: 360,
+        wednesday: 360,
+        thursday: 480,
+        friday: 480,
+        saturday: 0,
+        sunday: 0
+      }
+    };
+
     await app.inject({
       method: "PUT",
       url: "/profile",
       payload: {
-        fullName: "Carlo Bonvicini",
-        dailyTargetMinutes: 450
+        fullName: profile.fullName,
+        useUniformDailyTarget: profile.useUniformDailyTarget,
+        weekdayTargetMinutes: profile.weekdayTargetMinutes
       }
     });
 
@@ -84,6 +131,17 @@ describe("Work and leave entries API", () => {
     });
     expect(leaveEntry.statusCode).toBe(201);
 
+    const overrideEntry = await app.inject({
+      method: "POST",
+      url: "/schedule-overrides",
+      payload: {
+        date: "2026-03-03",
+        targetMinutes: 480,
+        note: "Scambio turno"
+      }
+    });
+    expect(overrideEntry.statusCode).toBe(201);
+
     const listWorkEntries = await app.inject({
       method: "GET",
       url: "/work-entries?month=2026-03"
@@ -98,6 +156,20 @@ describe("Work and leave entries API", () => {
     expect(listLeaveEntries.statusCode).toBe(200);
     expect(listLeaveEntries.json().items).toHaveLength(1);
 
+    const listOverrides = await app.inject({
+      method: "GET",
+      url: "/schedule-overrides?month=2026-03"
+    });
+    expect(listOverrides.statusCode).toBe(200);
+    expect(listOverrides.json().items).toEqual([
+      {
+        id: expect.any(String),
+        date: "2026-03-03",
+        targetMinutes: 480,
+        note: "Scambio turno"
+      }
+    ]);
+
     const summaryResponse = await app.inject({
       method: "GET",
       url: "/monthly-summary/2026-03"
@@ -106,13 +178,40 @@ describe("Work and leave entries API", () => {
     expect(summaryResponse.statusCode).toBe(200);
     const summary = summaryResponse.json();
 
-    const expectedMinutes = countWeekdaysInMonth("2026-03") * 450;
+    const expectedMinutes = buildExpectedMinutes("2026-03", profile, [
+      {
+        id: "override-1",
+        date: "2026-03-03",
+        targetMinutes: 480,
+        note: "Scambio turno"
+      }
+    ]);
     expect(summary).toEqual({
       month: "2026-03",
       expectedMinutes,
       workedMinutes: 900,
       leaveMinutes: 60,
       balanceMinutes: 960 - expectedMinutes
+    });
+  });
+
+  it("supports uniform profile payload for backward compatibility", async () => {
+    const updateResponse = await app.inject({
+      method: "PUT",
+      url: "/profile",
+      payload: {
+        fullName: "Uniforme",
+        useUniformDailyTarget: true,
+        dailyTargetMinutes: 420
+      }
+    });
+
+    expect(updateResponse.statusCode).toBe(200);
+    expect(updateResponse.json()).toMatchObject({
+      fullName: "Uniforme",
+      useUniformDailyTarget: true,
+      dailyTargetMinutes: 420,
+      weekdayTargetMinutes: buildUniformWeekdayTargetMinutes(420)
     });
   });
 
@@ -126,5 +225,23 @@ describe("Work and leave entries API", () => {
     expect(response.json()).toEqual({
       error: "month must be in YYYY-MM format"
     });
+  });
+
+  it("removes a schedule override by date", async () => {
+    await app.inject({
+      method: "POST",
+      url: "/schedule-overrides",
+      payload: {
+        date: "2026-03-05",
+        targetMinutes: 300
+      }
+    });
+
+    const deleteResponse = await app.inject({
+      method: "DELETE",
+      url: "/schedule-overrides/2026-03-05"
+    });
+
+    expect(deleteResponse.statusCode).toBe(204);
   });
 });

@@ -1,9 +1,21 @@
 export type LeaveType = "vacation" | "permit";
+export type Weekday =
+  | "monday"
+  | "tuesday"
+  | "wednesday"
+  | "thursday"
+  | "friday"
+  | "saturday"
+  | "sunday";
+
+export type WeekdayTargetMinutes = Record<Weekday, number>;
 
 export interface Profile {
   id: string;
   fullName: string;
+  useUniformDailyTarget: boolean;
   dailyTargetMinutes: number;
+  weekdayTargetMinutes: WeekdayTargetMinutes;
 }
 
 export interface WorkEntry {
@@ -18,6 +30,13 @@ export interface LeaveEntry {
   date: string;
   minutes: number;
   type: LeaveType;
+  note?: string;
+}
+
+export interface ScheduleOverride {
+  id: string;
+  date: string;
+  targetMinutes: number;
   note?: string;
 }
 

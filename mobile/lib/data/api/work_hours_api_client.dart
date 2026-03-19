@@ -4,6 +4,8 @@ import 'package:http/http.dart' as http;
 import 'package:work_hours_mobile/domain/models/leave_entry.dart';
 import 'package:work_hours_mobile/domain/models/monthly_summary.dart';
 import 'package:work_hours_mobile/domain/models/profile.dart';
+import 'package:work_hours_mobile/domain/models/schedule_override.dart';
+import 'package:work_hours_mobile/domain/models/weekday_target_minutes.dart';
 import 'package:work_hours_mobile/domain/models/work_entry.dart';
 
 class ApiException implements Exception {
@@ -35,14 +37,18 @@ class WorkHoursApiClient {
 
   Future<UserProfile> updateProfile({
     required String fullName,
+    required bool useUniformDailyTarget,
     required int dailyTargetMinutes,
+    required WeekdayTargetMinutes weekdayTargetMinutes,
   }) async {
     final response = await _httpClient.put(
       _buildUri('profile'),
       headers: _jsonHeaders,
       body: jsonEncode({
         'fullName': fullName,
+        'useUniformDailyTarget': useUniformDailyTarget,
         'dailyTargetMinutes': dailyTargetMinutes,
+        'weekdayTargetMinutes': weekdayTargetMinutes.toJson(),
       }),
     );
 
@@ -122,6 +128,47 @@ class WorkHoursApiClient {
   Future<MonthlySummary> fetchMonthlySummary({required String month}) async {
     final response = await _httpClient.get(_buildUri('monthly-summary/$month'));
     return MonthlySummary.fromJson(_decodeObject(response));
+  }
+
+  Future<List<ScheduleOverride>> fetchScheduleOverrides({
+    required String month,
+  }) async {
+    final response = await _httpClient.get(
+      _buildUri('schedule-overrides', queryParameters: {'month': month}),
+    );
+
+    final body = _decodeObject(response);
+    final items = body['items'];
+    if (items is! List) {
+      throw ApiException('Risposta schedule overrides non valida.');
+    }
+
+    return items
+        .map((item) => ScheduleOverride.fromJson(item as Map<String, dynamic>))
+        .toList(growable: false);
+  }
+
+  Future<ScheduleOverride> createScheduleOverride({
+    required String date,
+    required int targetMinutes,
+    String? note,
+  }) async {
+    final response = await _httpClient.post(
+      _buildUri('schedule-overrides'),
+      headers: _jsonHeaders,
+      body: jsonEncode({
+        'date': date,
+        'targetMinutes': targetMinutes,
+        if (note != null && note.isNotEmpty) 'note': note,
+      }),
+    );
+
+    return ScheduleOverride.fromJson(_decodeObject(response));
+  }
+
+  Future<void> deleteScheduleOverride({required String date}) async {
+    final response = await _httpClient.delete(_buildUri('schedule-overrides/$date'));
+    _decodeResponse(response);
   }
 
   Uri _buildUri(String path, {Map<String, String>? queryParameters}) {

@@ -3,8 +3,14 @@ import type {
   LeaveEntry,
   LeaveType,
   Profile,
+  ScheduleOverride,
+  WeekdayTargetMinutes,
   WorkEntry
 } from "../domain/types.js";
+import {
+  buildUniformWeekdayTargetMinutes,
+  WEEKDAY_KEYS
+} from "../domain/monthly-summary.js";
 import type { AppStore } from "./store.js";
 
 interface PostgresStoreOptions {
@@ -15,6 +21,8 @@ type ProfileRow = {
   id: string;
   full_name: string;
   daily_target_minutes: number;
+  use_uniform_daily_target: boolean;
+  weekday_target_minutes: WeekdayTargetMinutes | null;
 };
 
 type WorkEntryRow = {
@@ -32,11 +40,40 @@ type LeaveEntryRow = {
   note: string | null;
 };
 
+type ScheduleOverrideRow = {
+  id: string;
+  date: string;
+  target_minutes: number;
+  note: string | null;
+};
+
 const DEFAULT_PROFILE: Profile = {
   id: "default-profile",
   fullName: "Utente",
-  dailyTargetMinutes: 480
+  useUniformDailyTarget: true,
+  dailyTargetMinutes: 480,
+  weekdayTargetMinutes: buildUniformWeekdayTargetMinutes(480)
 };
+
+function sanitizeWeekdayTargetMinutes(
+  value: WeekdayTargetMinutes | null | undefined,
+  fallbackDailyTargetMinutes: number
+): WeekdayTargetMinutes {
+  const fallback = buildUniformWeekdayTargetMinutes(fallbackDailyTargetMinutes);
+  if (!value || typeof value !== "object") {
+    return fallback;
+  }
+
+  const sanitized = { ...fallback };
+  for (const key of WEEKDAY_KEYS) {
+    const minutes = value[key];
+    sanitized[key] = Number.isInteger(minutes) && minutes >= 0
+      ? minutes
+      : fallback[key];
+  }
+
+  return sanitized;
+}
 
 function monthRange(month: string): { start: string; end: string } {
   const [yearPart, monthPart] = month.split("-");
@@ -74,9 +111,13 @@ export class PostgresStore implements AppStore {
     await this.pool.query(`
       CREATE TABLE IF NOT EXISTS profile (
         id TEXT PRIMARY KEY,
-        full_name TEXT NOT NULL,
-        daily_target_minutes INTEGER NOT NULL CHECK (daily_target_minutes > 0)
+        full_name TEXT NOT NULL
       );
+
+      ALTER TABLE profile
+        ADD COLUMN IF NOT EXISTS daily_target_minutes INTEGER NOT NULL DEFAULT 480,
+        ADD COLUMN IF NOT EXISTS use_uniform_daily_target BOOLEAN NOT NULL DEFAULT TRUE,
+        ADD COLUMN IF NOT EXISTS weekday_target_minutes JSONB;
 
       CREATE TABLE IF NOT EXISTS work_entries (
         id TEXT PRIMARY KEY,
@@ -96,13 +137,22 @@ export class PostgresStore implements AppStore {
       );
 
       CREATE INDEX IF NOT EXISTS idx_leave_entries_date ON leave_entries(date);
+
+      CREATE TABLE IF NOT EXISTS schedule_overrides (
+        id TEXT PRIMARY KEY,
+        date DATE NOT NULL UNIQUE,
+        target_minutes INTEGER NOT NULL CHECK (target_minutes >= 0),
+        note TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_schedule_overrides_date ON schedule_overrides(date);
     `);
   }
 
   async getProfile(): Promise<Profile> {
     const result = await this.pool.query<ProfileRow>(
       `
-        SELECT id, full_name, daily_target_minutes
+        SELECT id, full_name, daily_target_minutes, use_uniform_daily_target, weekday_target_minutes
         FROM profile
         WHERE id = $1
         LIMIT 1
@@ -115,32 +165,67 @@ export class PostgresStore implements AppStore {
     }
 
     const row = result.rows[0];
+    const weekdayTargetMinutes = sanitizeWeekdayTargetMinutes(
+      row.weekday_target_minutes,
+      row.daily_target_minutes
+    );
+
     return {
       id: row.id,
       fullName: row.full_name,
-      dailyTargetMinutes: row.daily_target_minutes
+      useUniformDailyTarget: row.use_uniform_daily_target,
+      dailyTargetMinutes: row.daily_target_minutes,
+      weekdayTargetMinutes
     };
   }
 
   async saveProfile(profile: Profile): Promise<Profile> {
+    const weekdayTargetMinutes = sanitizeWeekdayTargetMinutes(
+      profile.weekdayTargetMinutes,
+      profile.dailyTargetMinutes
+    );
     const result = await this.pool.query<ProfileRow>(
       `
-        INSERT INTO profile (id, full_name, daily_target_minutes)
-        VALUES ($1, $2, $3)
+        INSERT INTO profile (
+          id,
+          full_name,
+          daily_target_minutes,
+          use_uniform_daily_target,
+          weekday_target_minutes
+        )
+        VALUES ($1, $2, $3, $4, $5::jsonb)
         ON CONFLICT (id)
         DO UPDATE SET
           full_name = EXCLUDED.full_name,
-          daily_target_minutes = EXCLUDED.daily_target_minutes
-        RETURNING id, full_name, daily_target_minutes
+          daily_target_minutes = EXCLUDED.daily_target_minutes,
+          use_uniform_daily_target = EXCLUDED.use_uniform_daily_target,
+          weekday_target_minutes = EXCLUDED.weekday_target_minutes
+        RETURNING
+          id,
+          full_name,
+          daily_target_minutes,
+          use_uniform_daily_target,
+          weekday_target_minutes
       `,
-      [profile.id, profile.fullName, profile.dailyTargetMinutes]
+      [
+        profile.id,
+        profile.fullName,
+        profile.dailyTargetMinutes,
+        profile.useUniformDailyTarget,
+        JSON.stringify(weekdayTargetMinutes)
+      ]
     );
 
     const row = result.rows[0];
     return {
       id: row.id,
       fullName: row.full_name,
-      dailyTargetMinutes: row.daily_target_minutes
+      useUniformDailyTarget: row.use_uniform_daily_target,
+      dailyTargetMinutes: row.daily_target_minutes,
+      weekdayTargetMinutes: sanitizeWeekdayTargetMinutes(
+        row.weekday_target_minutes,
+        row.daily_target_minutes
+      )
     };
   }
 
@@ -240,6 +325,71 @@ export class PostgresStore implements AppStore {
       type: row.type,
       note: row.note ?? undefined
     }));
+  }
+
+  async saveScheduleOverride(entry: ScheduleOverride): Promise<ScheduleOverride> {
+    const result = await this.pool.query<ScheduleOverrideRow>(
+      `
+        INSERT INTO schedule_overrides (id, date, target_minutes, note)
+        VALUES ($1, $2, $3, $4)
+        ON CONFLICT (date)
+        DO UPDATE SET
+          id = EXCLUDED.id,
+          target_minutes = EXCLUDED.target_minutes,
+          note = EXCLUDED.note
+        RETURNING id, TO_CHAR(date, 'YYYY-MM-DD') AS date, target_minutes, note
+      `,
+      [entry.id, entry.date, entry.targetMinutes, entry.note ?? null]
+    );
+
+    const row = result.rows[0];
+    return {
+      id: row.id,
+      date: row.date,
+      targetMinutes: row.target_minutes,
+      note: row.note ?? undefined
+    };
+  }
+
+  async listScheduleOverrides(month?: string): Promise<ScheduleOverride[]> {
+    const range = month ? monthRange(month) : null;
+
+    const result = range
+      ? await this.pool.query<ScheduleOverrideRow>(
+          `
+            SELECT id, TO_CHAR(date, 'YYYY-MM-DD') AS date, target_minutes, note
+            FROM schedule_overrides
+            WHERE date >= $1 AND date < $2
+            ORDER BY date ASC
+          `,
+          [range.start, range.end]
+        )
+      : await this.pool.query<ScheduleOverrideRow>(
+          `
+            SELECT id, TO_CHAR(date, 'YYYY-MM-DD') AS date, target_minutes, note
+            FROM schedule_overrides
+            ORDER BY date ASC
+          `
+        );
+
+    return result.rows.map((row) => ({
+      id: row.id,
+      date: row.date,
+      targetMinutes: row.target_minutes,
+      note: row.note ?? undefined
+    }));
+  }
+
+  async removeScheduleOverride(date: string): Promise<boolean> {
+    const result = await this.pool.query(
+      `
+        DELETE FROM schedule_overrides
+        WHERE date = $1
+      `,
+      [date]
+    );
+
+    return (result.rowCount ?? 0) > 0;
   }
 
   async close(): Promise<void> {

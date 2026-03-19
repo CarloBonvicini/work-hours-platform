@@ -1,5 +1,6 @@
 import 'package:work_hours_mobile/domain/models/dashboard_snapshot.dart';
 import 'package:work_hours_mobile/domain/models/leave_entry.dart';
+import 'package:work_hours_mobile/domain/models/weekday_target_minutes.dart';
 import 'package:work_hours_mobile/domain/repositories/dashboard_repository.dart';
 
 class DashboardService {
@@ -14,12 +15,16 @@ class DashboardService {
 
   Future<DashboardSnapshot> saveProfile({
     required String fullName,
+    required bool useUniformDailyTarget,
     required int dailyTargetMinutes,
+    required WeekdayTargetMinutes weekdayTargetMinutes,
     String? month,
   }) {
     return _repository.saveProfile(
       fullName: fullName,
+      useUniformDailyTarget: useUniformDailyTarget,
       dailyTargetMinutes: dailyTargetMinutes,
+      weekdayTargetMinutes: weekdayTargetMinutes,
       month: month ?? currentMonth,
     );
   }
@@ -48,6 +53,28 @@ class DashboardService {
       minutes: minutes,
       type: type,
       note: note,
+      month: date.substring(0, 7),
+    );
+  }
+
+  Future<DashboardSnapshot> saveScheduleOverride({
+    required String date,
+    required int targetMinutes,
+    String? note,
+  }) {
+    return _repository.saveScheduleOverride(
+      date: date,
+      targetMinutes: targetMinutes,
+      note: note,
+      month: date.substring(0, 7),
+    );
+  }
+
+  Future<DashboardSnapshot> removeScheduleOverride({
+    required String date,
+  }) {
+    return _repository.removeScheduleOverride(
+      date: date,
       month: date.substring(0, 7),
     );
   }
