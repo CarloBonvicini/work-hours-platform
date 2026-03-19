@@ -355,15 +355,28 @@ class _FakeUpdateReminderStore implements UpdateReminderStore {
 
 class _FakeThemePreferenceStore implements ThemePreferenceStore {
   final List<ThemeMode> savedThemeModes = [];
+  AppAppearanceSettings settings = AppAppearanceSettings.defaults;
 
   @override
   Future<ThemeMode> loadThemeMode() async {
-    return ThemeMode.light;
+    return settings.themeMode;
+  }
+
+  @override
+  Future<AppAppearanceSettings> loadAppearanceSettings() async {
+    return settings;
   }
 
   @override
   Future<void> saveThemeMode(ThemeMode themeMode) async {
+    settings = settings.copyWith(themeMode: themeMode);
     savedThemeModes.add(themeMode);
+  }
+
+  @override
+  Future<void> saveAppearanceSettings(AppAppearanceSettings settings) async {
+    this.settings = settings;
+    savedThemeModes.add(settings.themeMode);
   }
 }
 

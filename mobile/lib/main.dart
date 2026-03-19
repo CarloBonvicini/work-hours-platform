@@ -33,7 +33,8 @@ Future<void> main() async {
   const themePreferenceStore = SharedPreferencesThemePreferenceStore();
   const onboardingPreferenceStore =
       SharedPreferencesOnboardingPreferenceStore();
-  final initialThemeMode = await themePreferenceStore.loadThemeMode();
+  final initialAppearanceSettings = await themePreferenceStore
+      .loadAppearanceSettings();
   final hasCompletedInitialSetup = await onboardingPreferenceStore
       .hasCompletedInitialSetup();
 
@@ -44,7 +45,7 @@ Future<void> main() async {
       updateReminderStore: updateReminderStore,
       themePreferenceStore: themePreferenceStore,
       onboardingPreferenceStore: onboardingPreferenceStore,
-      initialThemeMode: initialThemeMode,
+      initialAppearanceSettings: initialAppearanceSettings,
       hasCompletedInitialSetup: hasCompletedInitialSetup,
     ),
   );
