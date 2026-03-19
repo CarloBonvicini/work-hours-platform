@@ -86,6 +86,10 @@ jobs:
           INPUT_API_BASE_URL: ${{ inputs.api_base_url }}
           SECRET_API_BASE_URL: ${{ secrets.MOBILE_API_BASE_URL }}
         run: |
+          sanitize_value() {
+            printf '%s' "$1" | tr -d '\r\n'
+          }
+
           if [ -n "$INPUT_API_BASE_URL" ]; then
             api_base_url="$INPUT_API_BASE_URL"
           elif [ -n "$SECRET_API_BASE_URL" ]; then
@@ -96,6 +100,7 @@ jobs:
             exit 1
           fi
 
+          api_base_url="$(sanitize_value "$api_base_url")"
           echo "API_BASE_URL=$api_base_url" >> "$GITHUB_ENV"
 
       - name: Resolve mobile update feed
@@ -110,10 +115,14 @@ jobs:
           SECRET_UPDATE_FEED_URL: ${{ secrets.MOBILE_UPDATE_FEED_URL }}
           SECRET_UPDATE_PAGE_URL: ${{ secrets.MOBILE_UPDATE_PAGE_URL }}
         run: |
+          sanitize_value() {
+            printf '%s' "$1" | tr -d '\r\n'
+          }
+
           if [ -n "$INPUT_UPDATE_BASE_URL" ]; then
-            update_base_url="${INPUT_UPDATE_BASE_URL%/}"
+            update_base_url="$(sanitize_value "${INPUT_UPDATE_BASE_URL%/}")"
           elif [ -n "$SECRET_UPDATE_BASE_URL" ]; then
-            update_base_url="${SECRET_UPDATE_BASE_URL%/}"
+            update_base_url="$(sanitize_value "${SECRET_UPDATE_BASE_URL%/}")"
           else
             update_base_url=""
           fi
@@ -122,17 +131,17 @@ jobs:
             update_feed_url="$update_base_url/mobile-updates/latest.json"
             update_page_url="$update_base_url/mobile-updates/releases/latest"
           elif [ -n "$INPUT_UPDATE_FEED_URL" ]; then
-            update_feed_url="$INPUT_UPDATE_FEED_URL"
+            update_feed_url="$(sanitize_value "$INPUT_UPDATE_FEED_URL")"
           elif [ -n "$SECRET_UPDATE_FEED_URL" ]; then
-            update_feed_url="$SECRET_UPDATE_FEED_URL"
+            update_feed_url="$(sanitize_value "$SECRET_UPDATE_FEED_URL")"
           else
             update_feed_url="https://api.github.com/repos/CarloBonvicini/work-hours-platform/releases/latest"
           fi
 
           if [ -n "$INPUT_UPDATE_PAGE_URL" ]; then
-            update_page_url="$INPUT_UPDATE_PAGE_URL"
+            update_page_url="$(sanitize_value "$INPUT_UPDATE_PAGE_URL")"
           elif [ -n "$SECRET_UPDATE_PAGE_URL" ]; then
-            update_page_url="$SECRET_UPDATE_PAGE_URL"
+            update_page_url="$(sanitize_value "$SECRET_UPDATE_PAGE_URL")"
           else
             update_page_url="https://github.com/CarloBonvicini/work-hours-platform/releases/latest"
           fi
