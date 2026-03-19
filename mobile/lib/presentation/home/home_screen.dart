@@ -3361,14 +3361,6 @@ class _CalendarDaySummary extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _InlineInfoPanel(
-          title: _formatLongDate(metrics.date),
-          description: _formatScheduleWindowDetails(metrics.schedule),
-          statusText: metrics.hasOverride
-              ? 'Eccezione attiva'
-              : 'Regola standard',
-        ),
-        const SizedBox(height: 16),
         Text(
           'Agenda oraria',
           style: Theme.of(
