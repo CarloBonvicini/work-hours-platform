@@ -210,6 +210,13 @@ function escapeHtml(value: string) {
     .replaceAll("'", "&#39;");
 }
 
+function formatReleaseNotesForLanding(releaseNotes: string) {
+  return releaseNotes
+    .replace(/ \(\d+\)(?=[.!?,]|$)/g, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
 function renderLandingPage(options: {
   baseUrl: string;
   latestRelease: MobileReleaseMetadata | null;
@@ -247,9 +254,11 @@ function renderLandingPage(options: {
     : isPublishing
       ? "Pubblicazione in corso."
       : "Nessuna pubblicazione disponibile per ora.";
-  const notesLabel = latestRelease?.releaseNotes ?? (isPublishing
-    ? "Aggiorna questa pagina tra qualche minuto per vedere la nuova versione."
-    : "Controlla di nuovo piu tardi per vedere quando il download sara disponibile.");
+  const notesLabel = latestRelease?.releaseNotes
+    ? formatReleaseNotesForLanding(latestRelease.releaseNotes)
+    : isPublishing
+      ? "Aggiorna questa pagina tra qualche minuto per vedere la nuova versione."
+      : "Controlla di nuovo piu tardi per vedere quando il download sara disponibile.";
   const installTitle = hasRelease ? "Installazione rapida" : "Disponibilita";
   const installDescription = hasRelease
     ? "Il download funziona da browser mobile e desktop. Su Android devi confermare l installazione dell APK."

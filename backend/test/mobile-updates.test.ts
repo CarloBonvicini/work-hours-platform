@@ -120,6 +120,8 @@ describe("Mobile updates API", () => {
     expect(landingPageResponse.statusCode).toBe(200);
     expect(landingPageResponse.body).toContain("Download disponibile");
     expect(landingPageResponse.body).toContain("Versione 0.1.4");
+    expect(landingPageResponse.body).toContain("Android APK build 0.1.4.");
+    expect(landingPageResponse.body).not.toContain("(14)");
     expect(landingPageResponse.body).toContain(
       "https://updates.example.com/mobile-updates/releases/latest"
     );

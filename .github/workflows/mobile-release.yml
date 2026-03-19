@@ -308,7 +308,7 @@ jobs:
           title="${{ steps.meta.outputs.release_name }}"
           version="${{ steps.meta.outputs.build_name }}"
           build_number="${{ steps.meta.outputs.build_number }}"
-          notes="Android APK build $version ($build_number)."
+          notes="Android APK build $version."
 
           if ! gh release view "$tag" >/dev/null 2>&1; then
             gh release create "$tag" --title "$title" --notes "$notes"
@@ -374,7 +374,7 @@ jobs:
             "version": "${BUILD_NAME}",
             "buildNumber": "${BUILD_NUMBER}",
             "fileName": "${deployed_file_name}",
-            "releaseNotes": "Android APK build ${BUILD_NAME} (${BUILD_NUMBER}).",
+            "releaseNotes": "Android APK build ${BUILD_NAME}.",
             "publishedAt": "${published_at}"
           }
           EOF_META
