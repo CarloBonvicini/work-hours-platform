@@ -783,8 +783,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 _Header(
                   profileName: snapshot?.profile.fullName,
                   apiBaseUrl: snapshot?.apiBaseUrl,
-                  isRefreshing: _isLoading,
-                  onRefresh: _refreshAll,
                 ),
                 const SizedBox(height: 16),
                 if (_errorMessage != null) ...[
@@ -1978,59 +1976,30 @@ String _formatLongDate(DateTime date) {
 }
 
 class _Header extends StatelessWidget {
-  const _Header({
-    required this.profileName,
-    required this.apiBaseUrl,
-    required this.isRefreshing,
-    required this.onRefresh,
-  });
+  const _Header({required this.profileName, required this.apiBaseUrl});
 
   final String? profileName;
   final String? apiBaseUrl;
-  final bool isRefreshing;
-  final Future<void> Function() onRefresh;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    return Wrap(
-      spacing: 16,
-      runSpacing: 12,
-      crossAxisAlignment: WrapCrossAlignment.center,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        SizedBox(
-          width: 760,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                profileName == null
-                    ? 'Work Hours Platform'
-                    : 'Ciao ${profileName!}',
-                style: theme.textTheme.headlineMedium?.copyWith(
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Una home unica per vedere il mese e registrare rapidamente ore o assenze.',
-                style: theme.textTheme.bodyLarge,
-              ),
-              const SizedBox(height: 12),
-              _StatusBadge(
-                isConnected: apiBaseUrl != null,
-                text: apiBaseUrl == null
-                    ? 'Connessione backend in corso'
-                    : 'Backend collegato a $apiBaseUrl',
-              ),
-            ],
+        Text(
+          profileName == null ? 'Work Hours Platform' : 'Ciao ${profileName!}',
+          style: theme.textTheme.headlineMedium?.copyWith(
+            fontWeight: FontWeight.w800,
           ),
         ),
-        FilledButton.tonalIcon(
-          onPressed: isRefreshing ? null : () => onRefresh(),
-          icon: const Icon(Icons.refresh),
-          label: Text(isRefreshing ? 'Aggiorno...' : 'Aggiorna'),
+        const SizedBox(height: 12),
+        _StatusBadge(
+          isConnected: apiBaseUrl != null,
+          text: apiBaseUrl == null
+              ? 'Connessione backend in corso'
+              : 'Backend collegato',
         ),
       ],
     );

@@ -41,6 +41,7 @@ void main() {
     expect(find.text('Calendario'), findsOneWidget);
     expect(find.text('Aggiornamento disponibile'), findsOneWidget);
     expect(find.text('Ricordamelo piu tardi'), findsOneWidget);
+    expect(find.text('Aggiorna'), findsNothing);
 
     await tester.tap(find.text('Ricordamelo piu tardi'));
     await tester.pumpAndSettle();
