@@ -258,13 +258,33 @@ jobs:
             exit 1
           fi
 
+          sanitize_value() {
+            printf '%s' "$1" | tr -d '\r\n'
+          }
+
           keystore_path="$GITHUB_WORKSPACE/mobile/android/release.keystore"
-          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$keystore_path"
+          keystore_base64="$(sanitize_value "$ANDROID_KEYSTORE_BASE64")"
+          key_alias="$(sanitize_value "$ANDROID_KEY_ALIAS")"
+          keystore_password="$(sanitize_value "$ANDROID_KEYSTORE_PASSWORD")"
+          key_password="$(sanitize_value "$ANDROID_KEY_PASSWORD")"
+
+          printf '%s' "$keystore_base64" | base64 --decode > "$keystore_path"
+
+          if ! keytool -list \
+            -keystore "$keystore_path" \
+            -storetype PKCS12 \
+            -storepass "$keystore_password" \
+            -alias "$key_alias" >/dev/null 2>&1; then
+            echo "Impossibile leggere il keystore release con alias/password configurati."
+            echo "Verifica i secret ANDROID_KEYSTORE_BASE64, ANDROID_KEY_ALIAS, ANDROID_KEYSTORE_PASSWORD e ANDROID_KEY_PASSWORD."
+            exit 1
+          fi
+
           {
             echo "ANDROID_KEYSTORE_PATH=$keystore_path"
-            echo "ANDROID_KEY_ALIAS=$ANDROID_KEY_ALIAS"
-            echo "ANDROID_KEYSTORE_PASSWORD=$ANDROID_KEYSTORE_PASSWORD"
-            echo "ANDROID_KEY_PASSWORD=$ANDROID_KEY_PASSWORD"
+            echo "ANDROID_KEY_ALIAS=$key_alias"
+            echo "ANDROID_KEYSTORE_PASSWORD=$keystore_password"
+            echo "ANDROID_KEY_PASSWORD=$key_password"
           } >> "$GITHUB_ENV"
 
       - name: Build release APK
