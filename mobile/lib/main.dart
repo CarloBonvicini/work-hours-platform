@@ -1,6 +1,7 @@
 import 'package:work_hours_mobile/application/services/app_update_service.dart';
 import 'package:flutter/material.dart';
 import 'package:work_hours_mobile/application/services/dashboard_service.dart';
+import 'package:work_hours_mobile/application/services/theme_preference_store.dart';
 import 'package:work_hours_mobile/application/services/update_reminder_store.dart';
 import 'package:work_hours_mobile/application/services/update_launcher.dart';
 import 'package:work_hours_mobile/data/api/github_release_client.dart';
@@ -10,7 +11,9 @@ import 'package:work_hours_mobile/data/api/work_hours_api_config.dart';
 import 'package:work_hours_mobile/data/repositories/api_dashboard_repository.dart';
 import 'package:work_hours_mobile/presentation/app/work_hours_app.dart';
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
   final apiConfig = WorkHoursApiConfig.fromEnvironment();
   final releaseFeedConfig = ReleaseFeedConfig.fromEnvironment();
   final dashboardService = DashboardService(
@@ -26,12 +29,16 @@ void main() {
     updateLauncher: const PlatformUpdateLauncher(),
   );
   const updateReminderStore = SharedPreferencesUpdateReminderStore();
+  const themePreferenceStore = SharedPreferencesThemePreferenceStore();
+  final initialThemeMode = await themePreferenceStore.loadThemeMode();
 
   runApp(
     WorkHoursApp(
       dashboardService: dashboardService,
       appUpdateService: appUpdateService,
       updateReminderStore: updateReminderStore,
+      themePreferenceStore: themePreferenceStore,
+      initialThemeMode: initialThemeMode,
     ),
   );
 }

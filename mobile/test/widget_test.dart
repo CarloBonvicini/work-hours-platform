@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:work_hours_mobile/application/services/app_update_service.dart';
 import 'package:work_hours_mobile/application/services/dashboard_service.dart';
+import 'package:work_hours_mobile/application/services/theme_preference_store.dart';
 import 'package:work_hours_mobile/application/services/update_reminder_store.dart';
 import 'package:work_hours_mobile/domain/models/app_update.dart';
 import 'package:work_hours_mobile/domain/models/dashboard_snapshot.dart';
@@ -28,6 +29,7 @@ void main() {
         ),
         appUpdateService: _FakeAppUpdateService(),
         updateReminderStore: _FakeUpdateReminderStore(),
+        themePreferenceStore: _FakeThemePreferenceStore(),
       ),
     );
 
@@ -59,6 +61,7 @@ void main() {
         ),
         appUpdateService: appUpdateService,
         updateReminderStore: _FakeUpdateReminderStore(),
+        themePreferenceStore: _FakeThemePreferenceStore(),
       ),
     );
 
@@ -81,6 +84,7 @@ void main() {
         ),
         appUpdateService: _FakeAppUpdateService(),
         updateReminderStore: reminderStore,
+        themePreferenceStore: _FakeThemePreferenceStore(),
       ),
     );
 
@@ -90,6 +94,36 @@ void main() {
 
     expect(reminderStore.remindedLaterVersions, ['0.1.1']);
     expect(find.text('Aggiornamento disponibile'), findsNothing);
+  });
+
+  testWidgets('toggles dark theme from settings', (tester) async {
+    final themePreferenceStore = _FakeThemePreferenceStore();
+
+    await tester.pumpWidget(
+      WorkHoursApp(
+        dashboardService: DashboardService(
+          repository: _FakeDashboardRepository(),
+        ),
+        appUpdateService: _CountingAppUpdateService(),
+        updateReminderStore: _FakeUpdateReminderStore(),
+        themePreferenceStore: themePreferenceStore,
+      ),
+    );
+
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('dark-theme-switch')),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('dark-theme-switch')));
+    await tester.pumpAndSettle();
+
+    final app = tester.widget<MaterialApp>(find.byType(MaterialApp));
+    expect(app.themeMode, ThemeMode.dark);
+    expect(themePreferenceStore.savedThemeModes, [ThemeMode.dark]);
   });
 }
 
@@ -142,6 +176,20 @@ class _FakeUpdateReminderStore implements UpdateReminderStore {
   @override
   Future<bool> shouldPromptFor(AppUpdate update) async {
     return true;
+  }
+}
+
+class _FakeThemePreferenceStore implements ThemePreferenceStore {
+  final List<ThemeMode> savedThemeModes = [];
+
+  @override
+  Future<ThemeMode> loadThemeMode() async {
+    return ThemeMode.light;
+  }
+
+  @override
+  Future<void> saveThemeMode(ThemeMode themeMode) async {
+    savedThemeModes.add(themeMode);
   }
 }
 

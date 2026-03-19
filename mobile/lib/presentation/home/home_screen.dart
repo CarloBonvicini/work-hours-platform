@@ -19,11 +19,15 @@ class HomeScreen extends StatefulWidget {
     required this.dashboardService,
     required this.appUpdateService,
     required this.updateReminderStore,
+    required this.isDarkTheme,
+    required this.onThemeModeChanged,
   });
 
   final DashboardService dashboardService;
   final AppUpdateService appUpdateService;
   final UpdateReminderStore updateReminderStore;
+  final bool isDarkTheme;
+  final Future<void> Function(bool useDarkTheme) onThemeModeChanged;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -59,6 +63,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _isSubmittingEntry = false;
   bool _isOpeningUpdate = false;
   bool _isShowingUpdateDialog = false;
+  bool _isUpdatingThemeMode = false;
 
   @override
   void initState() {
@@ -175,7 +180,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       return;
     }
 
-    final shouldPrompt = await widget.updateReminderStore.shouldPromptFor(update);
+    final shouldPrompt = await widget.updateReminderStore.shouldPromptFor(
+      update,
+    );
     if (!mounted || !shouldPrompt) {
       return;
     }
@@ -204,10 +211,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
-  void _hydrateControllers(
-    DashboardSnapshot snapshot,
-    DateTime selectedDate,
-  ) {
+  void _hydrateControllers(DashboardSnapshot snapshot, DateTime selectedDate) {
     _fullNameController.text = snapshot.profile.fullName;
     _useUniformDailyTarget = snapshot.profile.useUniformDailyTarget;
     _uniformDailyTargetController.text = _formatHoursInput(
@@ -237,8 +241,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _pickEntryDate() async {
-    final initialDate = DateTime.tryParse(_entryDateController.text) ??
-        _selectedDate;
+    final initialDate =
+        DateTime.tryParse(_entryDateController.text) ?? _selectedDate;
     final pickedDate = await showDatePicker(
       context: context,
       initialDate: initialDate,
@@ -387,7 +391,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       return;
     }
 
-    final targetMinutes = _parseHoursInput(_scheduleOverrideTargetController.text);
+    final targetMinutes = _parseHoursInput(
+      _scheduleOverrideTargetController.text,
+    );
     if (targetMinutes == null) {
       setState(() {
         _errorMessage =
@@ -502,6 +508,26 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
+  Future<void> _toggleThemeMode(bool useDarkTheme) async {
+    if (_isUpdatingThemeMode) {
+      return;
+    }
+
+    setState(() {
+      _isUpdatingThemeMode = true;
+    });
+
+    try {
+      await widget.onThemeModeChanged(useDarkTheme);
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isUpdatingThemeMode = false;
+        });
+      }
+    }
+  }
+
   void _applyPresetMinutes(int minutes) {
     _entryMinutesController.text = minutes.toString();
   }
@@ -582,7 +608,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     return null;
   }
 
-  int _resolveExpectedMinutesForDate(DashboardSnapshot snapshot, DateTime date) {
+  int _resolveExpectedMinutesForDate(
+    DashboardSnapshot snapshot,
+    DateTime date,
+  ) {
     final scheduleOverride = _findScheduleOverrideForDate(snapshot, date);
     if (scheduleOverride != null) {
       return scheduleOverride.targetMinutes;
@@ -850,6 +879,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                                   _uniformDailyTargetController,
                               weekdayControllers: _weekdayControllers,
                               isBusy: _isSavingProfile,
+                              isDarkTheme: widget.isDarkTheme,
+                              isUpdatingThemeMode: _isUpdatingThemeMode,
+                              onDarkThemeChanged: _toggleThemeMode,
                               onSubmit: _submitProfile,
                             ),
                           ),
@@ -975,9 +1007,7 @@ class _QuickEntryCard extends StatelessWidget {
               controller: noteController,
               maxLines: 2,
               decoration: InputDecoration(
-                labelText: isWorkMode
-                    ? 'Nota opzionale'
-                    : 'Motivo opzionale',
+                labelText: isWorkMode ? 'Nota opzionale' : 'Motivo opzionale',
               ),
             ),
             const SizedBox(height: 18),
@@ -1088,9 +1118,9 @@ class _CalendarCard extends StatelessWidget {
           const SizedBox(height: 18),
           Text(
             'Selezionato: $selectedDateLabel',
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.w700,
-            ),
+            style: Theme.of(
+              context,
+            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 8),
           Text(
@@ -1143,7 +1173,9 @@ class _CalendarCard extends StatelessWidget {
                   runSpacing: 10,
                   children: [
                     FilledButton.tonalIcon(
-                      onPressed: isSavingOverride ? null : () => onSaveOverride(),
+                      onPressed: isSavingOverride
+                          ? null
+                          : () => onSaveOverride(),
                       icon: const Icon(Icons.event_repeat_outlined),
                       label: Text(
                         isSavingOverride
@@ -1175,7 +1207,11 @@ class _CalendarCard extends StatelessWidget {
           else
             Column(
               children: [
-                for (var index = 0; index < selectedActivities.length; index += 1) ...[
+                for (
+                  var index = 0;
+                  index < selectedActivities.length;
+                  index += 1
+                ) ...[
                   _ActivityRow(item: selectedActivities[index]),
                   if (index < selectedActivities.length - 1)
                     const Divider(height: 22),
@@ -1202,9 +1238,9 @@ class _WeekdayHeader extends StatelessWidget {
               child: Center(
                 child: Text(
                   label,
-                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700),
                 ),
               ),
             ),
@@ -1222,6 +1258,8 @@ class _CalendarDayCell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
     if (day.date == null) {
       return const SizedBox.shrink();
     }
@@ -1231,15 +1269,17 @@ class _CalendarDayCell extends StatelessWidget {
     final backgroundColor = isSelected
         ? const Color(0xFF0B6E69)
         : hasEntries
-        ? const Color(0xFFF7F3EC)
-        : Colors.white;
+        ? (isDark ? const Color(0xFF162121) : const Color(0xFFF7F3EC))
+        : (isDark ? const Color(0xFF111919) : Colors.white);
     final borderColor = day.isToday
         ? const Color(0xFF0B6E69)
-        : const Color(0xFFE0D8CA);
-    final textColor = isSelected ? Colors.white : const Color(0xFF1A2A2A);
+        : (isDark ? const Color(0xFF324343) : const Color(0xFFE0D8CA));
+    final textColor = isSelected
+        ? Colors.white
+        : (isDark ? theme.colorScheme.onSurface : const Color(0xFF1A2A2A));
     final detailColor = isSelected
         ? Colors.white.withValues(alpha: 0.88)
-        : const Color(0xFF526663);
+        : (isDark ? const Color(0xFF9AB0AC) : const Color(0xFF526663));
 
     return Material(
       color: Colors.transparent,
@@ -1252,7 +1292,10 @@ class _CalendarDayCell extends StatelessWidget {
           decoration: BoxDecoration(
             color: backgroundColor,
             borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: borderColor, width: day.isToday ? 1.4 : 1),
+            border: Border.all(
+              color: borderColor,
+              width: day.isToday ? 1.4 : 1,
+            ),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1325,6 +1368,9 @@ class _ProfileCard extends StatelessWidget {
     required this.uniformDailyTargetController,
     required this.weekdayControllers,
     required this.isBusy,
+    required this.isDarkTheme,
+    required this.isUpdatingThemeMode,
+    required this.onDarkThemeChanged,
     required this.onSubmit,
   });
 
@@ -1335,13 +1381,16 @@ class _ProfileCard extends StatelessWidget {
   final TextEditingController uniformDailyTargetController;
   final Map<WeekdayKey, TextEditingController> weekdayControllers;
   final bool isBusy;
+  final bool isDarkTheme;
+  final bool isUpdatingThemeMode;
+  final Future<void> Function(bool) onDarkThemeChanged;
   final Future<void> Function() onSubmit;
 
   @override
   Widget build(BuildContext context) {
     return _SectionCard(
-      title: 'Profilo',
-      subtitle: 'Usa questa sezione solo quando devi cambiare nome o target.',
+      title: 'Profilo e impostazioni',
+      subtitle: 'Aggiorna nome, orari e preferenze dell app.',
       child: Form(
         key: formKey,
         child: Column(
@@ -1397,10 +1446,9 @@ class _ProfileCard extends StatelessWidget {
                         width: 140,
                         child: TextFormField(
                           controller: weekdayControllers[weekday],
-                          keyboardType:
-                              const TextInputType.numberWithOptions(
-                                decimal: true,
-                              ),
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
                           decoration: InputDecoration(
                             labelText: weekday.label,
                             helperText: 'Ore',
@@ -1422,6 +1470,21 @@ class _ProfileCard extends StatelessWidget {
               onPressed: isBusy ? null : () => onSubmit(),
               icon: const Icon(Icons.save_outlined),
               label: Text(isBusy ? 'Salvo...' : 'Salva profilo'),
+            ),
+            const SizedBox(height: 24),
+            const Divider(),
+            const SizedBox(height: 8),
+            SwitchListTile.adaptive(
+              key: const ValueKey('dark-theme-switch'),
+              contentPadding: EdgeInsets.zero,
+              value: isDarkTheme,
+              onChanged: isUpdatingThemeMode ? null : onDarkThemeChanged,
+              title: const Text('Tema scuro'),
+              subtitle: Text(
+                isUpdatingThemeMode
+                    ? 'Aggiorno l aspetto dell app...'
+                    : 'Attiva un tema piu scuro per usare l app con meno luminosita.',
+              ),
             ),
           ],
         ),
@@ -1481,21 +1544,25 @@ class _ErrorCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: const Color(0xFFFFF1EC),
+        color: isDark ? const Color(0xFF3A201B) : const Color(0xFFFFF1EC),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: const Color(0xFFE6B8A5)),
+        border: Border.all(
+          color: isDark ? const Color(0xFF704033) : const Color(0xFFE6B8A5),
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             'Connessione backend non riuscita',
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.w700,
-            ),
+            style: Theme.of(
+              context,
+            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 8),
           Text(message, style: Theme.of(context).textTheme.bodyLarge),
@@ -1527,13 +1594,16 @@ class _SectionCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
 
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: isDark ? const Color(0xFF111919) : Colors.white,
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: const Color(0xFFE0D8CA)),
+        border: Border.all(
+          color: isDark ? const Color(0xFF324343) : const Color(0xFFE0D8CA),
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1586,13 +1656,14 @@ class _MetricCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
 
     return SizedBox(
       width: 220,
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: const Color(0xFFF7F3EC),
+          color: isDark ? const Color(0xFF162121) : const Color(0xFFF7F3EC),
           borderRadius: BorderRadius.circular(20),
         ),
         child: Column(
@@ -1676,9 +1747,10 @@ class _StatusBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final backgroundColor = isConnected
-        ? const Color(0xFFE6F4ED)
-        : const Color(0xFFFFF1EC);
+        ? (isDark ? const Color(0xFF14302E) : const Color(0xFFE6F4ED))
+        : (isDark ? const Color(0xFF3A201B) : const Color(0xFFFFF1EC));
     final foregroundColor = isConnected
         ? const Color(0xFF0B6E69)
         : const Color(0xFF9D3D2F);
@@ -1837,9 +1909,7 @@ int? _parseHoursInput(String? rawValue) {
     return (hours * 60) + minutes;
   }
 
-  final decimalValue = double.tryParse(
-    normalizedValue.replaceAll(',', '.'),
-  );
+  final decimalValue = double.tryParse(normalizedValue.replaceAll(',', '.'));
   if (decimalValue == null || decimalValue < 0) {
     return null;
   }
