@@ -396,7 +396,7 @@ function renderLandingPage(options: {
     <main>
       <section class="hero">
         <h1>Work Hours Platform</h1>
-        <p>Scarica l&#39;APK Android piu recente dal canale ufficiale del progetto. Il backend, il feed update e il download pubblico vivono sullo stesso dominio.</p>
+        <p>Scarica l app Android ufficiale o controlla quando sara disponibile la prossima versione.</p>
         <div class="actions">
           ${primaryAction}
         </div>
