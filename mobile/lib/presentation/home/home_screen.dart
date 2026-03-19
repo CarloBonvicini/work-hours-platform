@@ -138,7 +138,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _isLoadingCalendarData = false;
   bool _isUpdatingThemeMode = false;
   late bool _hasCompletedInitialSetup;
-  _HomeSection _selectedSection = _HomeSection.overview;
+  _HomeSection _selectedSection = _HomeSection.recentActivity;
   SupportTicketCategory _selectedTicketCategory = SupportTicketCategory.bug;
 
   @override
@@ -2106,13 +2106,21 @@ class _HomeSectionNavigation extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    const visibleSections = [
+      _HomeSection.recentActivity,
+      _HomeSection.quickEntry,
+      _HomeSection.calendar,
+      _HomeSection.profile,
+      _HomeSection.ticket,
+    ];
+
     return _SectionCard(
       title: 'Sezioni',
       subtitle: 'Apri solo la parte che ti serve.',
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
         child: Row(
-          children: _HomeSection.values
+          children: visibleSections
               .map(
                 (section) => Padding(
                   padding: const EdgeInsets.only(right: 10),
