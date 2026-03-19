@@ -2138,14 +2138,13 @@ class _HomeSectionNavigation extends StatelessWidget {
   Widget build(BuildContext context) {
     const visibleSections = [
       _HomeSection.calendar,
-      _HomeSection.recentActivity,
       _HomeSection.profile,
       _HomeSection.ticket,
     ];
 
     return _SectionCard(
       title: 'Navigazione',
-      subtitle: 'Calendario al centro, impostazioni separate.',
+      subtitle: 'Solo le sezioni che servono davvero.',
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
         child: Row(

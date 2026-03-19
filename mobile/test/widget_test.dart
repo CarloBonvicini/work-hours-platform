@@ -52,6 +52,7 @@ void main() {
     expect(find.text('Panoramica del mese'), findsNothing);
     expect(find.byKey(const ValueKey('home-section-overview')), findsNothing);
     expect(find.byKey(const ValueKey('home-section-quickEntry')), findsNothing);
+    expect(find.byKey(const ValueKey('home-section-recentActivity')), findsNothing);
     expect(find.text('Aggiornamento disponibile'), findsOneWidget);
     expect(find.text('Ricordamelo piu tardi'), findsOneWidget);
     expect(find.text('Aggiorna'), findsNothing);
