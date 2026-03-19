@@ -89,6 +89,7 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
+  final GlobalKey _navigationMenuButtonKey = GlobalKey();
   final _profileFormKey = GlobalKey<FormState>();
   final _quickEntryFormKey = GlobalKey<FormState>();
   final _scheduleOverrideFormKey = GlobalKey<FormState>();
@@ -627,11 +628,43 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _openNavigationMenu() async {
-    final selectedSection = await showModalBottomSheet<_HomeSection>(
+    final buttonContext = _navigationMenuButtonKey.currentContext;
+    if (buttonContext == null || !mounted) {
+      return;
+    }
+
+    final overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
+    final button = buttonContext.findRenderObject() as RenderBox;
+    final buttonRect = Rect.fromPoints(
+      button.localToGlobal(Offset.zero, ancestor: overlay),
+      button.localToGlobal(
+        button.size.bottomRight(Offset.zero),
+        ancestor: overlay,
+      ),
+    );
+
+    final selectedSection = await showMenu<_HomeSection>(
       context: context,
-      showDragHandle: true,
-      builder: (context) =>
-          _NavigationMenuSheet(selectedSection: _selectedSection),
+      position: RelativeRect.fromRect(
+        buttonRect,
+        Offset.zero & overlay.size,
+      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      elevation: 10,
+      color: Theme.of(context).colorScheme.surfaceContainerHigh,
+      surfaceTintColor: Colors.transparent,
+      items: [
+        for (final section in _mainNavigationSections)
+          PopupMenuItem<_HomeSection>(
+            key: ValueKey('navigation-option-${section.name}'),
+            value: section,
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            child: _NavigationMenuItem(
+              section: section,
+              isSelected: _selectedSection == section,
+            ),
+          ),
+      ],
     );
     if (!mounted || selectedSection == null) {
       return;
@@ -2486,6 +2519,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               children: [
                 _Header(
                   profileName: snapshot?.profile.fullName,
+                  navigationMenuButtonKey: _navigationMenuButtonKey,
                   onOpenNavigationMenu: _openNavigationMenu,
                 ),
                 const SizedBox(height: 16),
@@ -6227,10 +6261,12 @@ String _textScaleLabel(double value) {
 class _Header extends StatelessWidget {
   const _Header({
     required this.profileName,
+    required this.navigationMenuButtonKey,
     required this.onOpenNavigationMenu,
   });
 
   final String? profileName;
+  final GlobalKey navigationMenuButtonKey;
   final Future<void> Function() onOpenNavigationMenu;
 
   @override
@@ -6251,81 +6287,55 @@ class _Header extends StatelessWidget {
           ),
         ),
         const SizedBox(width: 12),
-        IconButton.filledTonal(
-          key: const ValueKey('navigation-menu-button'),
-          tooltip: 'Apri menu',
-          onPressed: onOpenNavigationMenu,
-          icon: const Icon(Icons.menu_rounded),
+        Container(
+          key: navigationMenuButtonKey,
+          child: IconButton.filledTonal(
+            key: const ValueKey('navigation-menu-button'),
+            tooltip: 'Apri menu',
+            onPressed: onOpenNavigationMenu,
+            icon: const Icon(Icons.menu_rounded),
+          ),
         ),
       ],
     );
   }
 }
 
-class _NavigationMenuSheet extends StatelessWidget {
-  const _NavigationMenuSheet({required this.selectedSection});
+class _NavigationMenuItem extends StatelessWidget {
+  const _NavigationMenuItem({
+    required this.section,
+    required this.isSelected,
+  });
 
-  final _HomeSection selectedSection;
+  final _HomeSection section;
+  final bool isSelected;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-
-    return SafeArea(
-      child: SingleChildScrollView(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Menu',
-                style: theme.textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                'Apri la sezione che ti serve.',
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-              ),
-              const SizedBox(height: 16),
-              ..._mainNavigationSections.map(
-                (section) => Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
-                  child: ListTile(
-                    key: ValueKey('navigation-option-${section.name}'),
-                    leading: Icon(section.icon),
-                    title: Text(section.label),
-                    trailing: selectedSection == section
-                        ? Icon(
-                            Icons.check_rounded,
-                            color: theme.colorScheme.primary,
-                          )
-                        : null,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(18),
-                      side: BorderSide(
-                        color: selectedSection == section
-                            ? theme.colorScheme.primary.withValues(alpha: 0.35)
-                            : theme.colorScheme.outlineVariant,
-                      ),
-                    ),
-                    tileColor: selectedSection == section
-                        ? theme.colorScheme.primaryContainer.withValues(
-                            alpha: 0.3,
-                          )
-                        : theme.colorScheme.surfaceContainerLow,
-                    onTap: () => Navigator.of(context).pop(section),
-                  ),
-                ),
-              ),
-            ],
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minWidth: 220),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            section.icon,
+            color: isSelected
+                ? theme.colorScheme.primary
+                : theme.colorScheme.onSurfaceVariant,
           ),
-        ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              section.label,
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
+              ),
+            ),
+          ),
+          if (isSelected)
+            Icon(Icons.check_rounded, color: theme.colorScheme.primary),
+        ],
       ),
     );
   }
