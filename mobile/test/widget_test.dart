@@ -94,6 +94,19 @@ void main() {
       find.textContaining('Giorno selezionato: 4 marzo 2026'),
       findsOneWidget,
     );
+    expect(
+      find.byKey(const ValueKey('calendar-override-start-time-button')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('calendar-override-end-time-button')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('calendar-override-break-value')),
+      findsOneWidget,
+    );
+    expect(find.text('Ore previste per questo giorno'), findsNothing);
   });
 
   testWidgets('checks for updates again when app resumes', (tester) async {

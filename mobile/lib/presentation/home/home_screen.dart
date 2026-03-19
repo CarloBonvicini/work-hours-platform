@@ -45,6 +45,8 @@ enum _TodayStatus {
 
 enum _TodayOverridePreset { startLater, finishEarlier, longerBreak, dayOff }
 
+enum _CalendarTimeField { start, end }
+
 const _mainNavigationSections = [
   _HomeSection.calendar,
   _HomeSection.profile,
@@ -850,6 +852,156 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
+  Future<void> _pickScheduleOverrideTime(_CalendarTimeField field) async {
+    final initialMinutes = _currentScheduleOverrideTimeMinutes(field);
+    final pickedTime = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay(
+        hour: initialMinutes ~/ 60,
+        minute: initialMinutes % 60,
+      ),
+      builder: (context, child) {
+        if (child == null) {
+          return const SizedBox.shrink();
+        }
+        return MediaQuery(
+          data: MediaQuery.of(context).copyWith(alwaysUse24HourFormat: true),
+          child: child,
+        );
+      },
+    );
+    if (pickedTime == null) {
+      return;
+    }
+
+    final controller = _scheduleTimeController(field);
+    controller.text = formatTimeInput(
+      (pickedTime.hour * 60) + pickedTime.minute,
+    );
+    _syncScheduleOverrideTargetFromTimes();
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  void _adjustScheduleOverrideTime(_CalendarTimeField field, int deltaMinutes) {
+    final controller = _scheduleTimeController(field);
+    final nextMinutes =
+        (_currentScheduleOverrideTimeMinutes(field) + deltaMinutes).clamp(
+          0,
+          (23 * 60) + 59,
+        );
+    controller.text = formatTimeInput(nextMinutes);
+    _syncScheduleOverrideTargetFromTimes();
+    setState(() {});
+  }
+
+  void _setScheduleOverrideBreakMinutes(int minutes) {
+    final normalizedMinutes = minutes.clamp(0, 24 * 60);
+    _scheduleOverrideBreakController.text = _formatBreakInput(
+      normalizedMinutes,
+    );
+    _syncScheduleOverrideTargetFromTimes();
+    setState(() {});
+  }
+
+  void _adjustScheduleOverrideBreakMinutes(int deltaMinutes) {
+    final currentBreakMinutes =
+        parseBreakDurationInput(_scheduleOverrideBreakController.text) ?? 0;
+    _setScheduleOverrideBreakMinutes(currentBreakMinutes + deltaMinutes);
+  }
+
+  void _resetScheduleOverrideEditorToBase() {
+    final snapshot = _snapshotForMonth(_selectedMonth) ?? _snapshot;
+    if (snapshot == null) {
+      return;
+    }
+
+    final baseSchedule = _resolveBaseDayScheduleForDate(
+      snapshot,
+      _selectedDate,
+    );
+    _scheduleOverrideTargetController.text = _formatHoursInput(
+      baseSchedule.targetMinutes,
+    );
+    _scheduleOverrideStartTimeController.text = baseSchedule.startTime ?? '';
+    _scheduleOverrideEndTimeController.text = baseSchedule.endTime ?? '';
+    _scheduleOverrideBreakController.text = _formatBreakInput(
+      baseSchedule.breakMinutes,
+    );
+    _scheduleOverrideNoteController.clear();
+    setState(() {});
+  }
+
+  void _markSelectedDayAsDayOff() {
+    _scheduleOverrideTargetController.text = _formatHoursInput(0);
+    _scheduleOverrideStartTimeController.clear();
+    _scheduleOverrideEndTimeController.clear();
+    _scheduleOverrideBreakController.clear();
+    _syncScheduleOverrideTargetFromTimes();
+    setState(() {});
+  }
+
+  TextEditingController _scheduleTimeController(_CalendarTimeField field) {
+    return switch (field) {
+      _CalendarTimeField.start => _scheduleOverrideStartTimeController,
+      _CalendarTimeField.end => _scheduleOverrideEndTimeController,
+    };
+  }
+
+  int _currentScheduleOverrideTimeMinutes(_CalendarTimeField field) {
+    final controller = _scheduleTimeController(field);
+    final currentMinutes = parseTimeInput(controller.text);
+    if (currentMinutes != null) {
+      return currentMinutes;
+    }
+
+    final snapshot = _snapshotForMonth(_selectedMonth) ?? _snapshot;
+    final fallbackSchedule = snapshot == null
+        ? const DaySchedule(targetMinutes: 8 * 60)
+        : _resolveEffectiveDayScheduleForDate(snapshot, _selectedDate);
+    final fallbackMinutes = switch (field) {
+      _CalendarTimeField.start => parseTimeInput(fallbackSchedule.startTime),
+      _CalendarTimeField.end => parseTimeInput(fallbackSchedule.endTime),
+    };
+    if (fallbackMinutes != null) {
+      return fallbackMinutes;
+    }
+
+    if (field == _CalendarTimeField.start) {
+      return 9 * 60;
+    }
+
+    return ((9 * 60) +
+            fallbackSchedule.targetMinutes +
+            fallbackSchedule.breakMinutes)
+        .clamp(0, (23 * 60) + 59);
+  }
+
+  void _syncScheduleOverrideTargetFromTimes() {
+    final startMinutes = parseTimeInput(
+      _scheduleOverrideStartTimeController.text,
+    );
+    final endMinutes = parseTimeInput(_scheduleOverrideEndTimeController.text);
+    final breakMinutes =
+        parseBreakDurationInput(_scheduleOverrideBreakController.text) ?? 0;
+
+    if (startMinutes == null ||
+        endMinutes == null ||
+        endMinutes < startMinutes) {
+      return;
+    }
+
+    final elapsedMinutes = endMinutes - startMinutes;
+    if (breakMinutes > elapsedMinutes) {
+      return;
+    }
+
+    _scheduleOverrideTargetController.text = _formatHoursInput(
+      elapsedMinutes - breakMinutes,
+    );
+  }
+
   Future<void> _openUpdate() async {
     final availableUpdate = _availableUpdate;
     if (availableUpdate == null || _isOpeningUpdate) {
@@ -1129,11 +1281,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     required String endTimeText,
     required String breakText,
   }) {
-    final targetMinutes = _parseHoursInput(targetText);
-    if (targetMinutes == null) {
-      return null;
-    }
-
     final normalizedStartTimeText = startTimeText.trim();
     final normalizedEndTimeText = endTimeText.trim();
     final hasStartTime = normalizedStartTimeText.isNotEmpty;
@@ -1158,6 +1305,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       return null;
     }
     if ((!hasStartTime || !hasEndTime) && breakMinutes > 0) {
+      return null;
+    }
+
+    final targetMinutes = _resolveDraftTargetMinutes(
+      targetText: targetText,
+      startTimeText: startTimeText,
+      endTimeText: endTimeText,
+      breakText: breakText,
+    );
+    if (targetMinutes == null) {
       return null;
     }
 
@@ -1909,6 +2066,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           onPreviousPeriod: () => _shiftCalendarPeriod(-1),
           onNextPeriod: () => _shiftCalendarPeriod(1),
           onSelectDate: _selectDate,
+          onPickOverrideTime: _pickScheduleOverrideTime,
+          onAdjustOverrideTime: _adjustScheduleOverrideTime,
+          onSetOverrideBreakMinutes: _setScheduleOverrideBreakMinutes,
+          onAdjustOverrideBreakMinutes: _adjustScheduleOverrideBreakMinutes,
+          onResetOverrideEditor: _resetScheduleOverrideEditorToBase,
+          onMarkDayAsOff: _markSelectedDayAsDayOff,
           onSaveOverride: _submitScheduleOverride,
           onRemoveOverride: _removeScheduleOverride,
         );
@@ -2172,6 +2335,12 @@ class _CalendarCard extends StatelessWidget {
     required this.onPreviousPeriod,
     required this.onNextPeriod,
     required this.onSelectDate,
+    required this.onPickOverrideTime,
+    required this.onAdjustOverrideTime,
+    required this.onSetOverrideBreakMinutes,
+    required this.onAdjustOverrideBreakMinutes,
+    required this.onResetOverrideEditor,
+    required this.onMarkDayAsOff,
     required this.onSaveOverride,
     required this.onRemoveOverride,
   });
@@ -2201,12 +2370,34 @@ class _CalendarCard extends StatelessWidget {
   final Future<void> Function() onPreviousPeriod;
   final Future<void> Function() onNextPeriod;
   final ValueChanged<DateTime> onSelectDate;
+  final Future<void> Function(_CalendarTimeField field) onPickOverrideTime;
+  final void Function(_CalendarTimeField field, int deltaMinutes)
+  onAdjustOverrideTime;
+  final void Function(int minutes) onSetOverrideBreakMinutes;
+  final void Function(int deltaMinutes) onAdjustOverrideBreakMinutes;
+  final VoidCallback onResetOverrideEditor;
+  final VoidCallback onMarkDayAsOff;
   final Future<void> Function() onSaveOverride;
   final Future<void> Function() onRemoveOverride;
 
   @override
   Widget build(BuildContext context) {
     final selectedDateLabel = _formatLongDate(selectedDate);
+    final draftValidationMessage = _validateScheduleDraft(
+      targetText: overrideTargetController.text,
+      startTimeText: overrideStartTimeController.text,
+      endTimeText: overrideEndTimeController.text,
+      breakText: overrideBreakController.text,
+    );
+    final draftTargetMinutes = _resolveDraftTargetMinutes(
+      targetText: overrideTargetController.text,
+      startTimeText: overrideStartTimeController.text,
+      endTimeText: overrideEndTimeController.text,
+      breakText: overrideBreakController.text,
+    );
+    final draftBreakMinutes = parseBreakDurationInput(
+      overrideBreakController.text,
+    );
 
     return _SectionCard(
       title: 'Calendario',
@@ -2322,76 +2513,37 @@ class _CalendarCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                _CalendarQuickScheduleEditor(
+                  startTimeText: overrideStartTimeController.text,
+                  endTimeText: overrideEndTimeController.text,
+                  breakMinutes: draftBreakMinutes ?? 0,
+                  calculatedTargetMinutes: draftTargetMinutes,
+                  validationMessage: draftValidationMessage,
+                  onPickStartTime: () =>
+                      onPickOverrideTime(_CalendarTimeField.start),
+                  onPickEndTime: () =>
+                      onPickOverrideTime(_CalendarTimeField.end),
+                  onAdjustStartTime: (deltaMinutes) => onAdjustOverrideTime(
+                    _CalendarTimeField.start,
+                    deltaMinutes,
+                  ),
+                  onAdjustEndTime: (deltaMinutes) => onAdjustOverrideTime(
+                    _CalendarTimeField.end,
+                    deltaMinutes,
+                  ),
+                  onAdjustBreakMinutes: onAdjustOverrideBreakMinutes,
+                  onSetBreakMinutes: onSetOverrideBreakMinutes,
+                  onResetToBase: onResetOverrideEditor,
+                  onMarkDayAsOff: onMarkDayAsOff,
+                ),
+                const SizedBox(height: 14),
                 TextFormField(
                   controller: overrideTargetController,
-                  keyboardType: const TextInputType.numberWithOptions(
-                    decimal: true,
-                  ),
+                  readOnly: true,
+                  enableInteractiveSelection: false,
                   decoration: const InputDecoration(
-                    labelText: 'Ore previste per questo giorno',
+                    labelText: 'Totale giornata calcolato',
                   ),
-                  validator: (_) => _validateScheduleDraft(
-                    targetText: overrideTargetController.text,
-                    startTimeText: overrideStartTimeController.text,
-                    endTimeText: overrideEndTimeController.text,
-                    breakText: overrideBreakController.text,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Wrap(
-                  spacing: 12,
-                  runSpacing: 12,
-                  children: [
-                    SizedBox(
-                      width: 140,
-                      child: TextFormField(
-                        controller: overrideStartTimeController,
-                        keyboardType: TextInputType.datetime,
-                        decoration: const InputDecoration(labelText: 'Inizio'),
-                        validator: (_) => _validateScheduleDraft(
-                          targetText: overrideTargetController.text,
-                          startTimeText: overrideStartTimeController.text,
-                          endTimeText: overrideEndTimeController.text,
-                          breakText: overrideBreakController.text,
-                        ),
-                      ),
-                    ),
-                    SizedBox(
-                      width: 140,
-                      child: TextFormField(
-                        controller: overrideEndTimeController,
-                        keyboardType: TextInputType.datetime,
-                        decoration: const InputDecoration(labelText: 'Fine'),
-                        validator: (_) => _validateScheduleDraft(
-                          targetText: overrideTargetController.text,
-                          startTimeText: overrideStartTimeController.text,
-                          endTimeText: overrideEndTimeController.text,
-                          breakText: overrideBreakController.text,
-                        ),
-                      ),
-                    ),
-                    SizedBox(
-                      width: 140,
-                      child: TextFormField(
-                        controller: overrideBreakController,
-                        keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true,
-                        ),
-                        decoration: const InputDecoration(labelText: 'Pausa'),
-                        validator: (_) => _validateScheduleDraft(
-                          targetText: overrideTargetController.text,
-                          startTimeText: overrideStartTimeController.text,
-                          endTimeText: overrideEndTimeController.text,
-                          breakText: overrideBreakController.text,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  'Se imposti inizio e fine, la pausa deve far tornare il totale della giornata.',
-                  style: Theme.of(context).textTheme.bodyMedium,
                 ),
                 const SizedBox(height: 12),
                 TextFormField(
@@ -2453,6 +2605,290 @@ class _CalendarCard extends StatelessWidget {
               ],
             ),
         ],
+      ),
+    );
+  }
+}
+
+class _CalendarQuickScheduleEditor extends StatelessWidget {
+  const _CalendarQuickScheduleEditor({
+    required this.startTimeText,
+    required this.endTimeText,
+    required this.breakMinutes,
+    required this.calculatedTargetMinutes,
+    required this.validationMessage,
+    required this.onPickStartTime,
+    required this.onPickEndTime,
+    required this.onAdjustStartTime,
+    required this.onAdjustEndTime,
+    required this.onAdjustBreakMinutes,
+    required this.onSetBreakMinutes,
+    required this.onResetToBase,
+    required this.onMarkDayAsOff,
+  });
+
+  final String startTimeText;
+  final String endTimeText;
+  final int breakMinutes;
+  final int? calculatedTargetMinutes;
+  final String? validationMessage;
+  final Future<void> Function() onPickStartTime;
+  final Future<void> Function() onPickEndTime;
+  final ValueChanged<int> onAdjustStartTime;
+  final ValueChanged<int> onAdjustEndTime;
+  final ValueChanged<int> onAdjustBreakMinutes;
+  final ValueChanged<int> onSetBreakMinutes;
+  final VoidCallback onResetToBase;
+  final VoidCallback onMarkDayAsOff;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final helperColor = validationMessage == null
+        ? theme.colorScheme.onSurfaceVariant
+        : theme.colorScheme.error;
+    final helperText =
+        validationMessage ??
+        (calculatedTargetMinutes == null
+            ? 'Tocca gli orari per impostare la giornata senza scrivere nulla.'
+            : 'Totale calcolato automaticamente da inizio, fine e pausa.');
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Modifica rapida del giorno',
+          style: theme.textTheme.titleSmall?.copyWith(
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        const SizedBox(height: 10),
+        Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          children: [
+            _TimeAdjustCard(
+              title: 'Inizio',
+              value: startTimeText.isEmpty ? '--:--' : startTimeText,
+              minusKey: const ValueKey('calendar-override-start-minus-5'),
+              valueKey: const ValueKey('calendar-override-start-time-button'),
+              plusKey: const ValueKey('calendar-override-start-plus-5'),
+              onMinus: () => onAdjustStartTime(-5),
+              onPick: onPickStartTime,
+              onPlus: () => onAdjustStartTime(5),
+            ),
+            _TimeAdjustCard(
+              title: 'Fine',
+              value: endTimeText.isEmpty ? '--:--' : endTimeText,
+              minusKey: const ValueKey('calendar-override-end-minus-5'),
+              valueKey: const ValueKey('calendar-override-end-time-button'),
+              plusKey: const ValueKey('calendar-override-end-plus-5'),
+              onMinus: () => onAdjustEndTime(-5),
+              onPick: onPickEndTime,
+              onPlus: () => onAdjustEndTime(5),
+            ),
+            _BreakAdjustCard(
+              breakMinutes: breakMinutes,
+              onMinus: () => onAdjustBreakMinutes(-5),
+              onPlus: () => onAdjustBreakMinutes(5),
+              onSetBreakMinutes: onSetBreakMinutes,
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        Text(
+          helperText,
+          style: theme.textTheme.bodyMedium?.copyWith(color: helperColor),
+        ),
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          children: [
+            OutlinedButton.icon(
+              onPressed: onResetToBase,
+              icon: const Icon(Icons.restart_alt_rounded),
+              label: const Text('Ripristina base'),
+            ),
+            OutlinedButton.icon(
+              onPressed: onMarkDayAsOff,
+              icon: const Icon(Icons.event_busy_outlined),
+              label: const Text('Giornata libera'),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _TimeAdjustCard extends StatelessWidget {
+  const _TimeAdjustCard({
+    required this.title,
+    required this.value,
+    required this.minusKey,
+    required this.valueKey,
+    required this.plusKey,
+    required this.onMinus,
+    required this.onPick,
+    required this.onPlus,
+  });
+
+  final String title;
+  final String value;
+  final Key minusKey;
+  final Key valueKey;
+  final Key plusKey;
+  final VoidCallback onMinus;
+  final Future<void> Function() onPick;
+  final VoidCallback onPlus;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 220,
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surfaceContainerLow,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(
+            color: Theme.of(context).colorScheme.outlineVariant,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: Theme.of(
+                context,
+              ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                IconButton.outlined(
+                  key: minusKey,
+                  onPressed: onMinus,
+                  icon: const Icon(Icons.remove_rounded),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: FilledButton.tonal(
+                    key: valueKey,
+                    onPressed: onPick,
+                    child: Text(value),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                IconButton.outlined(
+                  key: plusKey,
+                  onPressed: onPlus,
+                  icon: const Icon(Icons.add_rounded),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _BreakAdjustCard extends StatelessWidget {
+  const _BreakAdjustCard({
+    required this.breakMinutes,
+    required this.onMinus,
+    required this.onPlus,
+    required this.onSetBreakMinutes,
+  });
+
+  final int breakMinutes;
+  final VoidCallback onMinus;
+  final VoidCallback onPlus;
+  final ValueChanged<int> onSetBreakMinutes;
+
+  @override
+  Widget build(BuildContext context) {
+    const presets = [0, 15, 30, 45, 60];
+
+    return SizedBox(
+      width: 280,
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surfaceContainerLow,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(
+            color: Theme.of(context).colorScheme.outlineVariant,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Pausa',
+              style: Theme.of(
+                context,
+              ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                IconButton.outlined(
+                  key: const ValueKey('calendar-override-break-minus-5'),
+                  onPressed: onMinus,
+                  icon: const Icon(Icons.remove_rounded),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 12,
+                    ),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(14),
+                      color: Theme.of(context).colorScheme.surface,
+                    ),
+                    child: Text(
+                      breakMinutes == 0
+                          ? 'Nessuna pausa'
+                          : '${breakMinutes.toString()} min',
+                      key: const ValueKey('calendar-override-break-value'),
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                IconButton.outlined(
+                  key: const ValueKey('calendar-override-break-plus-5'),
+                  onPressed: onPlus,
+                  icon: const Icon(Icons.add_rounded),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: presets
+                  .map(
+                    (minutes) => ChoiceChip(
+                      key: ValueKey('calendar-override-break-preset-$minutes'),
+                      label: Text(minutes == 0 ? '0' : '$minutes min'),
+                      selected: breakMinutes == minutes,
+                      onSelected: (_) => onSetBreakMinutes(minutes),
+                    ),
+                  )
+                  .toList(growable: false),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -4753,10 +5189,6 @@ String _formatHours(int minutes, {bool signed = false}) {
   return '$prefix${formattedHours}h';
 }
 
-int? _parseHoursInput(String? rawValue) {
-  return parseHoursInput(rawValue);
-}
-
 String _formatHoursInput(int minutes) {
   return formatHoursInput(minutes);
 }
@@ -4903,11 +5335,6 @@ String? _validateScheduleDraft({
   required String endTimeText,
   required String breakText,
 }) {
-  final targetMinutes = parseHoursInput(targetText);
-  if (targetMinutes == null) {
-    return 'Inserisci ore valide.';
-  }
-
   final normalizedStart = startTimeText.trim();
   final normalizedEnd = endTimeText.trim();
   final hasStart = normalizedStart.isNotEmpty;
@@ -4930,6 +5357,16 @@ String? _validateScheduleDraft({
     return 'La pausa richiede anche inizio e fine.';
   }
 
+  final targetMinutes = _resolveDraftTargetMinutes(
+    targetText: targetText,
+    startTimeText: startTimeText,
+    endTimeText: endTimeText,
+    breakText: breakText,
+  );
+  if (targetMinutes == null) {
+    return 'Imposta inizio, fine e pausa della giornata.';
+  }
+
   if (startMinutes != null && endMinutes != null) {
     final elapsedMinutes = endMinutes - startMinutes;
     if (elapsedMinutes < 0) {
@@ -4944,6 +5381,35 @@ String? _validateScheduleDraft({
   }
 
   return null;
+}
+
+int? _resolveDraftTargetMinutes({
+  required String targetText,
+  required String startTimeText,
+  required String endTimeText,
+  required String breakText,
+}) {
+  final explicitTargetMinutes = parseHoursInput(targetText);
+  if (explicitTargetMinutes != null) {
+    return explicitTargetMinutes;
+  }
+
+  final startMinutes = parseTimeInput(startTimeText.trim());
+  final endMinutes = parseTimeInput(endTimeText.trim());
+  final breakMinutes = parseBreakDurationInput(breakText);
+  if (startMinutes == null ||
+      endMinutes == null ||
+      breakMinutes == null ||
+      endMinutes < startMinutes) {
+    return null;
+  }
+
+  final elapsedMinutes = endMinutes - startMinutes;
+  if (breakMinutes > elapsedMinutes) {
+    return null;
+  }
+
+  return elapsedMinutes - breakMinutes;
 }
 
 String _formatDayScheduleDetails(DaySchedule schedule) {
