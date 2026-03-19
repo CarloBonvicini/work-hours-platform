@@ -5,14 +5,18 @@ import type {
   WorkEntry
 } from "../domain/types.js";
 import type { AppStore } from "./store.js";
-import { buildUniformWeekdayTargetMinutes } from "../domain/monthly-summary.js";
+import {
+  buildUniformWeekdaySchedule,
+  buildUniformWeekdayTargetMinutes
+} from "../domain/monthly-summary.js";
 
 const DEFAULT_PROFILE: Profile = {
   id: "default-profile",
   fullName: "Utente",
   useUniformDailyTarget: true,
   dailyTargetMinutes: 480,
-  weekdayTargetMinutes: buildUniformWeekdayTargetMinutes(480)
+  weekdayTargetMinutes: buildUniformWeekdayTargetMinutes(480),
+  weekdaySchedule: buildUniformWeekdaySchedule(480)
 };
 
 export class InMemoryStore implements AppStore {
@@ -24,14 +28,16 @@ export class InMemoryStore implements AppStore {
   getProfile(): Profile {
     return {
       ...this.profile,
-      weekdayTargetMinutes: { ...this.profile.weekdayTargetMinutes }
+      weekdayTargetMinutes: { ...this.profile.weekdayTargetMinutes },
+      weekdaySchedule: structuredClone(this.profile.weekdaySchedule)
     };
   }
 
   saveProfile(profile: Profile): Profile {
     this.profile = {
       ...profile,
-      weekdayTargetMinutes: { ...profile.weekdayTargetMinutes }
+      weekdayTargetMinutes: { ...profile.weekdayTargetMinutes },
+      weekdaySchedule: structuredClone(profile.weekdaySchedule)
     };
     return this.getProfile();
   }

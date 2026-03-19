@@ -1,5 +1,6 @@
 import 'package:work_hours_mobile/domain/models/leave_entry.dart';
 import 'package:work_hours_mobile/domain/models/support_ticket.dart';
+import 'package:work_hours_mobile/domain/models/weekday_schedule.dart';
 import 'package:work_hours_mobile/domain/models/weekday_target_minutes.dart';
 import 'package:work_hours_mobile/data/api/work_hours_api_client.dart';
 import 'package:work_hours_mobile/domain/models/dashboard_snapshot.dart';
@@ -22,6 +23,7 @@ class ApiDashboardRepository implements DashboardRepository {
     required bool useUniformDailyTarget,
     required int dailyTargetMinutes,
     required WeekdayTargetMinutes weekdayTargetMinutes,
+    required WeekdaySchedule weekdaySchedule,
     required String month,
   }) async {
     await _apiClient.updateProfile(
@@ -29,6 +31,7 @@ class ApiDashboardRepository implements DashboardRepository {
       useUniformDailyTarget: useUniformDailyTarget,
       dailyTargetMinutes: dailyTargetMinutes,
       weekdayTargetMinutes: weekdayTargetMinutes,
+      weekdaySchedule: weekdaySchedule,
     );
 
     return _buildSnapshot(month: month);
@@ -66,12 +69,18 @@ class ApiDashboardRepository implements DashboardRepository {
   Future<DashboardSnapshot> saveScheduleOverride({
     required String date,
     required int targetMinutes,
+    String? startTime,
+    String? endTime,
+    required int breakMinutes,
     String? note,
     required String month,
   }) async {
     await _apiClient.createScheduleOverride(
       date: date,
       targetMinutes: targetMinutes,
+      startTime: startTime,
+      endTime: endTime,
+      breakMinutes: breakMinutes,
       note: note,
     );
     return _buildSnapshot(month: month);

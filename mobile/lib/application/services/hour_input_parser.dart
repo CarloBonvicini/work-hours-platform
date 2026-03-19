@@ -56,6 +56,29 @@ String formatHoursInput(int minutes) {
   return '$hours:${remainingMinutes.toString().padLeft(2, '0')}';
 }
 
+int? parseBreakDurationInput(String? rawValue) {
+  final normalizedValue = (rawValue ?? '').trim().toLowerCase();
+  if (normalizedValue.isEmpty) {
+    return 0;
+  }
+
+  final compactValue = normalizedValue.replaceAll(RegExp(r'\s+'), '');
+  if (RegExp(r'^\d+$').hasMatch(compactValue)) {
+    final plainValue = int.tryParse(compactValue);
+    if (plainValue == null || plainValue < 0) {
+      return null;
+    }
+
+    if (plainValue >= 15) {
+      return plainValue;
+    }
+
+    return plainValue * 60;
+  }
+
+  return parseHoursInput(rawValue);
+}
+
 int? _parseCompactDigits(String value) {
   if (value.length <= 2) {
     final hours = int.tryParse(value);

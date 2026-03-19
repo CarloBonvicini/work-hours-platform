@@ -14,8 +14,11 @@ import {
   WEEKDAY_KEYS
 } from "./domain/monthly-summary.js";
 import type {
+  DaySchedule,
   LeaveType,
   Profile,
+  ScheduleOverride,
+  WeekdaySchedule,
   WeekdayTargetMinutes
 } from "./domain/types.js";
 
@@ -104,6 +107,121 @@ function parseWeekdayTargetMinutes(
     }
 
     weekdayTargetMinutes[key] = dayValue;
+  }
+
+  return weekdayTargetMinutes;
+}
+
+function isTimeString(value: unknown): value is string {
+  return typeof value === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
+}
+
+function toMinutesOfDay(value: string) {
+  const [hoursPart, minutesPart] = value.split(":");
+  return Number(hoursPart) * 60 + Number(minutesPart);
+}
+
+function isScheduleTimingConsistent(daySchedule: DaySchedule) {
+  if ((daySchedule.startTime === undefined) !== (daySchedule.endTime === undefined)) {
+    return false;
+  }
+
+  if (daySchedule.startTime === undefined || daySchedule.endTime === undefined) {
+    return true;
+  }
+
+  const elapsedMinutes =
+    toMinutesOfDay(daySchedule.endTime) - toMinutesOfDay(daySchedule.startTime);
+
+  if (elapsedMinutes < 0 || daySchedule.breakMinutes > elapsedMinutes) {
+    return false;
+  }
+
+  return elapsedMinutes - daySchedule.breakMinutes === daySchedule.targetMinutes;
+}
+
+function parseDaySchedule(value: unknown): DaySchedule | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const scheduleValue = value as Record<string, unknown>;
+  if (!isNonNegativeInteger(scheduleValue.targetMinutes)) {
+    return null;
+  }
+
+  const breakMinutes = scheduleValue.breakMinutes === undefined
+    ? 0
+    : scheduleValue.breakMinutes;
+  if (!isNonNegativeInteger(breakMinutes)) {
+    return null;
+  }
+
+  const startTime = scheduleValue.startTime;
+  const endTime = scheduleValue.endTime;
+  if (
+    (startTime !== undefined && !isTimeString(startTime)) ||
+    (endTime !== undefined && !isTimeString(endTime))
+  ) {
+    return null;
+  }
+
+  const daySchedule: DaySchedule = {
+    targetMinutes: scheduleValue.targetMinutes,
+    startTime,
+    endTime,
+    breakMinutes
+  };
+
+  if (!isScheduleTimingConsistent(daySchedule)) {
+    return null;
+  }
+
+  return daySchedule;
+}
+
+function parseWeekdaySchedule(value: unknown): WeekdaySchedule | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const scheduleByWeekday = value as Record<string, unknown>;
+  const weekdaySchedule = {} as WeekdaySchedule;
+
+  for (const key of WEEKDAY_KEYS) {
+    const daySchedule = parseDaySchedule(scheduleByWeekday[key]);
+    if (!daySchedule) {
+      return null;
+    }
+
+    weekdaySchedule[key] = daySchedule;
+  }
+
+  return weekdaySchedule;
+}
+
+function buildWeekdayScheduleFromTargetMinutes(
+  weekdayTargetMinutes: WeekdayTargetMinutes
+): WeekdaySchedule {
+  const weekdaySchedule = {} as WeekdaySchedule;
+
+  for (const key of WEEKDAY_KEYS) {
+    weekdaySchedule[key] = {
+      targetMinutes: weekdayTargetMinutes[key],
+      breakMinutes: 0
+    };
+  }
+
+  return weekdaySchedule;
+}
+
+function deriveWeekdayTargetMinutesFromSchedule(
+  weekdaySchedule: WeekdaySchedule
+): WeekdayTargetMinutes {
+  const weekdayTargetMinutes = {} as WeekdayTargetMinutes;
+
+  for (const key of WEEKDAY_KEYS) {
+    weekdayTargetMinutes[key] = weekdaySchedule[key].targetMinutes;
   }
 
   return weekdayTargetMinutes;
@@ -1057,25 +1175,44 @@ export function buildApp(options: BuildAppOptions = {}) {
       });
     }
 
-    if (useUniformDailyTarget && !isPositiveInteger(body.dailyTargetMinutes)) {
+    const parsedWeekdaySchedule = parseWeekdaySchedule(body.weekdaySchedule);
+    if (body.weekdaySchedule !== undefined && parsedWeekdaySchedule === null) {
+      return reply.code(400).send({
+        error:
+          "weekdaySchedule must include monday-sunday targetMinutes, optional startTime/endTime in HH:MM and non-negative breakMinutes"
+      });
+    }
+
+    if (
+      useUniformDailyTarget &&
+      parsedWeekdaySchedule === null &&
+      !isPositiveInteger(body.dailyTargetMinutes)
+    ) {
       return reply.code(400).send({
         error: "dailyTargetMinutes must be a positive integer"
       });
     }
 
-    const weekdayTargetMinutes = useUniformDailyTarget
-      ? buildUniformWeekdayTargetMinutes(body.dailyTargetMinutes as number)
-      : parsedWeekdayTargetMinutes;
+    const weekdayTargetMinutes = parsedWeekdaySchedule
+      ? deriveWeekdayTargetMinutesFromSchedule(parsedWeekdaySchedule)
+      : useUniformDailyTarget
+        ? buildUniformWeekdayTargetMinutes(body.dailyTargetMinutes as number)
+        : parsedWeekdayTargetMinutes;
 
     if (!weekdayTargetMinutes) {
       return reply.code(400).send({
-        error: "weekdayTargetMinutes is required when useUniformDailyTarget is false"
+        error:
+          "weekdayTargetMinutes or weekdaySchedule is required when useUniformDailyTarget is false"
       });
     }
 
+    const weekdaySchedule =
+      parsedWeekdaySchedule ??
+      buildWeekdayScheduleFromTargetMinutes(weekdayTargetMinutes);
+
     const dailyTargetMinutes = deriveDailyTargetMinutes(
       useUniformDailyTarget,
-      isPositiveInteger(body.dailyTargetMinutes)
+      isPositiveInteger(body.dailyTargetMinutes) && parsedWeekdaySchedule === null
         ? body.dailyTargetMinutes
         : undefined,
       weekdayTargetMinutes
@@ -1086,7 +1223,8 @@ export function buildApp(options: BuildAppOptions = {}) {
       fullName: body.fullName.trim(),
       useUniformDailyTarget,
       dailyTargetMinutes,
-      weekdayTargetMinutes
+      weekdayTargetMinutes,
+      weekdaySchedule
     };
 
     return await store.saveProfile(profile);
@@ -1205,16 +1343,43 @@ export function buildApp(options: BuildAppOptions = {}) {
       });
     }
 
+    const breakMinutes = body.breakMinutes === undefined ? 0 : body.breakMinutes;
+    if (!isNonNegativeInteger(breakMinutes)) {
+      return reply.code(400).send({
+        error: "breakMinutes must be a non-negative integer"
+      });
+    }
+
+    if (
+      (body.startTime !== undefined && !isTimeString(body.startTime)) ||
+      (body.endTime !== undefined && !isTimeString(body.endTime))
+    ) {
+      return reply.code(400).send({
+        error: "startTime and endTime must be in HH:MM format"
+      });
+    }
+
+    const scheduleOverride: ScheduleOverride = {
+      id: randomUUID(),
+      date: body.date,
+      targetMinutes: body.targetMinutes,
+      startTime: body.startTime,
+      endTime: body.endTime,
+      breakMinutes,
+      note: typeof body.note === "string" ? body.note : undefined
+    };
+    if (!isScheduleTimingConsistent(scheduleOverride)) {
+      return reply.code(400).send({
+        error:
+          "targetMinutes must match startTime/endTime minus breakMinutes"
+      });
+    }
+
     if (body.note !== undefined && typeof body.note !== "string") {
       return reply.code(400).send({ error: "note must be a string" });
     }
 
-    const entry = await store.saveScheduleOverride({
-      id: randomUUID(),
-      date: body.date,
-      targetMinutes: body.targetMinutes,
-      note: typeof body.note === "string" ? body.note : undefined
-    });
+    const entry = await store.saveScheduleOverride(scheduleOverride);
 
     return reply.code(201).send(entry);
   });

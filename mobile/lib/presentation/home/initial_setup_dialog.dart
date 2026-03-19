@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:work_hours_mobile/application/services/hour_input_parser.dart';
+import 'package:work_hours_mobile/application/services/time_input_parser.dart';
+import 'package:work_hours_mobile/domain/models/day_schedule.dart';
 import 'package:work_hours_mobile/domain/models/profile.dart';
+import 'package:work_hours_mobile/domain/models/weekday_schedule.dart';
 import 'package:work_hours_mobile/domain/models/weekday_target_minutes.dart';
 
 class InitialSetupConfiguration {
@@ -10,6 +13,7 @@ class InitialSetupConfiguration {
     required this.useUniformDailyTarget,
     required this.dailyTargetMinutes,
     required this.weekdayTargetMinutes,
+    required this.weekdaySchedule,
   });
 
   final bool useDarkTheme;
@@ -17,6 +21,7 @@ class InitialSetupConfiguration {
   final bool useUniformDailyTarget;
   final int dailyTargetMinutes;
   final WeekdayTargetMinutes weekdayTargetMinutes;
+  final WeekdaySchedule weekdaySchedule;
 }
 
 class InitialSetupDialog extends StatefulWidget {
@@ -24,12 +29,14 @@ class InitialSetupDialog extends StatefulWidget {
     super.key,
     required this.initialProfile,
     required this.initialIsDarkTheme,
+    required this.onCompleteInitialSetup,
     required this.onThemeModeChanged,
     required this.onSaveProfile,
   });
 
   final UserProfile initialProfile;
   final bool initialIsDarkTheme;
+  final Future<void> Function() onCompleteInitialSetup;
   final Future<void> Function(bool useDarkTheme) onThemeModeChanged;
   final Future<void> Function(InitialSetupConfiguration configuration)
   onSaveProfile;
@@ -41,7 +48,19 @@ class InitialSetupDialog extends StatefulWidget {
 class _InitialSetupDialogState extends State<InitialSetupDialog> {
   final _nameController = TextEditingController();
   final _uniformDailyTargetController = TextEditingController();
+  final _uniformStartTimeController = TextEditingController();
+  final _uniformEndTimeController = TextEditingController();
+  final _uniformBreakController = TextEditingController();
   final Map<WeekdayKey, TextEditingController> _weekdayControllers = {
+    for (final weekday in WeekdayKey.values) weekday: TextEditingController(),
+  };
+  final Map<WeekdayKey, TextEditingController> _weekdayStartTimeControllers = {
+    for (final weekday in WeekdayKey.values) weekday: TextEditingController(),
+  };
+  final Map<WeekdayKey, TextEditingController> _weekdayEndTimeControllers = {
+    for (final weekday in WeekdayKey.values) weekday: TextEditingController(),
+  };
+  final Map<WeekdayKey, TextEditingController> _weekdayBreakControllers = {
     for (final weekday in WeekdayKey.values) weekday: TextEditingController(),
   };
 
@@ -61,9 +80,21 @@ class _InitialSetupDialogState extends State<InitialSetupDialog> {
     _uniformDailyTargetController.text = formatHoursInput(
       profile.dailyTargetMinutes,
     );
+    _uniformStartTimeController.text =
+        profile.weekdaySchedule.monday.startTime ?? '';
+    _uniformEndTimeController.text = profile.weekdaySchedule.monday.endTime ?? '';
+    _uniformBreakController.text = _formatBreakInput(
+      profile.weekdaySchedule.monday.breakMinutes,
+    );
     for (final weekday in WeekdayKey.values) {
+      final daySchedule = profile.weekdaySchedule.forWeekday(weekday);
       _weekdayControllers[weekday]!.text = formatHoursInput(
-        profile.weekdayTargetMinutes.forWeekday(weekday),
+        daySchedule.targetMinutes,
+      );
+      _weekdayStartTimeControllers[weekday]!.text = daySchedule.startTime ?? '';
+      _weekdayEndTimeControllers[weekday]!.text = daySchedule.endTime ?? '';
+      _weekdayBreakControllers[weekday]!.text = _formatBreakInput(
+        daySchedule.breakMinutes,
       );
     }
   }
@@ -72,7 +103,19 @@ class _InitialSetupDialogState extends State<InitialSetupDialog> {
   void dispose() {
     _nameController.dispose();
     _uniformDailyTargetController.dispose();
+    _uniformStartTimeController.dispose();
+    _uniformEndTimeController.dispose();
+    _uniformBreakController.dispose();
     for (final controller in _weekdayControllers.values) {
+      controller.dispose();
+    }
+    for (final controller in _weekdayStartTimeControllers.values) {
+      controller.dispose();
+    }
+    for (final controller in _weekdayEndTimeControllers.values) {
+      controller.dispose();
+    }
+    for (final controller in _weekdayBreakControllers.values) {
       controller.dispose();
     }
     super.dispose();
@@ -109,8 +152,9 @@ class _InitialSetupDialogState extends State<InitialSetupDialog> {
     });
 
     try {
-      await widget.onThemeModeChanged(configuration.useDarkTheme);
       await widget.onSaveProfile(configuration);
+      await widget.onCompleteInitialSetup();
+      await widget.onThemeModeChanged(configuration.useDarkTheme);
       if (!mounted) {
         return;
       }
@@ -134,10 +178,19 @@ class _InitialSetupDialogState extends State<InitialSetupDialog> {
       return null;
     }
 
-    final weekdayTargetMinutes = _buildWeekdayTargetMinutes();
-    if (weekdayTargetMinutes == null) {
+    final weekdaySchedule = _buildWeekdaySchedule();
+    if (weekdaySchedule == null) {
       return null;
     }
+    final weekdayTargetMinutes = WeekdayTargetMinutes(
+      monday: weekdaySchedule.monday.targetMinutes,
+      tuesday: weekdaySchedule.tuesday.targetMinutes,
+      wednesday: weekdaySchedule.wednesday.targetMinutes,
+      thursday: weekdaySchedule.thursday.targetMinutes,
+      friday: weekdaySchedule.friday.targetMinutes,
+      saturday: weekdaySchedule.saturday.targetMinutes,
+      sunday: weekdaySchedule.sunday.targetMinutes,
+    );
 
     final dailyTargetMinutes = _useUniformDailyTarget
         ? parseHoursInput(_uniformDailyTargetController.text)
@@ -152,10 +205,11 @@ class _InitialSetupDialogState extends State<InitialSetupDialog> {
       useUniformDailyTarget: _useUniformDailyTarget,
       dailyTargetMinutes: dailyTargetMinutes,
       weekdayTargetMinutes: weekdayTargetMinutes,
+      weekdaySchedule: weekdaySchedule,
     );
   }
 
-  WeekdayTargetMinutes? _buildWeekdayTargetMinutes() {
+  WeekdaySchedule? _buildWeekdaySchedule() {
     if (_useUniformDailyTarget) {
       final uniformMinutes = parseHoursInput(
         _uniformDailyTargetController.text,
@@ -165,28 +219,58 @@ class _InitialSetupDialogState extends State<InitialSetupDialog> {
       }
 
       _uniformDailyTargetController.text = formatHoursInput(uniformMinutes);
-      return WeekdayTargetMinutes(
-        monday: uniformMinutes,
-        tuesday: uniformMinutes,
-        wednesday: uniformMinutes,
-        thursday: uniformMinutes,
-        friday: uniformMinutes,
-        saturday: 0,
-        sunday: 0,
+      final startMinutes = parseTimeInput(_uniformStartTimeController.text);
+      final endMinutes = parseTimeInput(_uniformEndTimeController.text);
+      final hasStartTime = _uniformStartTimeController.text.trim().isNotEmpty;
+      final hasEndTime = _uniformEndTimeController.text.trim().isNotEmpty;
+      final breakMinutes = parseBreakDurationInput(_uniformBreakController.text);
+      if (breakMinutes == null) {
+        return null;
+      }
+      if (hasStartTime != hasEndTime) {
+        return null;
+      }
+      if ((hasStartTime && startMinutes == null) || (hasEndTime && endMinutes == null)) {
+        return null;
+      }
+      if ((!hasStartTime || !hasEndTime) && breakMinutes > 0) {
+        return null;
+      }
+      if (startMinutes != null && endMinutes != null) {
+        final elapsedMinutes = endMinutes - startMinutes;
+        if (elapsedMinutes < 0 || breakMinutes > elapsedMinutes) {
+          return null;
+        }
+        if ((elapsedMinutes - breakMinutes) != uniformMinutes) {
+          return null;
+        }
+        _uniformStartTimeController.text = formatTimeInput(startMinutes);
+        _uniformEndTimeController.text = formatTimeInput(endMinutes);
+      }
+      _uniformBreakController.text = _formatBreakInput(breakMinutes);
+      return WeekdaySchedule.uniform(
+        uniformMinutes,
+        startTime: startMinutes == null ? null : formatTimeInput(startMinutes),
+        endTime: endMinutes == null ? null : formatTimeInput(endMinutes),
+        breakMinutes: breakMinutes,
       );
     }
 
-    final parsedValues = <WeekdayKey, int>{};
+    final parsedValues = <WeekdayKey, DaySchedule>{};
     for (final weekday in WeekdayKey.values) {
-      final value = parseHoursInput(_weekdayControllers[weekday]!.text);
+      final value = _parseDaySchedule(
+        targetText: _weekdayControllers[weekday]!.text,
+        startTimeText: _weekdayStartTimeControllers[weekday]!.text,
+        endTimeText: _weekdayEndTimeControllers[weekday]!.text,
+        breakText: _weekdayBreakControllers[weekday]!.text,
+      );
       if (value == null) {
         return null;
       }
-      _weekdayControllers[weekday]!.text = formatHoursInput(value);
       parsedValues[weekday] = value;
     }
 
-    return WeekdayTargetMinutes(
+    return WeekdaySchedule(
       monday: parsedValues[WeekdayKey.monday]!,
       tuesday: parsedValues[WeekdayKey.tuesday]!,
       wednesday: parsedValues[WeekdayKey.wednesday]!,
@@ -194,6 +278,57 @@ class _InitialSetupDialogState extends State<InitialSetupDialog> {
       friday: parsedValues[WeekdayKey.friday]!,
       saturday: parsedValues[WeekdayKey.saturday]!,
       sunday: parsedValues[WeekdayKey.sunday]!,
+    );
+  }
+
+  DaySchedule? _parseDaySchedule({
+    required String targetText,
+    required String startTimeText,
+    required String endTimeText,
+    required String breakText,
+  }) {
+    final targetMinutes = parseHoursInput(targetText);
+    if (targetMinutes == null) {
+      return null;
+    }
+
+    final normalizedStartTimeText = startTimeText.trim();
+    final normalizedEndTimeText = endTimeText.trim();
+    final hasStartTime = normalizedStartTimeText.isNotEmpty;
+    final hasEndTime = normalizedEndTimeText.isNotEmpty;
+    if (hasStartTime != hasEndTime) {
+      return null;
+    }
+
+    final startMinutes = hasStartTime ? parseTimeInput(normalizedStartTimeText) : null;
+    final endMinutes = hasEndTime ? parseTimeInput(normalizedEndTimeText) : null;
+    if ((hasStartTime && startMinutes == null) || (hasEndTime && endMinutes == null)) {
+      return null;
+    }
+
+    final breakMinutes = parseBreakDurationInput(breakText);
+    if (breakMinutes == null) {
+      return null;
+    }
+    if ((!hasStartTime || !hasEndTime) && breakMinutes > 0) {
+      return null;
+    }
+
+    if (startMinutes != null && endMinutes != null) {
+      final elapsedMinutes = endMinutes - startMinutes;
+      if (elapsedMinutes < 0 || breakMinutes > elapsedMinutes) {
+        return null;
+      }
+      if ((elapsedMinutes - breakMinutes) != targetMinutes) {
+        return null;
+      }
+    }
+
+    return DaySchedule(
+      targetMinutes: targetMinutes,
+      startTime: startMinutes == null ? null : formatTimeInput(startMinutes),
+      endTime: endMinutes == null ? null : formatTimeInput(endMinutes),
+      breakMinutes: breakMinutes,
     );
   }
 
@@ -307,7 +442,7 @@ class _InitialSetupDialogState extends State<InitialSetupDialog> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'Imposta l orario che fai di solito. Potrai sempre modificarlo piu avanti o gestire eccezioni dal calendario.',
+              'Imposta il tuo orario standard con ore, inizio, fine e pausa. Potrai sempre modificarlo piu avanti o gestire eccezioni dal calendario.',
             ),
             const SizedBox(height: 16),
             SwitchListTile.adaptive(
@@ -325,34 +460,83 @@ class _InitialSetupDialogState extends State<InitialSetupDialog> {
             ),
             const SizedBox(height: 12),
             if (_useUniformDailyTarget)
-              TextField(
-                controller: _uniformDailyTargetController,
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
-                decoration: const InputDecoration(
-                  labelText: 'Ore standard lun-ven',
-                ),
-              )
-            else
               Wrap(
                 spacing: 12,
                 runSpacing: 12,
+                children: [
+                  SizedBox(
+                    width: 150,
+                    child: TextField(
+                      controller: _uniformDailyTargetController,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      decoration: const InputDecoration(
+                        labelText: 'Ore lun-ven',
+                      ),
+                    ),
+                  ),
+                  SizedBox(
+                    width: 120,
+                    child: TextField(
+                      controller: _uniformStartTimeController,
+                      keyboardType: TextInputType.datetime,
+                      decoration: const InputDecoration(
+                        labelText: 'Inizio',
+                        hintText: '08:30',
+                      ),
+                    ),
+                  ),
+                  SizedBox(
+                    width: 120,
+                    child: TextField(
+                      controller: _uniformEndTimeController,
+                      keyboardType: TextInputType.datetime,
+                      decoration: const InputDecoration(
+                        labelText: 'Fine',
+                        hintText: '17:00',
+                      ),
+                    ),
+                  ),
+                  SizedBox(
+                    width: 120,
+                    child: TextField(
+                      controller: _uniformBreakController,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      decoration: const InputDecoration(
+                        labelText: 'Pausa',
+                        hintText: '0:30',
+                      ),
+                    ),
+                  ),
+                ],
+              )
+            else
+              Column(
                 children: WeekdayKey.values
                     .map(
-                      (weekday) => SizedBox(
-                        width: 120,
-                        child: TextField(
-                          controller: _weekdayControllers[weekday],
-                          keyboardType: const TextInputType.numberWithOptions(
-                            decimal: true,
-                          ),
-                          decoration: InputDecoration(labelText: weekday.label),
+                      (weekday) => Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: _InitialSetupDayRow(
+                          weekday: weekday,
+                          targetController: _weekdayControllers[weekday]!,
+                          startTimeController:
+                              _weekdayStartTimeControllers[weekday]!,
+                          endTimeController:
+                              _weekdayEndTimeControllers[weekday]!,
+                          breakController: _weekdayBreakControllers[weekday]!,
                         ),
                       ),
                     )
                     .toList(growable: false),
               ),
+            const SizedBox(height: 12),
+            Text(
+              'Se imposti inizio, fine e pausa, il totale deve tornare con le ore lavorate.',
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
           ],
         );
       default:
@@ -381,6 +565,93 @@ class _InitialSetupDialogState extends State<InitialSetupDialog> {
         value.thursday +
         value.friday;
     return (total / 5).round();
+  }
+}
+
+String _formatBreakInput(int minutes) {
+  return minutes == 0 ? '' : formatHoursInput(minutes);
+}
+
+class _InitialSetupDayRow extends StatelessWidget {
+  const _InitialSetupDayRow({
+    required this.weekday,
+    required this.targetController,
+    required this.startTimeController,
+    required this.endTimeController,
+    required this.breakController,
+  });
+
+  final WeekdayKey weekday;
+  final TextEditingController targetController;
+  final TextEditingController startTimeController;
+  final TextEditingController endTimeController;
+  final TextEditingController breakController;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: Theme.of(context).dividerColor.withValues(alpha: 0.35),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            weekday.label,
+            style: Theme.of(
+              context,
+            ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              SizedBox(
+                width: 110,
+                child: TextField(
+                  controller: targetController,
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                  decoration: const InputDecoration(labelText: 'Ore'),
+                ),
+              ),
+              SizedBox(
+                width: 100,
+                child: TextField(
+                  controller: startTimeController,
+                  keyboardType: TextInputType.datetime,
+                  decoration: const InputDecoration(labelText: 'Inizio'),
+                ),
+              ),
+              SizedBox(
+                width: 100,
+                child: TextField(
+                  controller: endTimeController,
+                  keyboardType: TextInputType.datetime,
+                  decoration: const InputDecoration(labelText: 'Fine'),
+                ),
+              ),
+              SizedBox(
+                width: 100,
+                child: TextField(
+                  controller: breakController,
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                  decoration: const InputDecoration(labelText: 'Pausa'),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
   }
 }
 

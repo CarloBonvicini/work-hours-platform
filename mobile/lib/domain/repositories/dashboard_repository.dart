@@ -1,6 +1,7 @@
 import 'package:work_hours_mobile/domain/models/dashboard_snapshot.dart';
 import 'package:work_hours_mobile/domain/models/leave_entry.dart';
 import 'package:work_hours_mobile/domain/models/support_ticket.dart';
+import 'package:work_hours_mobile/domain/models/weekday_schedule.dart';
 import 'package:work_hours_mobile/domain/models/weekday_target_minutes.dart';
 
 abstract class DashboardRepository {
@@ -11,6 +12,7 @@ abstract class DashboardRepository {
     required bool useUniformDailyTarget,
     required int dailyTargetMinutes,
     required WeekdayTargetMinutes weekdayTargetMinutes,
+    required WeekdaySchedule weekdaySchedule,
     required String month,
   });
 
@@ -32,6 +34,9 @@ abstract class DashboardRepository {
   Future<DashboardSnapshot> saveScheduleOverride({
     required String date,
     required int targetMinutes,
+    String? startTime,
+    String? endTime,
+    required int breakMinutes,
     String? note,
     required String month,
   });

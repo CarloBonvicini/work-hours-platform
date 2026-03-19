@@ -8,11 +8,13 @@ import 'package:work_hours_mobile/application/services/update_launcher.dart';
 import 'package:work_hours_mobile/application/services/update_reminder_store.dart';
 import 'package:work_hours_mobile/domain/models/app_update.dart';
 import 'package:work_hours_mobile/domain/models/dashboard_snapshot.dart';
+import 'package:work_hours_mobile/domain/models/day_schedule.dart';
 import 'package:work_hours_mobile/domain/models/leave_entry.dart';
 import 'package:work_hours_mobile/domain/models/monthly_summary.dart';
 import 'package:work_hours_mobile/domain/models/profile.dart';
 import 'package:work_hours_mobile/domain/models/schedule_override.dart';
 import 'package:work_hours_mobile/domain/models/support_ticket.dart';
+import 'package:work_hours_mobile/domain/models/weekday_schedule.dart';
 import 'package:work_hours_mobile/domain/models/weekday_target_minutes.dart';
 import 'package:work_hours_mobile/domain/models/work_entry.dart';
 import 'package:work_hours_mobile/domain/repositories/dashboard_repository.dart';
@@ -192,16 +194,27 @@ void main() {
     expect(find.text('Configurazione iniziale 3/3'), findsOneWidget);
     await tester.tap(find.text('Stesse ore ogni giorno lavorativo'));
     await tester.pumpAndSettle();
-    expect(find.byType(TextField), findsOneWidget);
-    await tester.enterText(find.byType(TextField), '7,30');
+    expect(find.byType(TextField), findsNWidgets(4));
+    await tester.enterText(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is TextField &&
+            widget.decoration?.labelText == 'Ore lun-ven',
+      ),
+      '8',
+    );
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Inizia'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
     await tester.pumpAndSettle();
 
     expect(find.text('Configurazione iniziale 1/3'), findsNothing);
     expect(onboardingStore.markCompletedCalls, 1);
     expect(themePreferenceStore.savedThemeModes, [ThemeMode.dark]);
     expect(repository.savedFullName, 'Carlo');
-    expect(repository.savedDailyTargetMinutes, 450);
+    expect(repository.savedDailyTargetMinutes, 480);
+    expect(repository.savedWeekdaySchedule?.monday.targetMinutes, 480);
   });
 
   testWidgets('submits a support ticket from the app', (tester) async {
@@ -375,6 +388,7 @@ class _FakeDashboardRepository implements DashboardRepository {
   String? savedFullName;
   int? savedDailyTargetMinutes;
   WeekdayTargetMinutes? savedWeekdayTargetMinutes;
+  WeekdaySchedule? savedWeekdaySchedule;
   SupportTicketCategory? submittedTicketCategory;
   String? submittedTicketName;
   String? submittedTicketEmail;
@@ -420,6 +434,40 @@ class _FakeDashboardRepository implements DashboardRepository {
           saturday: 0,
           sunday: 0,
         ),
+        weekdaySchedule: WeekdaySchedule(
+          monday: DaySchedule(
+            targetMinutes: 480,
+            startTime: '08:30',
+            endTime: '17:00',
+            breakMinutes: 30,
+          ),
+          tuesday: DaySchedule(
+            targetMinutes: 360,
+            startTime: '08:30',
+            endTime: '15:00',
+            breakMinutes: 30,
+          ),
+          wednesday: DaySchedule(
+            targetMinutes: 360,
+            startTime: '08:30',
+            endTime: '15:00',
+            breakMinutes: 30,
+          ),
+          thursday: DaySchedule(
+            targetMinutes: 480,
+            startTime: '08:30',
+            endTime: '17:00',
+            breakMinutes: 30,
+          ),
+          friday: DaySchedule(
+            targetMinutes: 480,
+            startTime: '08:30',
+            endTime: '17:00',
+            breakMinutes: 30,
+          ),
+          saturday: DaySchedule(targetMinutes: 0),
+          sunday: DaySchedule(targetMinutes: 0),
+        ),
       ),
       summary: const MonthlySummary(
         month: '2026-03',
@@ -450,6 +498,9 @@ class _FakeDashboardRepository implements DashboardRepository {
           id: 'override-1',
           date: '2026-03-04',
           targetMinutes: 240,
+          startTime: '09:00',
+          endTime: '13:30',
+          breakMinutes: 30,
           note: 'Scambio turno',
         ),
       ],
@@ -463,11 +514,13 @@ class _FakeDashboardRepository implements DashboardRepository {
     required bool useUniformDailyTarget,
     required int dailyTargetMinutes,
     required WeekdayTargetMinutes weekdayTargetMinutes,
+    required WeekdaySchedule weekdaySchedule,
     required String month,
   }) {
     savedFullName = fullName;
     savedDailyTargetMinutes = dailyTargetMinutes;
     savedWeekdayTargetMinutes = weekdayTargetMinutes;
+    savedWeekdaySchedule = weekdaySchedule;
     return loadSnapshot(month: month);
   }
 
@@ -475,6 +528,9 @@ class _FakeDashboardRepository implements DashboardRepository {
   Future<DashboardSnapshot> saveScheduleOverride({
     required String date,
     required int targetMinutes,
+    String? startTime,
+    String? endTime,
+    required int breakMinutes,
     String? note,
     required String month,
   }) {

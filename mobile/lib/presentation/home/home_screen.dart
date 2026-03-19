@@ -5,14 +5,17 @@ import 'package:work_hours_mobile/application/services/app_update_service.dart';
 import 'package:work_hours_mobile/application/services/dashboard_service.dart';
 import 'package:work_hours_mobile/application/services/hour_input_parser.dart';
 import 'package:work_hours_mobile/application/services/onboarding_preference_store.dart';
+import 'package:work_hours_mobile/application/services/time_input_parser.dart';
 import 'package:work_hours_mobile/application/services/update_launcher.dart';
 import 'package:work_hours_mobile/application/services/update_reminder_store.dart';
 import 'package:work_hours_mobile/data/api/work_hours_api_client.dart';
 import 'package:work_hours_mobile/domain/models/app_update.dart';
 import 'package:work_hours_mobile/domain/models/dashboard_snapshot.dart';
+import 'package:work_hours_mobile/domain/models/day_schedule.dart';
 import 'package:work_hours_mobile/domain/models/leave_entry.dart';
 import 'package:work_hours_mobile/domain/models/schedule_override.dart';
 import 'package:work_hours_mobile/domain/models/support_ticket.dart';
+import 'package:work_hours_mobile/domain/models/weekday_schedule.dart';
 import 'package:work_hours_mobile/domain/models/weekday_target_minutes.dart';
 import 'package:work_hours_mobile/presentation/home/initial_setup_dialog.dart';
 
@@ -58,10 +61,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final _ticketFormKey = GlobalKey<FormState>();
   final _fullNameController = TextEditingController();
   final _uniformDailyTargetController = TextEditingController();
+  final _uniformStartTimeController = TextEditingController();
+  final _uniformEndTimeController = TextEditingController();
+  final _uniformBreakController = TextEditingController();
   final _entryDateController = TextEditingController();
   final _entryMinutesController = TextEditingController();
   final _entryNoteController = TextEditingController();
   final _scheduleOverrideTargetController = TextEditingController();
+  final _scheduleOverrideStartTimeController = TextEditingController();
+  final _scheduleOverrideEndTimeController = TextEditingController();
+  final _scheduleOverrideBreakController = TextEditingController();
   final _scheduleOverrideNoteController = TextEditingController();
   final _ticketNameController = TextEditingController();
   final _ticketEmailController = TextEditingController();
@@ -71,6 +80,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     text: const String.fromEnvironment('APP_VERSION', defaultValue: '0.1.0'),
   );
   final Map<WeekdayKey, TextEditingController> _weekdayControllers = {
+    for (final weekday in WeekdayKey.values) weekday: TextEditingController(),
+  };
+  final Map<WeekdayKey, TextEditingController> _weekdayStartTimeControllers = {
+    for (final weekday in WeekdayKey.values) weekday: TextEditingController(),
+  };
+  final Map<WeekdayKey, TextEditingController> _weekdayEndTimeControllers = {
+    for (final weekday in WeekdayKey.values) weekday: TextEditingController(),
+  };
+  final Map<WeekdayKey, TextEditingController> _weekdayBreakControllers = {
     for (final weekday in WeekdayKey.values) weekday: TextEditingController(),
   };
 
@@ -129,10 +147,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     _fullNameController.dispose();
     _uniformDailyTargetController.dispose();
+    _uniformStartTimeController.dispose();
+    _uniformEndTimeController.dispose();
+    _uniformBreakController.dispose();
     _entryDateController.dispose();
     _entryMinutesController.dispose();
     _entryNoteController.dispose();
     _scheduleOverrideTargetController.dispose();
+    _scheduleOverrideStartTimeController.dispose();
+    _scheduleOverrideEndTimeController.dispose();
+    _scheduleOverrideBreakController.dispose();
     _scheduleOverrideNoteController.dispose();
     _ticketNameController.dispose();
     _ticketEmailController.dispose();
@@ -140,6 +164,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _ticketMessageController.dispose();
     _ticketAppVersionController.dispose();
     for (final controller in _weekdayControllers.values) {
+      controller.dispose();
+    }
+    for (final controller in _weekdayStartTimeControllers.values) {
+      controller.dispose();
+    }
+    for (final controller in _weekdayEndTimeControllers.values) {
+      controller.dispose();
+    }
+    for (final controller in _weekdayBreakControllers.values) {
       controller.dispose();
     }
     super.dispose();
@@ -201,6 +234,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       builder: (context) => InitialSetupDialog(
         initialProfile: snapshot.profile,
         initialIsDarkTheme: widget.isDarkTheme,
+        onCompleteInitialSetup: () async {
+          await widget.onboardingPreferenceStore.markInitialSetupCompleted();
+          _hasCompletedInitialSetup = true;
+        },
         onThemeModeChanged: widget.onThemeModeChanged,
         onSaveProfile: (configuration) async {
           final savedSnapshot = await widget.dashboardService.saveProfile(
@@ -208,6 +245,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             useUniformDailyTarget: configuration.useUniformDailyTarget,
             dailyTargetMinutes: configuration.dailyTargetMinutes,
             weekdayTargetMinutes: configuration.weekdayTargetMinutes,
+            weekdaySchedule: configuration.weekdaySchedule,
             month: _snapshot?.summary.month,
           );
           _hydrateControllers(savedSnapshot, _selectedDate);
@@ -223,8 +261,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _isShowingOnboardingDialog = false;
 
     if (wasCompleted == true && mounted) {
-      await widget.onboardingPreferenceStore.markInitialSetupCompleted();
-      _hasCompletedInitialSetup = true;
       unawaited(_checkForUpdate());
     }
   }
@@ -301,20 +337,26 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _uniformDailyTargetController.text = _formatHoursInput(
       snapshot.profile.dailyTargetMinutes,
     );
+    _uniformStartTimeController.text =
+        snapshot.profile.weekdaySchedule.monday.startTime ?? '';
+    _uniformEndTimeController.text =
+        snapshot.profile.weekdaySchedule.monday.endTime ?? '';
+    _uniformBreakController.text = _formatBreakInput(
+      snapshot.profile.weekdaySchedule.monday.breakMinutes,
+    );
     for (final weekday in WeekdayKey.values) {
+      final daySchedule = snapshot.profile.weekdaySchedule.forWeekday(weekday);
       _weekdayControllers[weekday]!.text = _formatHoursInput(
-        snapshot.profile.weekdayTargetMinutes.forWeekday(weekday),
+        daySchedule.targetMinutes,
+      );
+      _weekdayStartTimeControllers[weekday]!.text = daySchedule.startTime ?? '';
+      _weekdayEndTimeControllers[weekday]!.text = daySchedule.endTime ?? '';
+      _weekdayBreakControllers[weekday]!.text = _formatBreakInput(
+        daySchedule.breakMinutes,
       );
     }
 
-    final selectedOverride = _findScheduleOverrideForDate(
-      snapshot,
-      selectedDate,
-    );
-    _scheduleOverrideTargetController.text = selectedOverride == null
-        ? ''
-        : _formatHoursInput(selectedOverride.targetMinutes);
-    _scheduleOverrideNoteController.text = selectedOverride?.note ?? '';
+    _hydrateSelectedDateControllers(snapshot, selectedDate);
     if (_ticketNameController.text.trim().isEmpty) {
       _ticketNameController.text = snapshot.profile.fullName;
     }
@@ -356,29 +398,21 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       return;
     }
 
-    final weekdayTargetMinutes = _buildWeekdayTargetMinutesFromControllers();
-    if (weekdayTargetMinutes == null) {
+    final weekdaySchedule = _buildWeekdayScheduleFromControllers();
+    if (weekdaySchedule == null) {
       setState(() {
-        _errorMessage = 'Compila un valore valido per ogni giorno.';
+        _errorMessage =
+            'Controlla ore, inizio, fine e pausa. Se imposti gli orari, il totale deve tornare.';
       });
       return;
     }
 
-    final uniformDailyTargetMinutes = _parseHoursInput(
-      _uniformDailyTargetController.text,
+    final weekdayTargetMinutes = _deriveWeekdayTargetMinutesFromSchedule(
+      weekdaySchedule,
     );
-    if (_useUniformDailyTarget && uniformDailyTargetMinutes == null) {
-      setState(() {
-        _errorMessage = 'Inserisci un orario giornaliero valido.';
-      });
-      return;
-    }
-
-    if (_useUniformDailyTarget && uniformDailyTargetMinutes != null) {
-      _uniformDailyTargetController.text = _formatHoursInput(
-        uniformDailyTargetMinutes,
-      );
-    }
+    final uniformDailyTargetMinutes = _useUniformDailyTarget
+        ? weekdaySchedule.monday.targetMinutes
+        : null;
 
     setState(() {
       _isSavingProfile = true;
@@ -393,6 +427,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             uniformDailyTargetMinutes ??
             _averageWorkingDayTargetMinutes(weekdayTargetMinutes),
         weekdayTargetMinutes: weekdayTargetMinutes,
+        weekdaySchedule: weekdaySchedule,
         month: _snapshot?.summary.month,
       );
 
@@ -483,18 +518,19 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       return;
     }
 
-    final targetMinutes = _parseHoursInput(
-      _scheduleOverrideTargetController.text,
+    final overrideSchedule = _parseDayScheduleInput(
+      targetText: _scheduleOverrideTargetController.text,
+      startTimeText: _scheduleOverrideStartTimeController.text,
+      endTimeText: _scheduleOverrideEndTimeController.text,
+      breakText: _scheduleOverrideBreakController.text,
     );
-    if (targetMinutes == null) {
+    if (overrideSchedule == null) {
       setState(() {
         _errorMessage =
-            'Inserisci un orario valido per l eccezione del giorno selezionato.';
+            'Controlla ore, inizio, fine e pausa dell eccezione del giorno selezionato.';
       });
       return;
     }
-
-    _scheduleOverrideTargetController.text = _formatHoursInput(targetMinutes);
 
     setState(() {
       _isSavingScheduleOverride = true;
@@ -505,7 +541,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       final note = _scheduleOverrideNoteController.text.trim();
       final snapshot = await widget.dashboardService.saveScheduleOverride(
         date: DashboardService.defaultEntryDateOf(_selectedDate),
-        targetMinutes: targetMinutes,
+        targetMinutes: overrideSchedule.targetMinutes,
+        startTime: overrideSchedule.startTime,
+        endTime: overrideSchedule.endTime,
+        breakMinutes: overrideSchedule.breakMinutes,
         note: note.isEmpty ? null : note,
       );
 
@@ -709,30 +748,66 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _entryDateController.text = DashboardService.defaultEntryDateOf(
       normalizedDate,
     );
-    final selectedOverride = _snapshot == null
-        ? null
-        : _findScheduleOverrideForDate(_snapshot!, normalizedDate);
-    _scheduleOverrideTargetController.text = selectedOverride == null
-        ? ''
-        : _formatHoursInput(selectedOverride.targetMinutes);
-    _scheduleOverrideNoteController.text = selectedOverride?.note ?? '';
+    if (_snapshot != null) {
+      _hydrateSelectedDateControllers(_snapshot!, normalizedDate);
+    }
     setState(() {
       _selectedDate = normalizedDate;
     });
   }
 
-  WeekdayTargetMinutes? _buildWeekdayTargetMinutesFromControllers() {
-    final parsedValues = <WeekdayKey, int>{};
+  void _hydrateSelectedDateControllers(
+    DashboardSnapshot snapshot,
+    DateTime selectedDate,
+  ) {
+    final selectedOverride = _findScheduleOverrideForDate(snapshot, selectedDate);
+    final daySchedule = _resolveEffectiveDayScheduleForDate(snapshot, selectedDate);
+    _scheduleOverrideTargetController.text = _formatHoursInput(
+      daySchedule.targetMinutes,
+    );
+    _scheduleOverrideStartTimeController.text = daySchedule.startTime ?? '';
+    _scheduleOverrideEndTimeController.text = daySchedule.endTime ?? '';
+    _scheduleOverrideBreakController.text = _formatBreakInput(
+      daySchedule.breakMinutes,
+    );
+    _scheduleOverrideNoteController.text = selectedOverride?.note ?? '';
+  }
+
+  WeekdaySchedule? _buildWeekdayScheduleFromControllers() {
+    if (_useUniformDailyTarget) {
+      final uniformSchedule = _parseDayScheduleInput(
+        targetText: _uniformDailyTargetController.text,
+        startTimeText: _uniformStartTimeController.text,
+        endTimeText: _uniformEndTimeController.text,
+        breakText: _uniformBreakController.text,
+      );
+      if (uniformSchedule == null) {
+        return null;
+      }
+
+      return WeekdaySchedule.uniform(
+        uniformSchedule.targetMinutes,
+        startTime: uniformSchedule.startTime,
+        endTime: uniformSchedule.endTime,
+        breakMinutes: uniformSchedule.breakMinutes,
+      );
+    }
+
+    final parsedValues = <WeekdayKey, DaySchedule>{};
     for (final weekday in WeekdayKey.values) {
-      final parsedValue = _parseHoursInput(_weekdayControllers[weekday]!.text);
+      final parsedValue = _parseDayScheduleInput(
+        targetText: _weekdayControllers[weekday]!.text,
+        startTimeText: _weekdayStartTimeControllers[weekday]!.text,
+        endTimeText: _weekdayEndTimeControllers[weekday]!.text,
+        breakText: _weekdayBreakControllers[weekday]!.text,
+      );
       if (parsedValue == null) {
         return null;
       }
-      _weekdayControllers[weekday]!.text = _formatHoursInput(parsedValue);
       parsedValues[weekday] = parsedValue;
     }
 
-    return WeekdayTargetMinutes(
+    return WeekdaySchedule(
       monday: parsedValues[WeekdayKey.monday]!,
       tuesday: parsedValues[WeekdayKey.tuesday]!,
       wednesday: parsedValues[WeekdayKey.wednesday]!,
@@ -740,6 +815,142 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       friday: parsedValues[WeekdayKey.friday]!,
       saturday: parsedValues[WeekdayKey.saturday]!,
       sunday: parsedValues[WeekdayKey.sunday]!,
+    );
+  }
+
+  DaySchedule? _parseDayScheduleInput({
+    required String targetText,
+    required String startTimeText,
+    required String endTimeText,
+    required String breakText,
+  }) {
+    final targetMinutes = _parseHoursInput(targetText);
+    if (targetMinutes == null) {
+      return null;
+    }
+
+    final normalizedStartTimeText = startTimeText.trim();
+    final normalizedEndTimeText = endTimeText.trim();
+    final hasStartTime = normalizedStartTimeText.isNotEmpty;
+    final hasEndTime = normalizedEndTimeText.isNotEmpty;
+    if (hasStartTime != hasEndTime) {
+      return null;
+    }
+
+    final startMinutes = hasStartTime
+        ? parseTimeInput(normalizedStartTimeText)
+        : null;
+    final endMinutes = hasEndTime ? parseTimeInput(normalizedEndTimeText) : null;
+    if ((hasStartTime && startMinutes == null) ||
+        (hasEndTime && endMinutes == null)) {
+      return null;
+    }
+
+    final breakMinutes = parseBreakDurationInput(breakText);
+    if (breakMinutes == null) {
+      return null;
+    }
+    if ((!hasStartTime || !hasEndTime) && breakMinutes > 0) {
+      return null;
+    }
+
+    if (startMinutes != null && endMinutes != null) {
+      final elapsedMinutes = endMinutes - startMinutes;
+      if (elapsedMinutes < 0 || breakMinutes > elapsedMinutes) {
+        return null;
+      }
+      if ((elapsedMinutes - breakMinutes) != targetMinutes) {
+        return null;
+      }
+    }
+
+    _normalizeScheduleInputs(
+      targetText: targetText,
+      startTimeText: startTimeText,
+      endTimeText: endTimeText,
+      breakText: breakText,
+      targetMinutes: targetMinutes,
+      startMinutes: startMinutes,
+      endMinutes: endMinutes,
+      breakMinutes: breakMinutes,
+    );
+
+    return DaySchedule(
+      targetMinutes: targetMinutes,
+      startTime: startMinutes == null ? null : formatTimeInput(startMinutes),
+      endTime: endMinutes == null ? null : formatTimeInput(endMinutes),
+      breakMinutes: breakMinutes,
+    );
+  }
+
+  void _normalizeScheduleInputs({
+    required String targetText,
+    required String startTimeText,
+    required String endTimeText,
+    required String breakText,
+    required int targetMinutes,
+    required int? startMinutes,
+    required int? endMinutes,
+    required int breakMinutes,
+  }) {
+    void assignIfMatches(String source, TextEditingController controller, String value) {
+      if (controller.text == source) {
+        controller.text = value;
+      }
+    }
+
+    assignIfMatches(targetText, _uniformDailyTargetController, _formatHoursInput(targetMinutes));
+    assignIfMatches(targetText, _scheduleOverrideTargetController, _formatHoursInput(targetMinutes));
+    for (final controller in _weekdayControllers.values) {
+      assignIfMatches(targetText, controller, _formatHoursInput(targetMinutes));
+    }
+
+    final normalizedStart = startMinutes == null ? '' : formatTimeInput(startMinutes);
+    final normalizedEnd = endMinutes == null ? '' : formatTimeInput(endMinutes);
+    assignIfMatches(startTimeText, _uniformStartTimeController, normalizedStart);
+    assignIfMatches(endTimeText, _uniformEndTimeController, normalizedEnd);
+    assignIfMatches(
+      breakText,
+      _uniformBreakController,
+      _formatBreakInput(breakMinutes),
+    );
+    assignIfMatches(
+      startTimeText,
+      _scheduleOverrideStartTimeController,
+      normalizedStart,
+    );
+    assignIfMatches(
+      endTimeText,
+      _scheduleOverrideEndTimeController,
+      normalizedEnd,
+    );
+    assignIfMatches(
+      breakText,
+      _scheduleOverrideBreakController,
+      _formatBreakInput(breakMinutes),
+    );
+    for (final controller in _weekdayStartTimeControllers.values) {
+      assignIfMatches(startTimeText, controller, normalizedStart);
+    }
+    for (final controller in _weekdayEndTimeControllers.values) {
+      assignIfMatches(endTimeText, controller, normalizedEnd);
+    }
+    for (final controller in _weekdayBreakControllers.values) {
+      assignIfMatches(breakText, controller, _formatBreakInput(breakMinutes));
+    }
+  }
+
+  WeekdayTargetMinutes _deriveWeekdayTargetMinutesFromSchedule(
+    WeekdaySchedule schedule,
+  ) {
+    return WeekdayTargetMinutes(
+      monday: schedule.monday.targetMinutes,
+      tuesday: schedule.tuesday.targetMinutes,
+      wednesday: schedule.wednesday.targetMinutes,
+      thursday: schedule.thursday.targetMinutes,
+      friday: schedule.friday.targetMinutes,
+      saturday: schedule.saturday.targetMinutes,
+      sunday: schedule.sunday.targetMinutes,
     );
   }
 
@@ -767,16 +978,35 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     return null;
   }
 
-  int _resolveExpectedMinutesForDate(
+  DaySchedule _resolveBaseDayScheduleForDate(
+    DashboardSnapshot snapshot,
+    DateTime date,
+  ) {
+    return snapshot.profile.weekdaySchedule.forDate(date);
+  }
+
+  DaySchedule _resolveEffectiveDayScheduleForDate(
     DashboardSnapshot snapshot,
     DateTime date,
   ) {
     final scheduleOverride = _findScheduleOverrideForDate(snapshot, date);
-    if (scheduleOverride != null) {
-      return scheduleOverride.targetMinutes;
+    if (scheduleOverride == null) {
+      return _resolveBaseDayScheduleForDate(snapshot, date);
     }
 
-    return snapshot.profile.weekdayTargetMinutes.forDate(date);
+    return DaySchedule(
+      targetMinutes: scheduleOverride.targetMinutes,
+      startTime: scheduleOverride.startTime,
+      endTime: scheduleOverride.endTime,
+      breakMinutes: scheduleOverride.breakMinutes,
+    );
+  }
+
+  int _resolveExpectedMinutesForDate(
+    DashboardSnapshot snapshot,
+    DateTime date,
+  ) {
+    return _resolveEffectiveDayScheduleForDate(snapshot, date).targetMinutes;
   }
 
   DateTime _resolveSelectedDateForMonth(
@@ -955,7 +1185,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           month: snapshot.summary.month,
           selectedDate: _selectedDate,
           days: _buildCalendarDays(snapshot),
-          expectedMinutes: _resolveExpectedMinutesForDate(
+          expectedMinutes: _resolveExpectedMinutesForDate(snapshot, _selectedDate),
+          baseDaySchedule: _resolveBaseDayScheduleForDate(snapshot, _selectedDate),
+          effectiveDaySchedule: _resolveEffectiveDayScheduleForDate(
             snapshot,
             _selectedDate,
           ),
@@ -965,6 +1197,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           ),
           overrideFormKey: _scheduleOverrideFormKey,
           overrideTargetController: _scheduleOverrideTargetController,
+          overrideStartTimeController: _scheduleOverrideStartTimeController,
+          overrideEndTimeController: _scheduleOverrideEndTimeController,
+          overrideBreakController: _scheduleOverrideBreakController,
           overrideNoteController: _scheduleOverrideNoteController,
           isSavingOverride: _isSavingScheduleOverride,
           selectedActivities: _buildActivitiesForDate(snapshot, _selectedDate),
@@ -987,7 +1222,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             });
           },
           uniformDailyTargetController: _uniformDailyTargetController,
+          uniformStartTimeController: _uniformStartTimeController,
+          uniformEndTimeController: _uniformEndTimeController,
+          uniformBreakController: _uniformBreakController,
           weekdayControllers: _weekdayControllers,
+          weekdayStartTimeControllers: _weekdayStartTimeControllers,
+          weekdayEndTimeControllers: _weekdayEndTimeControllers,
+          weekdayBreakControllers: _weekdayBreakControllers,
           isBusy: _isSavingProfile,
           isDarkTheme: widget.isDarkTheme,
           isUpdatingThemeMode: _isUpdatingThemeMode,
@@ -1246,9 +1487,14 @@ class _CalendarCard extends StatelessWidget {
     required this.selectedDate,
     required this.days,
     required this.expectedMinutes,
+    required this.baseDaySchedule,
+    required this.effectiveDaySchedule,
     required this.selectedOverride,
     required this.overrideFormKey,
     required this.overrideTargetController,
+    required this.overrideStartTimeController,
+    required this.overrideEndTimeController,
+    required this.overrideBreakController,
     required this.overrideNoteController,
     required this.isSavingOverride,
     required this.selectedActivities,
@@ -1263,9 +1509,14 @@ class _CalendarCard extends StatelessWidget {
   final DateTime selectedDate;
   final List<_CalendarDay> days;
   final int expectedMinutes;
+  final DaySchedule baseDaySchedule;
+  final DaySchedule effectiveDaySchedule;
   final ScheduleOverride? selectedOverride;
   final GlobalKey<FormState> overrideFormKey;
   final TextEditingController overrideTargetController;
+  final TextEditingController overrideStartTimeController;
+  final TextEditingController overrideEndTimeController;
+  final TextEditingController overrideBreakController;
   final TextEditingController overrideNoteController;
   final bool isSavingOverride;
   final List<_ActivityItem> selectedActivities;
@@ -1345,6 +1596,19 @@ class _CalendarCard extends StatelessWidget {
                 : 'Target eccezionale ${_formatHours(expectedMinutes)}',
             style: Theme.of(context).textTheme.bodyLarge,
           ),
+          const SizedBox(height: 8),
+          _ScheduleSummary(
+            label: selectedOverride == null ? 'Orario previsto' : 'Orario eccezione',
+            schedule: effectiveDaySchedule,
+          ),
+          if (selectedOverride != null) ...[
+            const SizedBox(height: 6),
+            _ScheduleSummary(
+              label: 'Orario base',
+              schedule: baseDaySchedule,
+              emphasize: false,
+            ),
+          ],
           if (selectedOverride?.note?.isNotEmpty == true) ...[
             const SizedBox(height: 4),
             Text(
@@ -1366,13 +1630,68 @@ class _CalendarCard extends StatelessWidget {
                   decoration: const InputDecoration(
                     labelText: 'Ore previste per questo giorno',
                   ),
-                  validator: (value) {
-                    if (_parseHoursInput(value) == null) {
-                      return 'Inserisci un orario valido.';
-                    }
-
-                    return null;
-                  },
+                  validator: (_) => _validateScheduleDraft(
+                    targetText: overrideTargetController.text,
+                    startTimeText: overrideStartTimeController.text,
+                    endTimeText: overrideEndTimeController.text,
+                    breakText: overrideBreakController.text,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 12,
+                  children: [
+                    SizedBox(
+                      width: 140,
+                      child: TextFormField(
+                        controller: overrideStartTimeController,
+                        keyboardType: TextInputType.datetime,
+                        decoration: const InputDecoration(labelText: 'Inizio'),
+                        validator: (_) => _validateScheduleDraft(
+                          targetText: overrideTargetController.text,
+                          startTimeText: overrideStartTimeController.text,
+                          endTimeText: overrideEndTimeController.text,
+                          breakText: overrideBreakController.text,
+                        ),
+                      ),
+                    ),
+                    SizedBox(
+                      width: 140,
+                      child: TextFormField(
+                        controller: overrideEndTimeController,
+                        keyboardType: TextInputType.datetime,
+                        decoration: const InputDecoration(labelText: 'Fine'),
+                        validator: (_) => _validateScheduleDraft(
+                          targetText: overrideTargetController.text,
+                          startTimeText: overrideStartTimeController.text,
+                          endTimeText: overrideEndTimeController.text,
+                          breakText: overrideBreakController.text,
+                        ),
+                      ),
+                    ),
+                    SizedBox(
+                      width: 140,
+                      child: TextFormField(
+                        controller: overrideBreakController,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        decoration: const InputDecoration(labelText: 'Pausa'),
+                        validator: (_) => _validateScheduleDraft(
+                          targetText: overrideTargetController.text,
+                          startTimeText: overrideStartTimeController.text,
+                          endTimeText: overrideEndTimeController.text,
+                          breakText: overrideBreakController.text,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  'Se imposti inizio e fine, la pausa deve far tornare il totale della giornata.',
+                  style: Theme.of(context).textTheme.bodyMedium,
                 ),
                 const SizedBox(height: 12),
                 TextFormField(
@@ -1595,7 +1914,13 @@ class _ProfileCard extends StatelessWidget {
     required this.useUniformDailyTarget,
     required this.onUniformDailyTargetChanged,
     required this.uniformDailyTargetController,
+    required this.uniformStartTimeController,
+    required this.uniformEndTimeController,
+    required this.uniformBreakController,
     required this.weekdayControllers,
+    required this.weekdayStartTimeControllers,
+    required this.weekdayEndTimeControllers,
+    required this.weekdayBreakControllers,
     required this.isBusy,
     required this.isDarkTheme,
     required this.isUpdatingThemeMode,
@@ -1608,7 +1933,13 @@ class _ProfileCard extends StatelessWidget {
   final bool useUniformDailyTarget;
   final ValueChanged<bool> onUniformDailyTargetChanged;
   final TextEditingController uniformDailyTargetController;
+  final TextEditingController uniformStartTimeController;
+  final TextEditingController uniformEndTimeController;
+  final TextEditingController uniformBreakController;
   final Map<WeekdayKey, TextEditingController> weekdayControllers;
+  final Map<WeekdayKey, TextEditingController> weekdayStartTimeControllers;
+  final Map<WeekdayKey, TextEditingController> weekdayEndTimeControllers;
+  final Map<WeekdayKey, TextEditingController> weekdayBreakControllers;
   final bool isBusy;
   final bool isDarkTheme;
   final bool isUpdatingThemeMode;
@@ -1648,48 +1979,98 @@ class _ProfileCard extends StatelessWidget {
             ),
             const SizedBox(height: 18),
             if (useUniformDailyTarget)
-              TextFormField(
-                controller: uniformDailyTargetController,
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
-                decoration: const InputDecoration(
-                  labelText: 'Ore standard lun-ven',
-                ),
-                validator: (value) {
-                  if (_parseHoursInput(value) == null) {
-                    return 'Inserisci un orario valido.';
-                  }
-
-                  return null;
-                },
-              )
-            else
               Wrap(
                 spacing: 12,
                 runSpacing: 12,
+                children: [
+                  SizedBox(
+                    width: 150,
+                    child: TextFormField(
+                      controller: uniformDailyTargetController,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      decoration: const InputDecoration(
+                        labelText: 'Ore standard lun-ven',
+                      ),
+                      validator: (_) => _validateScheduleDraft(
+                        targetText: uniformDailyTargetController.text,
+                        startTimeText: uniformStartTimeController.text,
+                        endTimeText: uniformEndTimeController.text,
+                        breakText: uniformBreakController.text,
+                      ),
+                    ),
+                  ),
+                  SizedBox(
+                    width: 120,
+                    child: TextFormField(
+                      controller: uniformStartTimeController,
+                      keyboardType: TextInputType.datetime,
+                      decoration: const InputDecoration(labelText: 'Inizio'),
+                      validator: (_) => _validateScheduleDraft(
+                        targetText: uniformDailyTargetController.text,
+                        startTimeText: uniformStartTimeController.text,
+                        endTimeText: uniformEndTimeController.text,
+                        breakText: uniformBreakController.text,
+                      ),
+                    ),
+                  ),
+                  SizedBox(
+                    width: 120,
+                    child: TextFormField(
+                      controller: uniformEndTimeController,
+                      keyboardType: TextInputType.datetime,
+                      decoration: const InputDecoration(labelText: 'Fine'),
+                      validator: (_) => _validateScheduleDraft(
+                        targetText: uniformDailyTargetController.text,
+                        startTimeText: uniformStartTimeController.text,
+                        endTimeText: uniformEndTimeController.text,
+                        breakText: uniformBreakController.text,
+                      ),
+                    ),
+                  ),
+                  SizedBox(
+                    width: 120,
+                    child: TextFormField(
+                      controller: uniformBreakController,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      decoration: const InputDecoration(labelText: 'Pausa'),
+                      validator: (_) => _validateScheduleDraft(
+                        targetText: uniformDailyTargetController.text,
+                        startTimeText: uniformStartTimeController.text,
+                        endTimeText: uniformEndTimeController.text,
+                        breakText: uniformBreakController.text,
+                      ),
+                    ),
+                  ),
+                ],
+              )
+            else
+              Column(
                 children: WeekdayKey.values
                     .map(
-                      (weekday) => SizedBox(
-                        width: 140,
-                        child: TextFormField(
-                          controller: weekdayControllers[weekday],
-                          keyboardType: const TextInputType.numberWithOptions(
-                            decimal: true,
-                          ),
-                          decoration: InputDecoration(labelText: weekday.label),
-                          validator: (value) {
-                            if (_parseHoursInput(value) == null) {
-                              return 'Valore non valido.';
-                            }
-
-                            return null;
-                          },
+                      (weekday) => Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: _DayScheduleEditorRow(
+                          weekday: weekday,
+                          targetController: weekdayControllers[weekday]!,
+                          startTimeController:
+                              weekdayStartTimeControllers[weekday]!,
+                          endTimeController:
+                              weekdayEndTimeControllers[weekday]!,
+                          breakController: weekdayBreakControllers[weekday]!,
                         ),
                       ),
                     )
                     .toList(growable: false),
               ),
+            const SizedBox(height: 10),
+            Text(
+              'La pausa e facoltativa e puo cambiare giorno per giorno. Se imposti inizio e fine, il totale deve essere coerente.',
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
             const SizedBox(height: 18),
             FilledButton.tonalIcon(
               onPressed: isBusy ? null : () => onSubmit(),
@@ -1713,6 +2094,136 @@ class _ProfileCard extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _ScheduleSummary extends StatelessWidget {
+  const _ScheduleSummary({
+    required this.label,
+    required this.schedule,
+    this.emphasize = true,
+  });
+
+  final String label;
+  final DaySchedule schedule;
+  final bool emphasize;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Text(
+      '$label: ${_formatDayScheduleDetails(schedule)}',
+      style: (emphasize ? theme.textTheme.bodyLarge : theme.textTheme.bodyMedium)
+          ?.copyWith(fontWeight: emphasize ? FontWeight.w600 : FontWeight.w500),
+    );
+  }
+}
+
+class _DayScheduleEditorRow extends StatelessWidget {
+  const _DayScheduleEditorRow({
+    required this.weekday,
+    required this.targetController,
+    required this.startTimeController,
+    required this.endTimeController,
+    required this.breakController,
+  });
+
+  final WeekdayKey weekday;
+  final TextEditingController targetController;
+  final TextEditingController startTimeController;
+  final TextEditingController endTimeController;
+  final TextEditingController breakController;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: Theme.of(context).dividerColor.withValues(alpha: 0.35),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            weekday.label,
+            style: Theme.of(
+              context,
+            ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              SizedBox(
+                width: 120,
+                child: TextFormField(
+                  controller: targetController,
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                  decoration: const InputDecoration(labelText: 'Ore'),
+                  validator: (_) => _validateScheduleDraft(
+                    targetText: targetController.text,
+                    startTimeText: startTimeController.text,
+                    endTimeText: endTimeController.text,
+                    breakText: breakController.text,
+                  ),
+                ),
+              ),
+              SizedBox(
+                width: 100,
+                child: TextFormField(
+                  controller: startTimeController,
+                  keyboardType: TextInputType.datetime,
+                  decoration: const InputDecoration(labelText: 'Inizio'),
+                  validator: (_) => _validateScheduleDraft(
+                    targetText: targetController.text,
+                    startTimeText: startTimeController.text,
+                    endTimeText: endTimeController.text,
+                    breakText: breakController.text,
+                  ),
+                ),
+              ),
+              SizedBox(
+                width: 100,
+                child: TextFormField(
+                  controller: endTimeController,
+                  keyboardType: TextInputType.datetime,
+                  decoration: const InputDecoration(labelText: 'Fine'),
+                  validator: (_) => _validateScheduleDraft(
+                    targetText: targetController.text,
+                    startTimeText: startTimeController.text,
+                    endTimeText: endTimeController.text,
+                    breakText: breakController.text,
+                  ),
+                ),
+              ),
+              SizedBox(
+                width: 100,
+                child: TextFormField(
+                  controller: breakController,
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                  decoration: const InputDecoration(labelText: 'Pausa'),
+                  validator: (_) => _validateScheduleDraft(
+                    targetText: targetController.text,
+                    startTimeText: startTimeController.text,
+                    endTimeText: endTimeController.text,
+                    breakText: breakController.text,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
@@ -2528,6 +3039,71 @@ String _formatLongDate(DateTime date) {
   ];
 
   return '${date.day} ${monthNames[date.month - 1]} ${date.year}';
+}
+
+String? _validateScheduleDraft({
+  required String targetText,
+  required String startTimeText,
+  required String endTimeText,
+  required String breakText,
+}) {
+  final targetMinutes = parseHoursInput(targetText);
+  if (targetMinutes == null) {
+    return 'Inserisci ore valide.';
+  }
+
+  final normalizedStart = startTimeText.trim();
+  final normalizedEnd = endTimeText.trim();
+  final hasStart = normalizedStart.isNotEmpty;
+  final hasEnd = normalizedEnd.isNotEmpty;
+  if (hasStart != hasEnd) {
+    return 'Compila sia inizio che fine.';
+  }
+
+  final startMinutes = hasStart ? parseTimeInput(normalizedStart) : null;
+  final endMinutes = hasEnd ? parseTimeInput(normalizedEnd) : null;
+  if ((hasStart && startMinutes == null) || (hasEnd && endMinutes == null)) {
+    return 'Controlla l orario inserito.';
+  }
+
+  final breakMinutes = parseBreakDurationInput(breakText);
+  if (breakMinutes == null) {
+    return 'Controlla la pausa.';
+  }
+  if ((!hasStart || !hasEnd) && breakMinutes > 0) {
+    return 'La pausa richiede anche inizio e fine.';
+  }
+
+  if (startMinutes != null && endMinutes != null) {
+    final elapsedMinutes = endMinutes - startMinutes;
+    if (elapsedMinutes < 0) {
+      return 'L orario di fine deve essere dopo l inizio.';
+    }
+    if (breakMinutes > elapsedMinutes) {
+      return 'La pausa non puo superare la durata della giornata.';
+    }
+    if ((elapsedMinutes - breakMinutes) != targetMinutes) {
+      return 'Ore, inizio, fine e pausa non coincidono.';
+    }
+  }
+
+  return null;
+}
+
+String _formatDayScheduleDetails(DaySchedule schedule) {
+  final scheduleParts = <String>[];
+  if (schedule.startTime != null && schedule.endTime != null) {
+    scheduleParts.add('${schedule.startTime} - ${schedule.endTime}');
+  }
+  if (schedule.breakMinutes > 0) {
+    scheduleParts.add('pausa ${_formatHoursInput(schedule.breakMinutes)}');
+  }
+  scheduleParts.add('target ${_formatHours(schedule.targetMinutes)}');
+  return scheduleParts.join(' • ');
+}
+
+String _formatBreakInput(int minutes) {
+  return minutes == 0 ? '' : formatHoursInput(minutes);
 }
 
 class _Header extends StatelessWidget {

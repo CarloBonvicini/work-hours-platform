@@ -6,6 +6,7 @@ import 'package:work_hours_mobile/domain/models/monthly_summary.dart';
 import 'package:work_hours_mobile/domain/models/profile.dart';
 import 'package:work_hours_mobile/domain/models/schedule_override.dart';
 import 'package:work_hours_mobile/domain/models/support_ticket.dart';
+import 'package:work_hours_mobile/domain/models/weekday_schedule.dart';
 import 'package:work_hours_mobile/domain/models/weekday_target_minutes.dart';
 import 'package:work_hours_mobile/domain/models/work_entry.dart';
 
@@ -41,6 +42,7 @@ class WorkHoursApiClient {
     required bool useUniformDailyTarget,
     required int dailyTargetMinutes,
     required WeekdayTargetMinutes weekdayTargetMinutes,
+    required WeekdaySchedule weekdaySchedule,
   }) async {
     final response = await _httpClient.put(
       _buildUri('profile'),
@@ -50,6 +52,7 @@ class WorkHoursApiClient {
         'useUniformDailyTarget': useUniformDailyTarget,
         'dailyTargetMinutes': dailyTargetMinutes,
         'weekdayTargetMinutes': weekdayTargetMinutes.toJson(),
+        'weekdaySchedule': weekdaySchedule.toJson(),
       }),
     );
 
@@ -152,6 +155,9 @@ class WorkHoursApiClient {
   Future<ScheduleOverride> createScheduleOverride({
     required String date,
     required int targetMinutes,
+    String? startTime,
+    String? endTime,
+    required int breakMinutes,
     String? note,
   }) async {
     final response = await _httpClient.post(
@@ -160,6 +166,9 @@ class WorkHoursApiClient {
       body: jsonEncode({
         'date': date,
         'targetMinutes': targetMinutes,
+        if (startTime != null && startTime.isNotEmpty) 'startTime': startTime,
+        if (endTime != null && endTime.isNotEmpty) 'endTime': endTime,
+        'breakMinutes': breakMinutes,
         if (note != null && note.isNotEmpty) 'note': note,
       }),
     );

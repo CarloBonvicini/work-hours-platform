@@ -1,3 +1,4 @@
+import 'package:work_hours_mobile/domain/models/weekday_schedule.dart';
 import 'package:work_hours_mobile/domain/models/weekday_target_minutes.dart';
 
 class UserProfile {
@@ -7,6 +8,7 @@ class UserProfile {
     required this.useUniformDailyTarget,
     required this.dailyTargetMinutes,
     required this.weekdayTargetMinutes,
+    required this.weekdaySchedule,
   });
 
   final String id;
@@ -14,6 +16,7 @@ class UserProfile {
   final bool useUniformDailyTarget;
   final int dailyTargetMinutes;
   final WeekdayTargetMinutes weekdayTargetMinutes;
+  final WeekdaySchedule weekdaySchedule;
 
   factory UserProfile.fromJson(Map<String, dynamic> json) {
     return UserProfile(
@@ -23,6 +26,12 @@ class UserProfile {
       dailyTargetMinutes: json['dailyTargetMinutes'] as int,
       weekdayTargetMinutes: WeekdayTargetMinutes.fromJson(
         json['weekdayTargetMinutes'] as Map<String, dynamic>,
+      ),
+      weekdaySchedule: WeekdaySchedule.fromJson(
+        json['weekdaySchedule'] as Map<String, dynamic>? ?? const {},
+        fallbackTargets: WeekdayTargetMinutes.fromJson(
+          json['weekdayTargetMinutes'] as Map<String, dynamic>,
+        ),
       ),
     );
   }

@@ -35,4 +35,21 @@ void main() {
     expect(formatHoursInput(450), '7:30');
     expect(formatHoursInput(425), '7:05');
   });
+
+  group('parseBreakDurationInput', () {
+    test('accepts common pause formats', () {
+      expect(parseBreakDurationInput(''), 0);
+      expect(parseBreakDurationInput('30'), 30);
+      expect(parseBreakDurationInput('45'), 45);
+      expect(parseBreakDurationInput('1'), 60);
+      expect(parseBreakDurationInput('1:00'), 60);
+      expect(parseBreakDurationInput('0:30'), 30);
+      expect(parseBreakDurationInput('1h'), 60);
+    });
+
+    test('rejects invalid pause values', () {
+      expect(parseBreakDurationInput('abc'), isNull);
+      expect(parseBreakDurationInput('-1'), isNull);
+    });
+  });
 }

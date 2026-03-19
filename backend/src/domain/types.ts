@@ -9,6 +9,14 @@ export type Weekday =
   | "sunday";
 
 export type WeekdayTargetMinutes = Record<Weekday, number>;
+export interface DaySchedule {
+  targetMinutes: number;
+  startTime?: string;
+  endTime?: string;
+  breakMinutes: number;
+}
+
+export type WeekdaySchedule = Record<Weekday, DaySchedule>;
 
 export interface Profile {
   id: string;
@@ -16,6 +24,7 @@ export interface Profile {
   useUniformDailyTarget: boolean;
   dailyTargetMinutes: number;
   weekdayTargetMinutes: WeekdayTargetMinutes;
+  weekdaySchedule: WeekdaySchedule;
 }
 
 export interface WorkEntry {
@@ -37,6 +46,9 @@ export interface ScheduleOverride {
   id: string;
   date: string;
   targetMinutes: number;
+  startTime?: string;
+  endTime?: string;
+  breakMinutes: number;
   note?: string;
 }
 

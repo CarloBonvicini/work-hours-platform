@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
 import {
   buildExpectedMinutes,
+  buildUniformWeekdaySchedule,
   buildUniformWeekdayTargetMinutes
 } from "../src/domain/monthly-summary.js";
 
@@ -45,6 +46,12 @@ describe("Profile API", () => {
         friday: 480,
         saturday: 0,
         sunday: 0
+      },
+      weekdaySchedule: {
+        monday: {
+          targetMinutes: 480,
+          breakMinutes: 0
+        }
       }
     });
 
@@ -66,6 +73,12 @@ describe("Profile API", () => {
         friday: 480,
         saturday: 0,
         sunday: 0
+      },
+      weekdaySchedule: {
+        monday: {
+          targetMinutes: 480,
+          breakMinutes: 0
+        }
       }
     });
   });
@@ -86,6 +99,15 @@ describe("Work and leave entries API", () => {
         friday: 480,
         saturday: 0,
         sunday: 0
+      },
+      weekdaySchedule: {
+        monday: { targetMinutes: 480, startTime: "08:30", endTime: "17:00", breakMinutes: 30 },
+        tuesday: { targetMinutes: 360, startTime: "08:30", endTime: "15:00", breakMinutes: 30 },
+        wednesday: { targetMinutes: 360, startTime: "08:30", endTime: "15:00", breakMinutes: 30 },
+        thursday: { targetMinutes: 480, startTime: "08:30", endTime: "17:00", breakMinutes: 30 },
+        friday: { targetMinutes: 480, startTime: "08:30", endTime: "17:00", breakMinutes: 30 },
+        saturday: { targetMinutes: 0, breakMinutes: 0 },
+        sunday: { targetMinutes: 0, breakMinutes: 0 }
       }
     };
 
@@ -95,7 +117,7 @@ describe("Work and leave entries API", () => {
       payload: {
         fullName: profile.fullName,
         useUniformDailyTarget: profile.useUniformDailyTarget,
-        weekdayTargetMinutes: profile.weekdayTargetMinutes
+        weekdaySchedule: profile.weekdaySchedule
       }
     });
 
@@ -137,6 +159,9 @@ describe("Work and leave entries API", () => {
       payload: {
         date: "2026-03-03",
         targetMinutes: 480,
+        startTime: "08:30",
+        endTime: "17:30",
+        breakMinutes: 60,
         note: "Scambio turno"
       }
     });
@@ -166,6 +191,9 @@ describe("Work and leave entries API", () => {
         id: expect.any(String),
         date: "2026-03-03",
         targetMinutes: 480,
+        startTime: "08:30",
+        endTime: "17:30",
+        breakMinutes: 60,
         note: "Scambio turno"
       }
     ]);
@@ -183,6 +211,9 @@ describe("Work and leave entries API", () => {
         id: "override-1",
         date: "2026-03-03",
         targetMinutes: 480,
+        startTime: "08:30",
+        endTime: "17:30",
+        breakMinutes: 60,
         note: "Scambio turno"
       }
     ]);
@@ -211,7 +242,32 @@ describe("Work and leave entries API", () => {
       fullName: "Uniforme",
       useUniformDailyTarget: true,
       dailyTargetMinutes: 420,
-      weekdayTargetMinutes: buildUniformWeekdayTargetMinutes(420)
+      weekdayTargetMinutes: buildUniformWeekdayTargetMinutes(420),
+      weekdaySchedule: {
+        monday: { targetMinutes: 420, breakMinutes: 0 },
+        friday: { targetMinutes: 420, breakMinutes: 0 },
+        saturday: { targetMinutes: 0, breakMinutes: 0 },
+        sunday: { targetMinutes: 0, breakMinutes: 0 }
+      }
+    });
+  });
+
+  it("rejects schedule override when target does not match timing minus break", async () => {
+    const response = await app.inject({
+      method: "POST",
+      url: "/schedule-overrides",
+      payload: {
+        date: "2026-03-05",
+        targetMinutes: 360,
+        startTime: "08:30",
+        endTime: "17:00",
+        breakMinutes: 30
+      }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({
+      error: "targetMinutes must match startTime/endTime minus breakMinutes"
     });
   });
 

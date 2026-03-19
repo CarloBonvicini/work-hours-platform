@@ -1,9 +1,11 @@
 import type {
+  DaySchedule,
   LeaveEntry,
   MonthlySummary,
   Profile,
   ScheduleOverride,
   Weekday,
+  WeekdaySchedule,
   WorkEntry
 } from "./types.js";
 
@@ -82,6 +84,43 @@ export function buildUniformWeekdayTargetMinutes(
     friday: dailyTargetMinutes,
     saturday: 0,
     sunday: 0
+  };
+}
+
+export function buildUniformWeekdaySchedule(
+  dailyTargetMinutes: number,
+  options: {
+    startTime?: string;
+    endTime?: string;
+    breakMinutes?: number;
+  } = {}
+): WeekdaySchedule {
+  const weekdaySchedule: WeekdaySchedule = {
+    monday: buildDaySchedule(dailyTargetMinutes, options),
+    tuesday: buildDaySchedule(dailyTargetMinutes, options),
+    wednesday: buildDaySchedule(dailyTargetMinutes, options),
+    thursday: buildDaySchedule(dailyTargetMinutes, options),
+    friday: buildDaySchedule(dailyTargetMinutes, options),
+    saturday: buildDaySchedule(0),
+    sunday: buildDaySchedule(0)
+  };
+
+  return weekdaySchedule;
+}
+
+function buildDaySchedule(
+  targetMinutes: number,
+  options: {
+    startTime?: string;
+    endTime?: string;
+    breakMinutes?: number;
+  } = {}
+): DaySchedule {
+  return {
+    targetMinutes,
+    startTime: options.startTime,
+    endTime: options.endTime,
+    breakMinutes: options.breakMinutes ?? 0
   };
 }
 
