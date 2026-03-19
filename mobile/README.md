@@ -53,6 +53,7 @@ flutter run ^
 Nota:
 - se la feed release non e pubblica, il controllo automatico non vedra aggiornamenti
 - con repository GitHub privato serve una feed pubblica alternativa oppure un endpoint backend/proxy
+- una feed alternativa puo stare anche su un sottopercorso di un dominio esistente, per esempio `https://auth.autocaptionservices.work/work-hours/latest.json`
 
 ### Firma APK per update in-place
 
@@ -86,3 +87,26 @@ lib/
 - workflow manuale: `Mobile Release`
 - trigger automatico: push di un tag tipo `mobile-v0.1.0`
 - package id Android: `com.carlobonvicini.workhours`
+- per le release GitHub l APK deve ricevere `API_BASE_URL` reale:
+  - secret repository `MOBILE_API_BASE_URL`, oppure
+  - input `api_base_url` nel workflow manuale
+- se `API_BASE_URL` manca, il workflow ora fallisce invece di pubblicare un APK che punta a `10.0.2.2`
+- per testare il bottone update con repo GitHub privato, configura anche:
+  - secret `MOBILE_UPDATE_FEED_URL`
+  - secret `MOBILE_UPDATE_PAGE_URL`
+
+### Esempio feed update pubblica
+
+Il client accetta anche una feed JSON pubblica con questo schema:
+
+```json
+{
+  "tag_name": "mobile-v0.1.4",
+  "html_url": "https://auth.autocaptionservices.work/work-hours/releases/mobile-v0.1.4",
+  "assets": [
+    {
+      "browser_download_url": "https://auth.autocaptionservices.work/work-hours/downloads/app-release-0.1.4.apk"
+    }
+  ]
+}
+```

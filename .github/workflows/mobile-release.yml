@@ -21,6 +21,18 @@ on:
         required: true
         default: "Work Hours Mobile"
         type: string
+      api_base_url:
+        description: Base URL backend per l'app mobile (es. https://api.example.com)
+        required: false
+        type: string
+      update_feed_url:
+        description: Feed pubblica update per il client (es. https://auth.autocaptionservices.work/work-hours/latest.json)
+        required: false
+        type: string
+      update_page_url:
+        description: Pagina pubblica release/download per il client
+        required: false
+        type: string
   push:
     tags:
       - "mobile-v*"
@@ -57,6 +69,55 @@ jobs:
             echo "build_number=${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
             echo "release_name=Work Hours Mobile $version" >> "$GITHUB_OUTPUT"
           fi
+
+      - name: Resolve mobile API base URL
+        id: api
+        shell: bash
+        working-directory: .
+        env:
+          INPUT_API_BASE_URL: ${{ inputs.api_base_url }}
+          SECRET_API_BASE_URL: ${{ secrets.MOBILE_API_BASE_URL }}
+        run: |
+          if [ -n "$INPUT_API_BASE_URL" ]; then
+            api_base_url="$INPUT_API_BASE_URL"
+          elif [ -n "$SECRET_API_BASE_URL" ]; then
+            api_base_url="$SECRET_API_BASE_URL"
+          else
+            echo "API base URL mancante."
+            echo "Configura il secret MOBILE_API_BASE_URL oppure passa l input api_base_url nel workflow manuale."
+            exit 1
+          fi
+
+          echo "api_base_url=$api_base_url" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve mobile update feed
+        id: update
+        shell: bash
+        working-directory: .
+        env:
+          INPUT_UPDATE_FEED_URL: ${{ inputs.update_feed_url }}
+          INPUT_UPDATE_PAGE_URL: ${{ inputs.update_page_url }}
+          SECRET_UPDATE_FEED_URL: ${{ secrets.MOBILE_UPDATE_FEED_URL }}
+          SECRET_UPDATE_PAGE_URL: ${{ secrets.MOBILE_UPDATE_PAGE_URL }}
+        run: |
+          if [ -n "$INPUT_UPDATE_FEED_URL" ]; then
+            update_feed_url="$INPUT_UPDATE_FEED_URL"
+          elif [ -n "$SECRET_UPDATE_FEED_URL" ]; then
+            update_feed_url="$SECRET_UPDATE_FEED_URL"
+          else
+            update_feed_url="https://api.github.com/repos/CarloBonvicini/work-hours-platform/releases/latest"
+          fi
+
+          if [ -n "$INPUT_UPDATE_PAGE_URL" ]; then
+            update_page_url="$INPUT_UPDATE_PAGE_URL"
+          elif [ -n "$SECRET_UPDATE_PAGE_URL" ]; then
+            update_page_url="$SECRET_UPDATE_PAGE_URL"
+          else
+            update_page_url="https://github.com/CarloBonvicini/work-hours-platform/releases/latest"
+          fi
+
+          echo "update_feed_url=$update_feed_url" >> "$GITHUB_OUTPUT"
+          echo "update_page_url=$update_page_url" >> "$GITHUB_OUTPUT"
 
       - name: Setup Java
         uses: actions/setup-java@v5
@@ -101,7 +162,10 @@ jobs:
           flutter build apk --release
           --build-name="${{ steps.meta.outputs.build_name }}"
           --build-number="${{ steps.meta.outputs.build_number }}"
+          --dart-define=API_BASE_URL="${{ steps.api.outputs.api_base_url }}"
           --dart-define=APP_VERSION="${{ steps.meta.outputs.build_name }}"
+          --dart-define=UPDATE_FEED_URL="${{ steps.update.outputs.update_feed_url }}"
+          --dart-define=UPDATE_PAGE_URL="${{ steps.update.outputs.update_page_url }}"
 
       - name: Create or update GitHub release
         env:
