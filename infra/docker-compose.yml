@@ -1,3 +1,5 @@
+version: "2.1"
+
 services:
   api:
     image: ${API_IMAGE:-ghcr.io/carlobonvicini/work-hours-api:latest}
