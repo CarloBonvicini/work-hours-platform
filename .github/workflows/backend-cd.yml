@@ -17,6 +17,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          clean: false
 
       - name: Set image name
         run: echo "IMAGE_NAME=ghcr.io/carlobonvicini/work-hours-api" >> "$GITHUB_ENV"

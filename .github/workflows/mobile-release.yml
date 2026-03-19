@@ -42,7 +42,79 @@ on:
       - "mobile-v*"
 
 jobs:
+  mark-mobile-release-in-progress:
+    name: Mark Mobile Release In Progress
+    runs-on: self-hosted
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          clean: false
+
+      - name: Resolve release metadata
+        id: meta
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "release_tag=${{ inputs.release_tag }}" >> "$GITHUB_OUTPUT"
+            echo "build_name=${{ inputs.build_name }}" >> "$GITHUB_OUTPUT"
+            echo "build_number=${{ inputs.build_number }}" >> "$GITHUB_OUTPUT"
+          else
+            tag="${GITHUB_REF_NAME}"
+            version="${tag#mobile-v}"
+            echo "release_tag=$tag" >> "$GITHUB_OUTPUT"
+            echo "build_name=$version" >> "$GITHUB_OUTPUT"
+            echo "build_number=${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Resolve mobile update target
+        id: update
+        shell: bash
+        env:
+          INPUT_UPDATE_BASE_URL: ${{ inputs.update_base_url }}
+          SECRET_UPDATE_BASE_URL: ${{ secrets.MOBILE_UPDATE_BASE_URL }}
+        run: |
+          sanitize_value() {
+            printf '%s' "$1" | tr -d '\r\n'
+          }
+
+          if [ -n "$INPUT_UPDATE_BASE_URL" ]; then
+            update_base_url="$(sanitize_value "${INPUT_UPDATE_BASE_URL%/}")"
+          elif [ -n "$SECRET_UPDATE_BASE_URL" ]; then
+            update_base_url="$(sanitize_value "${SECRET_UPDATE_BASE_URL%/}")"
+          else
+            update_base_url=""
+          fi
+
+          if [ -n "$update_base_url" ]; then
+            echo "publish_update_feed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish_update_feed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Mark release as publishing
+        if: ${{ steps.update.outputs.publish_update_feed == 'true' }}
+        shell: bash
+        run: |
+          set -eu
+
+          updates_dir="infra/updates"
+          mkdir -p "$updates_dir"
+
+          cat > "$updates_dir/release-status.json" <<EOF_STATUS
+          {
+            "state": "publishing",
+            "tag": "${{ steps.meta.outputs.release_tag }}",
+            "version": "${{ steps.meta.outputs.build_name }}",
+            "buildNumber": "${{ steps.meta.outputs.build_number }}",
+            "startedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          }
+          EOF_STATUS
+
   build-and-release-android:
+    needs: mark-mobile-release-in-progress
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -226,7 +298,7 @@ jobs:
 
   publish-mobile-update-feed:
     name: Publish Mobile Update Feed
-    needs: build-and-release-android
+    needs: [mark-mobile-release-in-progress, build-and-release-android]
     if: ${{ needs.build-and-release-android.outputs.publish_update_feed == 'true' }}
     runs-on: self-hosted
     permissions:
@@ -235,6 +307,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          clean: false
 
       - name: Sync update metadata and apk to server workspace
         shell: bash
@@ -284,3 +358,24 @@ jobs:
             "publishedAt": "${published_at}"
           }
           EOF_META
+
+          rm -f "$updates_dir/release-status.json"
+
+  clear-mobile-release-status:
+    name: Clear Mobile Release Status
+    needs: [mark-mobile-release-in-progress, build-and-release-android, publish-mobile-update-feed]
+    if: ${{ always() }}
+    runs-on: self-hosted
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          clean: false
+
+      - name: Clear release in progress marker
+        shell: bash
+        run: |
+          rm -f infra/updates/release-status.json

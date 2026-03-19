@@ -32,6 +32,14 @@ interface MobileReleaseMetadata {
   publishedAt?: string;
 }
 
+interface MobileReleaseStatus {
+  state: "publishing";
+  tag: string;
+  version: string;
+  buildNumber: string;
+  startedAt?: string;
+}
+
 function parseMonthQuery(query: unknown): string | null | undefined {
   if (!query || typeof query !== "object") {
     return undefined;
@@ -112,6 +120,10 @@ function getReleaseMetadataPath() {
   return path.join(getUpdatesDirectory(), "latest-release.json");
 }
 
+function getReleaseStatusPath() {
+  return path.join(getUpdatesDirectory(), "release-status.json");
+}
+
 async function loadReleaseMetadata(): Promise<MobileReleaseMetadata | null> {
   try {
     const rawValue = await fs.readFile(getReleaseMetadataPath(), "utf8");
@@ -132,6 +144,31 @@ async function loadReleaseMetadata(): Promise<MobileReleaseMetadata | null> {
       fileName: parsedValue.fileName,
       releaseNotes: parsedValue.releaseNotes,
       publishedAt: parsedValue.publishedAt
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function loadReleaseStatus(): Promise<MobileReleaseStatus | null> {
+  try {
+    const rawValue = await fs.readFile(getReleaseStatusPath(), "utf8");
+    const parsedValue = JSON.parse(rawValue) as Partial<MobileReleaseStatus>;
+    if (
+      parsedValue.state !== "publishing" ||
+      typeof parsedValue.tag !== "string" ||
+      typeof parsedValue.version !== "string" ||
+      typeof parsedValue.buildNumber !== "string"
+    ) {
+      return null;
+    }
+
+    return {
+      state: "publishing",
+      tag: parsedValue.tag,
+      version: parsedValue.version,
+      buildNumber: parsedValue.buildNumber,
+      startedAt: parsedValue.startedAt
     };
   } catch {
     return null;
@@ -176,15 +213,21 @@ function escapeHtml(value: string) {
 function renderLandingPage(options: {
   baseUrl: string;
   latestRelease: MobileReleaseMetadata | null;
+  releaseStatus: MobileReleaseStatus | null;
 }) {
-  const { baseUrl, latestRelease } = options;
+  const { baseUrl, latestRelease, releaseStatus } = options;
   const downloadUrl = `${baseUrl}/mobile-updates/releases/latest`;
   const hasRelease = latestRelease !== null;
+  const isPublishing = releaseStatus?.state === "publishing";
   const titleLabel = hasRelease ? "Ultima release Android" : "APK in preparazione";
   const versionValue = hasRelease ? latestRelease.version : "Non disponibile";
-  const detailLabel = hasRelease
-    ? `Build ${latestRelease.buildNumber} - file ${latestRelease.fileName}`
-    : "Pubblica una release mobile per attivare il download pubblico.";
+  const detailLabel = isPublishing
+    ? hasRelease
+      ? `La versione ${releaseStatus.version} e in rilascio. Il download dell APK tornera disponibile appena la pubblicazione termina.`
+      : `La versione ${releaseStatus.version} e in rilascio. L APK sara disponibile appena la pubblicazione termina.`
+    : hasRelease
+      ? `Build ${latestRelease.buildNumber} - file ${latestRelease.fileName}`
+      : "Pubblica una release mobile per attivare il download pubblico.";
   const publishedAt = latestRelease?.publishedAt
     ? new Date(latestRelease.publishedAt).toLocaleString("it-IT", {
         dateStyle: "medium",
@@ -196,9 +239,11 @@ function renderLandingPage(options: {
     : "Nessuna release pubblicata.";
   const notesLabel = latestRelease?.releaseNotes ?? "Prima distribuzione Android via APK diretta.";
 
-  const primaryAction = hasRelease
-    ? `<a class="button primary" href="${escapeHtml(downloadUrl)}">Scarica APK</a>`
-    : `<span class="button disabled">APK non disponibile</span>`;
+  const primaryAction = isPublishing
+    ? `<span class="button disabled">APK temporaneamente non disponibile</span>`
+    : hasRelease
+      ? `<a class="button primary" href="${escapeHtml(downloadUrl)}">Scarica APK</a>`
+      : `<span class="button disabled">APK non disponibile</span>`;
 
   return `<!DOCTYPE html>
 <html lang="it">
@@ -433,11 +478,12 @@ export function buildApp(options: BuildAppOptions = {}) {
 
   app.get("/", async (request, reply) => {
     const latestRelease = await loadReleaseMetadata();
+    const releaseStatus = await loadReleaseStatus();
     const baseUrl = getPublicBaseUrl(request);
 
     return reply
       .type("text/html; charset=utf-8")
-      .send(renderLandingPage({ baseUrl, latestRelease }));
+      .send(renderLandingPage({ baseUrl, latestRelease, releaseStatus }));
   });
 
   app.get("/health", async () => {

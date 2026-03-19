@@ -136,4 +136,45 @@ describe("Mobile updates API", () => {
     );
     expect(downloadResponse.body).toBe("fake-apk");
   });
+
+  it("keeps the previous release visible while a new mobile release is publishing", async () => {
+    tempDirectory = await mkdtemp(path.join(os.tmpdir(), "work-hours-updates-"));
+    await mkdir(path.join(tempDirectory, "downloads"), { recursive: true });
+    await writeFile(
+      path.join(tempDirectory, "latest-release.json"),
+      JSON.stringify({
+        tag: "mobile-v0.1.8",
+        version: "0.1.8",
+        buildNumber: "18",
+        fileName: "work-hours-mobile-0.1.8.apk",
+        releaseNotes: "Android APK build 0.1.8 (18).",
+        publishedAt: "2026-03-19T12:00:00.000Z"
+      })
+    );
+    await writeFile(
+      path.join(tempDirectory, "release-status.json"),
+      JSON.stringify({
+        state: "publishing",
+        tag: "mobile-v0.1.9",
+        version: "0.1.9",
+        buildNumber: "19",
+        startedAt: "2026-03-19T12:10:00.000Z"
+      })
+    );
+
+    process.env.MOBILE_UPDATES_DIR = tempDirectory;
+    process.env.MOBILE_UPDATES_PUBLIC_BASE_URL = "https://updates.example.com";
+    app = buildApp();
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toContain("0.1.8");
+    expect(response.body).toContain("La versione 0.1.9 e in rilascio.");
+    expect(response.body).toContain("APK temporaneamente non disponibile");
+    expect(response.body).not.toContain("APK non disponibile");
+  });
 });
