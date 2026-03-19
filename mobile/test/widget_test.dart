@@ -4,6 +4,7 @@ import 'package:work_hours_mobile/application/services/app_update_service.dart';
 import 'package:work_hours_mobile/application/services/dashboard_service.dart';
 import 'package:work_hours_mobile/domain/models/app_update.dart';
 import 'package:work_hours_mobile/domain/models/dashboard_snapshot.dart';
+import 'package:work_hours_mobile/domain/models/leave_entry.dart';
 import 'package:work_hours_mobile/domain/models/monthly_summary.dart';
 import 'package:work_hours_mobile/domain/models/profile.dart';
 import 'package:work_hours_mobile/domain/models/work_entry.dart';
@@ -30,8 +31,10 @@ void main() {
     expect(find.textContaining('Backend collegato'), findsOneWidget);
     expect(find.text('Profilo'), findsOneWidget);
     expect(find.text('Inserisci ore'), findsOneWidget);
+    expect(find.text('Permessi e ferie'), findsOneWidget);
     expect(find.text('Salva profilo'), findsOneWidget);
     expect(find.text('Registra ore'), findsOneWidget);
+    expect(find.text('Registra permesso/ferie'), findsOneWidget);
     expect(find.text('Aggiornamento disponibile'), findsOneWidget);
   });
 }
@@ -54,6 +57,17 @@ class _FakeAppUpdateService implements AppUpdateService {
 }
 
 class _FakeDashboardRepository implements DashboardRepository {
+  @override
+  Future<DashboardSnapshot> addLeaveEntry({
+    required String date,
+    required int minutes,
+    required LeaveType type,
+    String? note,
+    required String month,
+  }) {
+    return loadSnapshot(month: month);
+  }
+
   @override
   Future<DashboardSnapshot> addWorkEntry({
     required String date,
@@ -85,6 +99,15 @@ class _FakeDashboardRepository implements DashboardRepository {
           date: '2026-03-03',
           minutes: 420,
           note: 'Sprint mobile',
+        ),
+      ],
+      leaveEntries: const [
+        LeaveEntry(
+          id: 'leave-1',
+          date: '2026-03-04',
+          minutes: 60,
+          type: LeaveType.permit,
+          note: 'Visita medica',
         ),
       ],
       apiBaseUrl: 'http://localhost:8080/',

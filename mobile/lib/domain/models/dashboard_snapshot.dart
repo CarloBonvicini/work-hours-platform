@@ -1,3 +1,4 @@
+import 'package:work_hours_mobile/domain/models/leave_entry.dart';
 import 'package:work_hours_mobile/domain/models/monthly_summary.dart';
 import 'package:work_hours_mobile/domain/models/profile.dart';
 import 'package:work_hours_mobile/domain/models/work_entry.dart';
@@ -7,11 +8,13 @@ class DashboardSnapshot {
     required this.profile,
     required this.summary,
     required this.workEntries,
+    required this.leaveEntries,
     required this.apiBaseUrl,
   });
 
   final UserProfile profile;
   final MonthlySummary summary;
   final List<WorkEntry> workEntries;
+  final List<LeaveEntry> leaveEntries;
   final String apiBaseUrl;
 }

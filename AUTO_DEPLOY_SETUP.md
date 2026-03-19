@@ -49,6 +49,7 @@ COMPOSE_PROJECT_NAME=work-hours-platform
 HOST=0.0.0.0
 PORT=8080
 API_IMAGE=ghcr.io/carlobonvicini/work-hours-api:latest
+MOBILE_UPDATES_PUBLIC_BASE_URL=http://<server-ip-o-dominio>:8080
 DATA_PROVIDER=memory
 ```
 
@@ -59,6 +60,7 @@ COMPOSE_PROJECT_NAME=work-hours-platform
 HOST=0.0.0.0
 PORT=8080
 API_IMAGE=ghcr.io/carlobonvicini/work-hours-api:latest
+MOBILE_UPDATES_PUBLIC_BASE_URL=http://<server-ip-o-dominio>:8080
 DATA_PROVIDER=postgres
 DATABASE_URL=postgres://<user>:<password>@<host>:5432/<database>
 ```
@@ -75,6 +77,21 @@ Ad ogni push su `main`:
    - `docker compose pull` (oppure `docker-compose pull`)
    - `docker compose up -d --remove-orphans`
    - `docker image prune -f`
+
+## Update mobile in produzione
+
+La directory `infra/updates/` viene montata nel container backend come `/app/updates`.
+
+Il workflow `Mobile Release` puo pubblicare automaticamente li:
+
+1. l APK in `infra/updates/downloads/`
+2. il metadata `infra/updates/latest-release.json`
+
+Il backend espone poi:
+
+- `/mobile-updates/latest.json`
+- `/mobile-updates/releases/latest`
+- `/mobile-updates/downloads/<apk>`
 
 ## Verifica rapida
 

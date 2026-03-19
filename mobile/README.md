@@ -4,8 +4,8 @@ Questa cartella ospita il client Flutter di Work Hours Platform.
 
 ## Stato
 
-Il bootstrap del progetto e pronto. La prima distribuzione prevista e un APK scaricabile da GitHub Releases.
-Il client controlla automaticamente all avvio se esiste una release piu recente e puo aprire il download dell APK.
+Il bootstrap del progetto e pronto. La distribuzione Android passa da GitHub Releases, ma il canale di update in produzione vive sul backend Linux.
+Il client controlla automaticamente all avvio se esiste una release piu recente e, su Android, scarica l APK e apre l installer direttamente dall app.
 
 ## Comandi utili
 
@@ -52,8 +52,26 @@ flutter run ^
 
 Nota:
 - se la feed release non e pubblica, il controllo automatico non vedra aggiornamenti
-- con repository GitHub privato serve una feed pubblica alternativa oppure un endpoint backend/proxy
-- una feed alternativa puo stare anche su un sottopercorso di un dominio esistente, per esempio `https://auth.autocaptionservices.work/work-hours/latest.json`
+- con repository GitHub privato il percorso consigliato e usare il backend Linux come feed update pubblica
+- la produzione punta a `.../mobile-updates/latest.json` e `.../mobile-updates/releases/latest`
+
+### Sistema update produzione
+
+Il percorso previsto in produzione e questo:
+
+1. `Mobile Release` builda l APK e lo pubblica su GitHub Releases
+2. lo stesso workflow copia l APK nel workspace del server Linux (`infra/updates/downloads/`)
+3. il backend espone:
+   - `/mobile-updates/latest.json`
+   - `/mobile-updates/releases/latest`
+   - `/mobile-updates/downloads/<apk>`
+4. il client legge quella feed e avvia il download/installazione Android
+
+Per attivarlo servono:
+
+- secret repository `MOBILE_API_BASE_URL`
+- secret repository `MOBILE_UPDATE_BASE_URL`
+- backend env `MOBILE_UPDATES_PUBLIC_BASE_URL`
 
 ### Firma APK per update in-place
 
@@ -91,9 +109,9 @@ lib/
   - secret repository `MOBILE_API_BASE_URL`, oppure
   - input `api_base_url` nel workflow manuale
 - se `API_BASE_URL` manca, il workflow ora fallisce invece di pubblicare un APK che punta a `10.0.2.2`
-- per testare il bottone update con repo GitHub privato, configura anche:
-  - secret `MOBILE_UPDATE_FEED_URL`
-  - secret `MOBILE_UPDATE_PAGE_URL`
+- per il canale update produzione, configura:
+  - secret `MOBILE_UPDATE_BASE_URL`
+  - opzionalmente `MOBILE_UPDATE_FEED_URL` e `MOBILE_UPDATE_PAGE_URL` solo per override non standard
 
 ### Esempio feed update pubblica
 

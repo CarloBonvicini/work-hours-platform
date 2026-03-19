@@ -25,6 +25,10 @@ on:
         description: Base URL backend per l'app mobile (es. https://api.example.com)
         required: false
         type: string
+      update_base_url:
+        description: Base URL pubblica del backend che esporra gli update (es. https://updates.example.com)
+        required: false
+        type: string
       update_feed_url:
         description: Feed pubblica update per il client (es. https://auth.autocaptionservices.work/work-hours/latest.json)
         required: false
@@ -42,6 +46,13 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    outputs:
+      release_tag: ${{ steps.meta.outputs.release_tag }}
+      build_name: ${{ steps.meta.outputs.build_name }}
+      build_number: ${{ steps.meta.outputs.build_number }}
+      update_base_url: ${{ steps.update.outputs.update_base_url }}
+      update_feed_url: ${{ steps.update.outputs.update_feed_url }}
+      update_page_url: ${{ steps.update.outputs.update_page_url }}
 
     defaults:
       run:
@@ -95,12 +106,25 @@ jobs:
         shell: bash
         working-directory: .
         env:
+          INPUT_UPDATE_BASE_URL: ${{ inputs.update_base_url }}
           INPUT_UPDATE_FEED_URL: ${{ inputs.update_feed_url }}
           INPUT_UPDATE_PAGE_URL: ${{ inputs.update_page_url }}
+          SECRET_UPDATE_BASE_URL: ${{ secrets.MOBILE_UPDATE_BASE_URL }}
           SECRET_UPDATE_FEED_URL: ${{ secrets.MOBILE_UPDATE_FEED_URL }}
           SECRET_UPDATE_PAGE_URL: ${{ secrets.MOBILE_UPDATE_PAGE_URL }}
         run: |
-          if [ -n "$INPUT_UPDATE_FEED_URL" ]; then
+          if [ -n "$INPUT_UPDATE_BASE_URL" ]; then
+            update_base_url="${INPUT_UPDATE_BASE_URL%/}"
+          elif [ -n "$SECRET_UPDATE_BASE_URL" ]; then
+            update_base_url="${SECRET_UPDATE_BASE_URL%/}"
+          else
+            update_base_url=""
+          fi
+
+          if [ -n "$update_base_url" ]; then
+            update_feed_url="$update_base_url/mobile-updates/latest.json"
+            update_page_url="$update_base_url/mobile-updates/releases/latest"
+          elif [ -n "$INPUT_UPDATE_FEED_URL" ]; then
             update_feed_url="$INPUT_UPDATE_FEED_URL"
           elif [ -n "$SECRET_UPDATE_FEED_URL" ]; then
             update_feed_url="$SECRET_UPDATE_FEED_URL"
@@ -116,6 +140,7 @@ jobs:
             update_page_url="https://github.com/CarloBonvicini/work-hours-platform/releases/latest"
           fi
 
+          echo "update_base_url=$update_base_url" >> "$GITHUB_OUTPUT"
           echo "update_feed_url=$update_feed_url" >> "$GITHUB_OUTPUT"
           echo "update_page_url=$update_page_url" >> "$GITHUB_OUTPUT"
 
@@ -184,3 +209,64 @@ jobs:
           fi
 
           gh release upload "$tag" mobile/build/app/outputs/flutter-apk/app-release.apk --clobber
+
+  publish-mobile-update-feed:
+    name: Publish Mobile Update Feed
+    needs: build-and-release-android
+    if: ${{ needs.build-and-release-android.outputs.update_base_url != '' }}
+    runs-on: self-hosted
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Sync update metadata and apk to server workspace
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ needs.build-and-release-android.outputs.release_tag }}
+          BUILD_NAME: ${{ needs.build-and-release-android.outputs.build_name }}
+          BUILD_NUMBER: ${{ needs.build-and-release-android.outputs.build_number }}
+        run: |
+          set -eu
+
+          updates_dir="infra/updates"
+          downloads_dir="$updates_dir/downloads"
+          mkdir -p "$downloads_dir"
+
+          release_api="https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}"
+          release_json="$(curl -fsSL \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "${release_api}")"
+
+          asset_api_url="$(printf '%s' "$release_json" | python3 -c "import json,sys; data=json.load(sys.stdin); assets=data.get('assets', []); apk=next((asset for asset in assets if asset.get('name', '').endswith('.apk')), None); print(apk.get('url', '') if apk else '')")"
+          published_at="$(printf '%s' "$release_json" | python3 -c "import json,sys; data=json.load(sys.stdin); print(data.get('published_at') or '')")"
+          release_notes="$(printf '%s' "$release_json" | python3 -c "import json,sys; data=json.load(sys.stdin); print(data.get('body') or '')")"
+
+          if [ -z "$asset_api_url" ]; then
+            echo "Asset APK non trovato nella release ${RELEASE_TAG}."
+            exit 1
+          fi
+
+          deployed_file_name="work-hours-mobile-${BUILD_NAME}.apk"
+          deployed_file_path="$downloads_dir/$deployed_file_name"
+
+          curl -fsSL \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/octet-stream" \
+            "${asset_api_url}" \
+            -o "${deployed_file_path}"
+
+          cat > "$updates_dir/latest-release.json" <<EOF_META
+          {
+            "tag": "${RELEASE_TAG}",
+            "version": "${BUILD_NAME}",
+            "buildNumber": "${BUILD_NUMBER}",
+            "fileName": "${deployed_file_name}",
+            "releaseNotes": "Android APK build ${BUILD_NAME} (${BUILD_NUMBER}).",
+            "publishedAt": "${published_at}"
+          }
+          EOF_META

@@ -1,4 +1,5 @@
 import 'package:work_hours_mobile/domain/models/dashboard_snapshot.dart';
+import 'package:work_hours_mobile/domain/models/leave_entry.dart';
 import 'package:work_hours_mobile/domain/repositories/dashboard_repository.dart';
 
 class DashboardService {
@@ -31,6 +32,21 @@ class DashboardService {
     return _repository.addWorkEntry(
       date: date,
       minutes: minutes,
+      note: note,
+      month: date.substring(0, 7),
+    );
+  }
+
+  Future<DashboardSnapshot> addLeaveEntry({
+    required String date,
+    required int minutes,
+    required LeaveType type,
+    String? note,
+  }) {
+    return _repository.addLeaveEntry(
+      date: date,
+      minutes: minutes,
+      type: type,
       note: note,
       month: date.substring(0, 7),
     );

@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
+import 'package:work_hours_mobile/domain/models/leave_entry.dart';
 import 'package:work_hours_mobile/domain/models/monthly_summary.dart';
 import 'package:work_hours_mobile/domain/models/profile.dart';
 import 'package:work_hours_mobile/domain/models/work_entry.dart';
@@ -80,6 +81,42 @@ class WorkHoursApiClient {
     );
 
     return WorkEntry.fromJson(_decodeObject(response));
+  }
+
+  Future<List<LeaveEntry>> fetchLeaveEntries({required String month}) async {
+    final response = await _httpClient.get(
+      _buildUri('leave-entries', queryParameters: {'month': month}),
+    );
+
+    final body = _decodeObject(response);
+    final items = body['items'];
+    if (items is! List) {
+      throw ApiException('Risposta leave entries non valida.');
+    }
+
+    return items
+        .map((item) => LeaveEntry.fromJson(item as Map<String, dynamic>))
+        .toList(growable: false);
+  }
+
+  Future<LeaveEntry> createLeaveEntry({
+    required String date,
+    required int minutes,
+    required LeaveType type,
+    String? note,
+  }) async {
+    final response = await _httpClient.post(
+      _buildUri('leave-entries'),
+      headers: _jsonHeaders,
+      body: jsonEncode({
+        'date': date,
+        'minutes': minutes,
+        'type': type.apiValue,
+        if (note != null && note.isNotEmpty) 'note': note,
+      }),
+    );
+
+    return LeaveEntry.fromJson(_decodeObject(response));
   }
 
   Future<MonthlySummary> fetchMonthlySummary({required String month}) async {

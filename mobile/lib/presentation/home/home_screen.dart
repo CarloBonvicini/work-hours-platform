@@ -6,6 +6,7 @@ import 'package:work_hours_mobile/application/services/dashboard_service.dart';
 import 'package:work_hours_mobile/data/api/work_hours_api_client.dart';
 import 'package:work_hours_mobile/domain/models/app_update.dart';
 import 'package:work_hours_mobile/domain/models/dashboard_snapshot.dart';
+import 'package:work_hours_mobile/domain/models/leave_entry.dart';
 import 'package:work_hours_mobile/domain/models/work_entry.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -25,25 +26,33 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   final _profileFormKey = GlobalKey<FormState>();
   final _workEntryFormKey = GlobalKey<FormState>();
+  final _leaveEntryFormKey = GlobalKey<FormState>();
   final _fullNameController = TextEditingController();
   final _dailyTargetMinutesController = TextEditingController();
-  final _dateController = TextEditingController();
-  final _minutesController = TextEditingController();
-  final _noteController = TextEditingController();
+  final _workDateController = TextEditingController();
+  final _workMinutesController = TextEditingController();
+  final _workNoteController = TextEditingController();
+  final _leaveDateController = TextEditingController();
+  final _leaveMinutesController = TextEditingController();
+  final _leaveNoteController = TextEditingController();
 
   DashboardSnapshot? _snapshot;
   AppUpdate? _availableUpdate;
+  LeaveType _selectedLeaveType = LeaveType.vacation;
   String? _errorMessage;
   bool _isLoading = true;
   bool _isCheckingForUpdate = true;
   bool _isSavingProfile = false;
   bool _isAddingWorkEntry = false;
+  bool _isAddingLeaveEntry = false;
   bool _isOpeningUpdate = false;
 
   @override
   void initState() {
     super.initState();
-    _dateController.text = widget.dashboardService.defaultEntryDate;
+    final defaultEntryDate = widget.dashboardService.defaultEntryDate;
+    _workDateController.text = defaultEntryDate;
+    _leaveDateController.text = defaultEntryDate;
     unawaited(_checkForUpdate());
     _loadSnapshot();
   }
@@ -52,9 +61,12 @@ class _HomeScreenState extends State<HomeScreen> {
   void dispose() {
     _fullNameController.dispose();
     _dailyTargetMinutesController.dispose();
-    _dateController.dispose();
-    _minutesController.dispose();
-    _noteController.dispose();
+    _workDateController.dispose();
+    _workMinutesController.dispose();
+    _workNoteController.dispose();
+    _leaveDateController.dispose();
+    _leaveMinutesController.dispose();
+    _leaveNoteController.dispose();
     super.dispose();
   }
 
@@ -124,9 +136,8 @@ class _HomeScreenState extends State<HomeScreen> {
     await Future.wait<void>([_loadSnapshot(), _checkForUpdate()]);
   }
 
-  Future<void> _pickDate() async {
-    final initialDate =
-        DateTime.tryParse(_dateController.text) ?? DateTime.now();
+  Future<void> _pickDateFor(TextEditingController controller) async {
+    final initialDate = DateTime.tryParse(controller.text) ?? DateTime.now();
     final pickedDate = await showDatePicker(
       context: context,
       initialDate: initialDate,
@@ -138,7 +149,7 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
 
-    _dateController.text = DashboardService.defaultEntryDateOf(pickedDate);
+    controller.text = DashboardService.defaultEntryDateOf(pickedDate);
   }
 
   Future<void> _submitProfile() async {
@@ -198,10 +209,10 @@ class _HomeScreenState extends State<HomeScreen> {
     });
 
     try {
-      final note = _noteController.text.trim();
+      final note = _workNoteController.text.trim();
       final snapshot = await widget.dashboardService.addWorkEntry(
-        date: _dateController.text.trim(),
-        minutes: int.parse(_minutesController.text.trim()),
+        date: _workDateController.text.trim(),
+        minutes: int.parse(_workMinutesController.text.trim()),
         note: note.isEmpty ? null : note,
       );
 
@@ -210,8 +221,8 @@ class _HomeScreenState extends State<HomeScreen> {
       }
 
       _hydrateControllers(snapshot);
-      _minutesController.clear();
-      _noteController.clear();
+      _workMinutesController.clear();
+      _workNoteController.clear();
       setState(() {
         _snapshot = snapshot;
         _isAddingWorkEntry = false;
@@ -228,6 +239,55 @@ class _HomeScreenState extends State<HomeScreen> {
       setState(() {
         _errorMessage = _humanizeError(error);
         _isAddingWorkEntry = false;
+      });
+    }
+  }
+
+  Future<void> _submitLeaveEntry() async {
+    final isValid = _leaveEntryFormKey.currentState?.validate() ?? false;
+    if (!isValid) {
+      return;
+    }
+
+    setState(() {
+      _isAddingLeaveEntry = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final note = _leaveNoteController.text.trim();
+      final snapshot = await widget.dashboardService.addLeaveEntry(
+        date: _leaveDateController.text.trim(),
+        minutes: int.parse(_leaveMinutesController.text.trim()),
+        type: _selectedLeaveType,
+        note: note.isEmpty ? null : note,
+      );
+
+      if (!mounted) {
+        return;
+      }
+
+      _hydrateControllers(snapshot);
+      _leaveMinutesController.clear();
+      _leaveNoteController.clear();
+      setState(() {
+        _snapshot = snapshot;
+        _isAddingLeaveEntry = false;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${_selectedLeaveType.label} registrato con successo.'),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _errorMessage = _humanizeError(error);
+        _isAddingLeaveEntry = false;
       });
     }
   }
@@ -313,10 +373,7 @@ class _HomeScreenState extends State<HomeScreen> {
               const SizedBox(height: 20),
               LayoutBuilder(
                 builder: (context, constraints) {
-                  final wideLayout = constraints.maxWidth >= 980;
-                  final cardWidth = wideLayout
-                      ? (constraints.maxWidth - 16) / 2
-                      : constraints.maxWidth;
+                  final cardWidth = _cardWidth(constraints.maxWidth);
 
                   return Wrap(
                     spacing: 16,
@@ -337,12 +394,34 @@ class _HomeScreenState extends State<HomeScreen> {
                         width: cardWidth,
                         child: _WorkEntryCard(
                           formKey: _workEntryFormKey,
-                          dateController: _dateController,
-                          minutesController: _minutesController,
-                          noteController: _noteController,
+                          dateController: _workDateController,
+                          minutesController: _workMinutesController,
+                          noteController: _workNoteController,
                           isBusy: _isAddingWorkEntry,
-                          onPickDate: _pickDate,
+                          onPickDate: () => _pickDateFor(_workDateController),
                           onSubmit: _submitWorkEntry,
+                        ),
+                      ),
+                      SizedBox(
+                        width: cardWidth,
+                        child: _LeaveEntryCard(
+                          formKey: _leaveEntryFormKey,
+                          dateController: _leaveDateController,
+                          minutesController: _leaveMinutesController,
+                          noteController: _leaveNoteController,
+                          selectedLeaveType: _selectedLeaveType,
+                          onLeaveTypeChanged: (value) {
+                            if (value == null) {
+                              return;
+                            }
+
+                            setState(() {
+                              _selectedLeaveType = value;
+                            });
+                          },
+                          isBusy: _isAddingLeaveEntry,
+                          onPickDate: () => _pickDateFor(_leaveDateController),
+                          onSubmit: _submitLeaveEntry,
                         ),
                       ),
                     ],
@@ -350,7 +429,30 @@ class _HomeScreenState extends State<HomeScreen> {
                 },
               ),
               const SizedBox(height: 20),
-              _WorkEntriesCard(entries: _snapshot!.workEntries),
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final entriesWidth = _twoColumnWidth(constraints.maxWidth);
+
+                  return Wrap(
+                    spacing: 16,
+                    runSpacing: 16,
+                    children: [
+                      SizedBox(
+                        width: entriesWidth,
+                        child: _WorkEntriesCard(
+                          entries: _snapshot!.workEntries,
+                        ),
+                      ),
+                      SizedBox(
+                        width: entriesWidth,
+                        child: _LeaveEntriesCard(
+                          entries: _snapshot!.leaveEntries,
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
               const SizedBox(height: 12),
               Text(
                 'Mese osservato: ${_snapshot!.summary.month}',
@@ -361,6 +463,26 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ),
     );
+  }
+
+  double _cardWidth(double maxWidth) {
+    if (maxWidth >= 1460) {
+      return (maxWidth - 32) / 3;
+    }
+
+    if (maxWidth >= 980) {
+      return (maxWidth - 16) / 2;
+    }
+
+    return maxWidth;
+  }
+
+  double _twoColumnWidth(double maxWidth) {
+    if (maxWidth >= 980) {
+      return (maxWidth - 16) / 2;
+    }
+
+    return maxWidth;
   }
 }
 
@@ -445,7 +567,7 @@ class _HeroCard extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           Text(
-            'Profilo e dashboard stanno leggendo il backend reale.',
+            'Dashboard operativa con ore, ferie e permessi collegati al backend reale.',
             style: theme.textTheme.headlineSmall?.copyWith(
               color: Colors.white,
               fontWeight: FontWeight.w700,
@@ -523,7 +645,7 @@ class _UpdateCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  'L installazione resta manuale: l app apre il download APK o la pagina release.',
+                  'Su Android l app scarica l APK e apre l installer. Se serve, ricade sulla pagina release.',
                   style: theme.textTheme.bodyMedium,
                 ),
               ],
@@ -786,40 +908,11 @@ class _WorkEntryCard extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 16),
-            TextFormField(
-              controller: dateController,
-              readOnly: true,
-              onTap: () => onPickDate(),
-              decoration: const InputDecoration(
-                labelText: 'Data',
-                border: OutlineInputBorder(),
-                suffixIcon: Icon(Icons.calendar_today),
-              ),
-              validator: (value) {
-                if (value == null ||
-                    !RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(value)) {
-                  return 'Seleziona una data valida.';
-                }
-
-                return null;
-              },
-            ),
+            _DateField(controller: dateController, onPickDate: onPickDate),
             const SizedBox(height: 16),
-            TextFormField(
+            _MinutesField(
               controller: minutesController,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(
-                labelText: 'Minuti lavorati',
-                border: OutlineInputBorder(),
-              ),
-              validator: (value) {
-                final parsedValue = int.tryParse(value?.trim() ?? '');
-                if (parsedValue == null || parsedValue <= 0) {
-                  return 'Inserisci un numero di minuti valido.';
-                }
-
-                return null;
-              },
+              label: 'Minuti lavorati',
             ),
             const SizedBox(height: 16),
             TextFormField(
@@ -839,6 +932,152 @@ class _WorkEntryCard extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _LeaveEntryCard extends StatelessWidget {
+  const _LeaveEntryCard({
+    required this.formKey,
+    required this.dateController,
+    required this.minutesController,
+    required this.noteController,
+    required this.selectedLeaveType,
+    required this.onLeaveTypeChanged,
+    required this.isBusy,
+    required this.onPickDate,
+    required this.onSubmit,
+  });
+
+  final GlobalKey<FormState> formKey;
+  final TextEditingController dateController;
+  final TextEditingController minutesController;
+  final TextEditingController noteController;
+  final LeaveType selectedLeaveType;
+  final ValueChanged<LeaveType?> onLeaveTypeChanged;
+  final bool isBusy;
+  final Future<void> Function() onPickDate;
+  final Future<void> Function() onSubmit;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: const Color(0xFFE0D8CA)),
+      ),
+      child: Form(
+        key: formKey,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Permessi e ferie',
+              style: theme.textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 16),
+            DropdownButtonFormField<LeaveType>(
+              initialValue: selectedLeaveType,
+              decoration: const InputDecoration(
+                labelText: 'Tipo assenza',
+                border: OutlineInputBorder(),
+              ),
+              items: LeaveType.values
+                  .map(
+                    (type) => DropdownMenuItem<LeaveType>(
+                      value: type,
+                      child: Text(type.label),
+                    ),
+                  )
+                  .toList(growable: false),
+              onChanged: isBusy ? null : onLeaveTypeChanged,
+            ),
+            const SizedBox(height: 16),
+            _DateField(controller: dateController, onPickDate: onPickDate),
+            const SizedBox(height: 16),
+            _MinutesField(
+              controller: minutesController,
+              label: 'Minuti di assenza',
+            ),
+            const SizedBox(height: 16),
+            TextFormField(
+              controller: noteController,
+              maxLines: 2,
+              decoration: const InputDecoration(
+                labelText: 'Motivo (opzionale)',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 18),
+            FilledButton.icon(
+              onPressed: isBusy ? null : () => onSubmit(),
+              icon: const Icon(Icons.event_available),
+              label: Text(isBusy ? 'Invio...' : 'Registra permesso/ferie'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DateField extends StatelessWidget {
+  const _DateField({required this.controller, required this.onPickDate});
+
+  final TextEditingController controller;
+  final Future<void> Function() onPickDate;
+
+  @override
+  Widget build(BuildContext context) {
+    return TextFormField(
+      controller: controller,
+      readOnly: true,
+      onTap: () => onPickDate(),
+      decoration: const InputDecoration(
+        labelText: 'Data',
+        border: OutlineInputBorder(),
+        suffixIcon: Icon(Icons.calendar_today),
+      ),
+      validator: (value) {
+        if (value == null || !RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(value)) {
+          return 'Seleziona una data valida.';
+        }
+
+        return null;
+      },
+    );
+  }
+}
+
+class _MinutesField extends StatelessWidget {
+  const _MinutesField({required this.controller, required this.label});
+
+  final TextEditingController controller;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return TextFormField(
+      controller: controller,
+      keyboardType: TextInputType.number,
+      decoration: InputDecoration(
+        labelText: label,
+        border: const OutlineInputBorder(),
+      ),
+      validator: (value) {
+        final parsedValue = int.tryParse(value?.trim() ?? '');
+        if (parsedValue == null || parsedValue <= 0) {
+          return 'Inserisci un numero di minuti valido.';
+        }
+
+        return null;
+      },
     );
   }
 }
@@ -864,7 +1103,7 @@ class _WorkEntriesCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Ultime giornate registrate',
+            'Ultime giornate lavorate',
             style: theme.textTheme.titleLarge?.copyWith(
               fontWeight: FontWeight.w700,
             ),
@@ -908,6 +1147,91 @@ class _WorkEntryRow extends StatelessWidget {
                   fontWeight: FontWeight.w700,
                 ),
               ),
+              if (entry.note != null && entry.note!.isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Text(entry.note!, style: theme.textTheme.bodyMedium),
+              ],
+            ],
+          ),
+        ),
+        Text(
+          _MetricsGrid.formatHours(entry.minutes),
+          style: theme.textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _LeaveEntriesCard extends StatelessWidget {
+  const _LeaveEntriesCard({required this.entries});
+
+  final List<LeaveEntry> entries;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final visibleEntries = entries.take(6).toList(growable: false);
+
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: const Color(0xFFE0D8CA)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Ultime assenze registrate',
+            style: theme.textTheme.titleLarge?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 16),
+          if (visibleEntries.isEmpty)
+            Text(
+              'Nessun permesso o giorno di ferie per il mese selezionato.',
+              style: theme.textTheme.bodyLarge,
+            )
+          else
+            for (var index = 0; index < visibleEntries.length; index += 1) ...[
+              _LeaveEntryRow(entry: visibleEntries[index]),
+              if (index < visibleEntries.length - 1) const Divider(height: 24),
+            ],
+        ],
+      ),
+    );
+  }
+}
+
+class _LeaveEntryRow extends StatelessWidget {
+  const _LeaveEntryRow({required this.entry});
+
+  final LeaveEntry entry;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                entry.date,
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(entry.type.label, style: theme.textTheme.bodyMedium),
               if (entry.note != null && entry.note!.isNotEmpty) ...[
                 const SizedBox(height: 4),
                 Text(entry.note!, style: theme.textTheme.bodyMedium),

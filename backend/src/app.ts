@@ -1,6 +1,9 @@
 import { randomUUID } from "node:crypto";
+import { createReadStream, promises as fs } from "node:fs";
+import path from "node:path";
 import cors from "@fastify/cors";
 import Fastify from "fastify";
+import type { FastifyRequest } from "fastify";
 import { InMemoryStore } from "./data/in-memory-store.js";
 import type { AppStore } from "./data/store.js";
 import {
@@ -15,6 +18,15 @@ import type {
 
 interface BuildAppOptions {
   store?: AppStore;
+}
+
+interface MobileReleaseMetadata {
+  tag: string;
+  version: string;
+  buildNumber: string;
+  fileName: string;
+  releaseNotes?: string;
+  publishedAt?: string;
 }
 
 function parseMonthQuery(query: unknown): string | null | undefined {
@@ -40,6 +52,66 @@ function isPositiveInteger(value: unknown): value is number {
 
 function isLeaveType(value: unknown): value is LeaveType {
   return value === "vacation" || value === "permit";
+}
+
+function getUpdatesDirectory() {
+  return process.env.MOBILE_UPDATES_DIR ?? "/app/updates";
+}
+
+function getReleaseMetadataPath() {
+  return path.join(getUpdatesDirectory(), "latest-release.json");
+}
+
+async function loadReleaseMetadata(): Promise<MobileReleaseMetadata | null> {
+  try {
+    const rawValue = await fs.readFile(getReleaseMetadataPath(), "utf8");
+    const parsedValue = JSON.parse(rawValue) as Partial<MobileReleaseMetadata>;
+    if (
+      typeof parsedValue.tag !== "string" ||
+      typeof parsedValue.version !== "string" ||
+      typeof parsedValue.buildNumber !== "string" ||
+      typeof parsedValue.fileName !== "string"
+    ) {
+      return null;
+    }
+
+    return {
+      tag: parsedValue.tag,
+      version: parsedValue.version,
+      buildNumber: parsedValue.buildNumber,
+      fileName: parsedValue.fileName,
+      releaseNotes: parsedValue.releaseNotes,
+      publishedAt: parsedValue.publishedAt
+    };
+  } catch {
+    return null;
+  }
+}
+
+function getPublicBaseUrl(request: FastifyRequest) {
+  const configuredBaseUrl = process.env.MOBILE_UPDATES_PUBLIC_BASE_URL;
+  if (configuredBaseUrl) {
+    return configuredBaseUrl.replace(/\/+$/, "");
+  }
+
+  const protocol =
+    typeof request.headers["x-forwarded-proto"] === "string"
+      ? request.headers["x-forwarded-proto"]
+      : request.protocol;
+
+  return `${protocol}://${request.headers.host ?? "localhost:8080"}`;
+}
+
+function resolveUpdateFilePath(fileName: string) {
+  const updatesDir = getUpdatesDirectory();
+  const downloadsDir = path.join(updatesDir, "downloads");
+  const filePath = path.resolve(downloadsDir, fileName);
+
+  if (!filePath.startsWith(path.resolve(downloadsDir) + path.sep)) {
+    return null;
+  }
+
+  return filePath;
 }
 
 export function buildApp(options: BuildAppOptions = {}) {
@@ -192,6 +264,69 @@ export function buildApp(options: BuildAppOptions = {}) {
       workEntries,
       leaveEntries
     );
+  });
+
+  app.get("/mobile-updates/latest.json", async (request, reply) => {
+    const metadata = await loadReleaseMetadata();
+    if (!metadata) {
+      return reply.code(404).send({ error: "No mobile release published" });
+    }
+
+    const baseUrl = getPublicBaseUrl(request);
+
+    return {
+      tag_name: metadata.tag,
+      name: `Work Hours Mobile ${metadata.version}`,
+      html_url: `${baseUrl}/mobile-updates/releases/latest`,
+      published_at: metadata.publishedAt ?? null,
+      body: metadata.releaseNotes ?? null,
+      assets: [
+        {
+          name: metadata.fileName,
+          browser_download_url:
+            `${baseUrl}/mobile-updates/downloads/${encodeURIComponent(metadata.fileName)}`
+        }
+      ]
+    };
+  });
+
+  app.get("/mobile-updates/releases/latest", async (request, reply) => {
+    const metadata = await loadReleaseMetadata();
+    if (!metadata) {
+      return reply.code(404).send({ error: "No mobile release published" });
+    }
+
+    const baseUrl = getPublicBaseUrl(request);
+    return reply.redirect(
+      `${baseUrl}/mobile-updates/downloads/${encodeURIComponent(metadata.fileName)}`
+    );
+  });
+
+  app.get("/mobile-updates/downloads/:fileName", async (request, reply) => {
+    const params = request.params as { fileName?: unknown };
+    if (typeof params.fileName !== "string" || params.fileName.length === 0) {
+      return reply.code(400).send({ error: "fileName is required" });
+    }
+
+    const filePath = resolveUpdateFilePath(params.fileName);
+    if (!filePath) {
+      return reply.code(400).send({ error: "Invalid file name" });
+    }
+
+    try {
+      await fs.access(filePath);
+    } catch {
+      return reply.code(404).send({ error: "Update file not found" });
+    }
+
+    reply
+      .type("application/vnd.android.package-archive")
+      .header(
+        "content-disposition",
+        `attachment; filename="${path.basename(filePath)}"`
+      );
+
+    return reply.send(createReadStream(filePath));
   });
 
   return app;

@@ -5,6 +5,8 @@ services:
     image: ${API_IMAGE:-ghcr.io/carlobonvicini/work-hours-api:latest}
     env_file:
       - .env
+    volumes:
+      - ./updates:/app/updates
     ports:
       - "8080:8080"
     restart: unless-stopped
