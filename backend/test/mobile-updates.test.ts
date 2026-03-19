@@ -47,6 +47,7 @@ describe("Mobile updates API", () => {
     expect(response.headers["content-type"]).toContain("text/html");
     expect(response.body).toContain("Work Hours Platform");
     expect(response.body).toContain("APK non disponibile");
+    expect(response.body).toContain("/tickets");
     expect(response.body).toContain("Nessuna versione disponibile in questo momento");
     expect(response.body).toContain("Quando il download sara pronto, il pulsante Scarica APK comparira qui.");
     expect(response.body).not.toContain("Canale update");

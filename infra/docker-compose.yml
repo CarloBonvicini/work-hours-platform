@@ -7,6 +7,7 @@ services:
       - .env
     volumes:
       - ./updates:/app/updates
+      - ./tickets:/app/tickets
     ports:
       - "8080:8080"
     expose:

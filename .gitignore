@@ -12,3 +12,6 @@ Thumbs.db
 .packages
 build/
 
+# Runtime data
+infra/tickets/*
+!infra/tickets/.gitkeep
