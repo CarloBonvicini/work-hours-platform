@@ -47,8 +47,8 @@ describe("Mobile updates API", () => {
     expect(response.headers["content-type"]).toContain("text/html");
     expect(response.body).toContain("Work Hours Platform");
     expect(response.body).toContain("APK non disponibile");
-    expect(response.body).toContain("La prima versione Android non e ancora stata pubblicata");
-    expect(response.body).toContain("Quando verra pubblicata, il pulsante Scarica APK comparira qui.");
+    expect(response.body).toContain("Nessuna versione disponibile in questo momento");
+    expect(response.body).toContain("Quando il download sara pronto, il pulsante Scarica APK comparira qui.");
     expect(response.body).not.toContain("Canale update");
   });
 

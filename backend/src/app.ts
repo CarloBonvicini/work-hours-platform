@@ -223,19 +223,19 @@ function renderLandingPage(options: {
     ? "Download disponibile"
     : isPublishing
       ? "Nuova versione in arrivo"
-      : "APK non ancora disponibile";
+      : "APK non disponibile in questo momento";
   const versionValue = hasRelease
     ? `Versione ${latestRelease.version}`
     : isPublishing
       ? "Stiamo preparando la prossima versione"
-      : "La prima versione Android non e ancora stata pubblicata";
+      : "Nessuna versione disponibile in questo momento";
   const detailLabel = isPublishing
     ? hasRelease
       ? "Stiamo pubblicando una nuova versione. Il download tornera disponibile appena il rilascio e completato."
-      : "Stiamo pubblicando la prima versione Android. Il pulsante di download comparira qui appena pronto."
+      : "Stiamo pubblicando una nuova versione. Il pulsante di download comparira qui appena pronto."
     : hasRelease
       ? "Qui trovi l ultima versione disponibile dell app Android."
-      : "Quando la prima versione Android sara pronta, la troverai qui.";
+      : "Il download non e disponibile al momento.";
   const publishedAt = latestRelease?.publishedAt
     ? new Date(latestRelease.publishedAt).toLocaleString("it-IT", {
         dateStyle: "medium",
@@ -249,7 +249,7 @@ function renderLandingPage(options: {
       : "Nessuna pubblicazione disponibile per ora.";
   const notesLabel = latestRelease?.releaseNotes ?? (isPublishing
     ? "Aggiorna questa pagina tra qualche minuto per vedere la nuova versione."
-    : "Il pulsante di download comparira qui appena il rilascio sara disponibile.");
+    : "Controlla di nuovo piu tardi per vedere quando il download sara disponibile.");
   const installTitle = hasRelease ? "Installazione rapida" : "Disponibilita";
   const installDescription = hasRelease
     ? "Il download funziona da browser mobile e desktop. Su Android devi confermare l installazione dell APK."
@@ -270,8 +270,8 @@ function renderLandingPage(options: {
           "Non serve fare altro: basta riaprire questa pagina."
         ]
       : [
-          "La prima versione Android non e ancora pronta.",
-          "Quando verra pubblicata, il pulsante Scarica APK comparira qui.",
+          "Al momento non c e un APK disponibile da scaricare.",
+          "Quando il download sara pronto, il pulsante Scarica APK comparira qui.",
           "Puoi tornare su questa pagina piu tardi per controllare."
         ];
 
