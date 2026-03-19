@@ -114,6 +114,285 @@ function resolveUpdateFilePath(fileName: string) {
   return filePath;
 }
 
+function escapeHtml(value: string) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function renderLandingPage(options: {
+  baseUrl: string;
+  latestRelease: MobileReleaseMetadata | null;
+}) {
+  const { baseUrl, latestRelease } = options;
+  const downloadUrl = `${baseUrl}/mobile-updates/releases/latest`;
+  const healthUrl = `${baseUrl}/health`;
+  const feedUrl = `${baseUrl}/mobile-updates/latest.json`;
+  const hasRelease = latestRelease !== null;
+  const versionLabel = hasRelease ? `Versione ${latestRelease.version}` : "APK in preparazione";
+  const detailLabel = hasRelease
+    ? `Build ${latestRelease.buildNumber} - file ${latestRelease.fileName}`
+    : "Pubblica una release mobile per attivare il download pubblico.";
+  const publishedAt = latestRelease?.publishedAt
+    ? new Date(latestRelease.publishedAt).toLocaleString("it-IT", {
+        dateStyle: "medium",
+        timeStyle: "short"
+      })
+    : null;
+  const publishedLabel = publishedAt
+    ? `Ultimo rilascio: ${publishedAt}`
+    : "Nessuna release pubblicata sul canale update.";
+  const notesLabel = latestRelease?.releaseNotes ?? "Prima distribuzione Android via APK diretta.";
+
+  const primaryAction = hasRelease
+    ? `<a class="button primary" href="${escapeHtml(downloadUrl)}">Scarica APK</a>`
+    : `<span class="button disabled">APK non disponibile</span>`;
+
+  return `<!DOCTYPE html>
+<html lang="it">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Work Hours Platform</title>
+    <style>
+      :root {
+        --page: #f4efe6;
+        --card: rgba(255, 255, 255, 0.88);
+        --ink: #112321;
+        --muted: #4a5d58;
+        --line: #d8cec0;
+        --brand: #0b6e69;
+        --brand-dark: #084c49;
+        --accent: #e6b84c;
+        --shadow: 0 28px 80px rgba(17, 35, 33, 0.12);
+      }
+
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at top left, rgba(11, 110, 105, 0.18), transparent 34%),
+          radial-gradient(circle at top right, rgba(230, 184, 76, 0.22), transparent 28%),
+          linear-gradient(180deg, #faf6ee 0%, var(--page) 100%);
+      }
+
+      main {
+        width: min(1080px, calc(100% - 32px));
+        margin: 0 auto;
+        padding: 32px 0 48px;
+      }
+
+      .hero {
+        background: linear-gradient(150deg, rgba(17, 49, 49, 0.98), rgba(11, 110, 105, 0.94));
+        color: white;
+        border-radius: 32px;
+        padding: 32px;
+        box-shadow: var(--shadow);
+      }
+
+      .eyebrow {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        padding: 8px 12px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.12);
+        color: rgba(255, 255, 255, 0.84);
+        font-size: 14px;
+        letter-spacing: 0.02em;
+      }
+
+      h1 {
+        margin: 18px 0 10px;
+        font-size: clamp(40px, 6vw, 68px);
+        line-height: 0.96;
+        letter-spacing: -0.04em;
+      }
+
+      .hero p {
+        margin: 0;
+        max-width: 720px;
+        color: rgba(255, 255, 255, 0.82);
+        font-size: 18px;
+        line-height: 1.5;
+      }
+
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin-top: 28px;
+      }
+
+      .button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 54px;
+        padding: 0 22px;
+        border-radius: 18px;
+        text-decoration: none;
+        font-weight: 700;
+      }
+
+      .button.primary {
+        background: var(--accent);
+        color: #17302d;
+      }
+
+      .button.secondary {
+        border: 1px solid rgba(255, 255, 255, 0.22);
+        color: white;
+      }
+
+      .button.disabled {
+        background: rgba(255, 255, 255, 0.12);
+        color: rgba(255, 255, 255, 0.58);
+        cursor: not-allowed;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(12, minmax(0, 1fr));
+        gap: 16px;
+        margin-top: 18px;
+      }
+
+      .panel {
+        background: var(--card);
+        border: 1px solid rgba(216, 206, 192, 0.92);
+        border-radius: 24px;
+        padding: 22px;
+        backdrop-filter: blur(12px);
+      }
+
+      .panel h2 {
+        margin: 0 0 8px;
+        font-size: 24px;
+        letter-spacing: -0.03em;
+      }
+
+      .panel p,
+      .panel li {
+        color: var(--muted);
+        line-height: 1.5;
+      }
+
+      .panel strong {
+        color: var(--ink);
+      }
+
+      .release {
+        grid-column: span 7;
+      }
+
+      .install {
+        grid-column: span 5;
+      }
+
+      .meta {
+        display: grid;
+        gap: 12px;
+        margin-top: 18px;
+      }
+
+      .meta-row {
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        padding-bottom: 12px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .meta-row:last-child {
+        padding-bottom: 0;
+        border-bottom: 0;
+      }
+
+      .label {
+        color: var(--muted);
+      }
+
+      ul {
+        margin: 12px 0 0;
+        padding-left: 18px;
+      }
+
+      .footer {
+        margin-top: 18px;
+        text-align: center;
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      @media (max-width: 860px) {
+        main { width: min(100% - 24px, 1000px); padding-top: 20px; }
+        .hero { padding: 24px; border-radius: 28px; }
+        .release, .install { grid-column: 1 / -1; }
+        .meta-row { flex-direction: column; gap: 4px; }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="hero">
+        <span class="eyebrow">Distribuzione Android diretta</span>
+        <h1>Work Hours Platform</h1>
+        <p>Scarica l&#39;APK Android piu recente dal canale ufficiale del progetto. Il backend, il feed update e il download pubblico vivono sullo stesso dominio.</p>
+        <div class="actions">
+          ${primaryAction}
+          <a class="button secondary" href="${escapeHtml(healthUrl)}">Verifica backend</a>
+        </div>
+      </section>
+
+      <section class="grid">
+        <article class="panel release">
+          <h2>${escapeHtml(versionLabel)}</h2>
+          <p>${escapeHtml(detailLabel)}</p>
+          <div class="meta">
+            <div class="meta-row">
+              <span class="label">Stato rilascio</span>
+              <strong>${hasRelease ? "Disponibile al download" : "In attesa della prossima release"}</strong>
+            </div>
+            <div class="meta-row">
+              <span class="label">Canale update</span>
+              <strong>${escapeHtml(feedUrl)}</strong>
+            </div>
+            <div class="meta-row">
+              <span class="label">Ultima pubblicazione</span>
+              <strong>${escapeHtml(publishedLabel)}</strong>
+            </div>
+            <div class="meta-row">
+              <span class="label">Note</span>
+              <strong>${escapeHtml(notesLabel)}</strong>
+            </div>
+          </div>
+        </article>
+
+        <article class="panel install">
+          <h2>Installazione rapida</h2>
+          <p>Il download funziona da browser mobile e desktop. Su Android devi confermare l&#39;installazione dell&#39;APK.</p>
+          <ul>
+            <li>Apri la pagina dal telefono Android.</li>
+            <li>Tocca <strong>Scarica APK</strong>.</li>
+            <li>Se Android lo chiede, autorizza l installazione da questa sorgente.</li>
+            <li>Quando uscira una nuova release, l app mostrera il banner update.</li>
+          </ul>
+        </article>
+      </section>
+
+      <p class="footer">Pagina servita dal backend Work Hours Platform.</p>
+    </main>
+  </body>
+</html>`;
+}
+
 export function buildApp(options: BuildAppOptions = {}) {
   const store: AppStore = options.store ?? new InMemoryStore();
   const corsOrigin = process.env.CORS_ORIGIN;
@@ -124,6 +403,15 @@ export function buildApp(options: BuildAppOptions = {}) {
 
   void app.register(cors, {
     origin: corsOrigin ? corsOrigin.split(",").map((value) => value.trim()) : true
+  });
+
+  app.get("/", async (request, reply) => {
+    const latestRelease = await loadReleaseMetadata();
+    const baseUrl = getPublicBaseUrl(request);
+
+    return reply
+      .type("text/html; charset=utf-8")
+      .send(renderLandingPage({ baseUrl, latestRelease }));
   });
 
   app.get("/health", async () => {

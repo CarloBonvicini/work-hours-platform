@@ -32,6 +32,23 @@ afterEach(async () => {
 });
 
 describe("Mobile updates API", () => {
+  it("serves a landing page even when no mobile release is published", async () => {
+    tempDirectory = await mkdtemp(path.join(os.tmpdir(), "work-hours-updates-"));
+    process.env.MOBILE_UPDATES_DIR = tempDirectory;
+    process.env.MOBILE_UPDATES_PUBLIC_BASE_URL = "https://updates.example.com";
+    app = buildApp();
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["content-type"]).toContain("text/html");
+    expect(response.body).toContain("Work Hours Platform");
+    expect(response.body).toContain("APK non disponibile");
+  });
+
   it("returns 404 when no mobile release is published", async () => {
     tempDirectory = await mkdtemp(path.join(os.tmpdir(), "work-hours-updates-"));
     process.env.MOBILE_UPDATES_DIR = tempDirectory;
@@ -91,6 +108,17 @@ describe("Mobile updates API", () => {
         }
       ]
     });
+
+    const landingPageResponse = await app.inject({
+      method: "GET",
+      url: "/"
+    });
+
+    expect(landingPageResponse.statusCode).toBe(200);
+    expect(landingPageResponse.body).toContain("Versione 0.1.4");
+    expect(landingPageResponse.body).toContain(
+      "https://updates.example.com/mobile-updates/releases/latest"
+    );
 
     const downloadResponse = await app.inject({
       method: "GET",
