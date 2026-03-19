@@ -47,7 +47,9 @@ void main() {
     expect(find.text('Ciao Carlo Bonvicini'), findsOneWidget);
     expect(find.textContaining('Backend collegato'), findsOneWidget);
     expect(find.text('Sezioni'), findsOneWidget);
-    expect(find.text('Panoramica del mese'), findsOneWidget);
+    expect(find.text('Prossima azione'), findsOneWidget);
+    expect(find.text('Eccezioni guidate'), findsOneWidget);
+    expect(find.text('Panoramica del mese'), findsNothing);
     expect(find.text('Aggiornamento disponibile'), findsOneWidget);
     expect(find.text('Ricordamelo piu tardi'), findsOneWidget);
     expect(find.text('Aggiorna'), findsNothing);
@@ -59,7 +61,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Calendario'), findsWidgets);
-    expect(find.text('Panoramica del mese'), findsNothing);
+    expect(find.text('Prossima azione'), findsNothing);
 
     await tester.tap(find.byKey(const ValueKey('calendar-day-2026-03-04')));
     await tester.pumpAndSettle();

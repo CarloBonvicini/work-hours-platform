@@ -33,6 +33,22 @@ enum _HomeSection {
   ticket,
 }
 
+enum _TodayStatus {
+  dayOff,
+  planned,
+  needsAttention,
+  inProgress,
+  completed,
+  absent,
+}
+
+enum _TodayOverridePreset {
+  startLater,
+  finishEarlier,
+  longerBreak,
+  dayOff,
+}
+
 class HomeScreen extends StatefulWidget {
   const HomeScreen({
     super.key,
@@ -378,6 +394,148 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _loadSnapshot(month: _selectedMonth, selectedDate: _selectedDate),
       _checkForUpdate(),
     ]);
+  }
+
+  DateTime get _todayDate {
+    final now = DateTime.now();
+    return DateTime(now.year, now.month, now.day);
+  }
+
+  void _openWorkQuickEntryForDate(
+    DateTime date, {
+    int? prefilledMinutes,
+    String? note,
+  }) {
+    setState(() {
+      _selectedSection = _HomeSection.quickEntry;
+      _selectedEntryMode = _QuickEntryMode.work;
+      _entryDateController.text = DashboardService.defaultEntryDateOf(date);
+      _entryMinutesController.text = prefilledMinutes == null
+          ? ''
+          : _formatHoursInput(prefilledMinutes);
+      _entryNoteController.text = note ?? '';
+    });
+  }
+
+  void _openLeaveQuickEntryForDate(
+    DateTime date, {
+    int? prefilledMinutes,
+    LeaveType leaveType = LeaveType.permit,
+    String? note,
+  }) {
+    setState(() {
+      _selectedSection = _HomeSection.quickEntry;
+      _selectedEntryMode = _QuickEntryMode.leave;
+      _selectedLeaveType = leaveType;
+      _entryDateController.text = DashboardService.defaultEntryDateOf(date);
+      _entryMinutesController.text = prefilledMinutes == null
+          ? ''
+          : _formatHoursInput(prefilledMinutes);
+      _entryNoteController.text = note ?? '';
+    });
+  }
+
+  Future<void> _openCalendarForDate(DateTime date) async {
+    setState(() {
+      _selectedSection = _HomeSection.calendar;
+      _calendarView = _CalendarView.day;
+    });
+    await _setSelectedDate(date, alignToPeriod: false);
+  }
+
+  Future<void> _prepareTodayOverridePreset(_TodayOverridePreset preset) async {
+    final today = _todayDate;
+    final todayMonth = DashboardService.formatMonth(today);
+    if (todayMonth != _selectedMonth) {
+      await _loadSnapshot(month: todayMonth, selectedDate: today);
+    }
+
+    final snapshot = _snapshotForMonth(todayMonth) ?? _snapshot;
+    if (snapshot == null) {
+      return;
+    }
+
+    final baseSchedule = _resolveBaseDayScheduleForDate(snapshot, today);
+    final preparedSchedule = _buildPresetSchedule(preset, baseSchedule);
+
+    await _setSelectedDate(today);
+    _scheduleOverrideTargetController.text = _formatHoursInput(
+      preparedSchedule.targetMinutes,
+    );
+    _scheduleOverrideStartTimeController.text = preparedSchedule.startTime ?? '';
+    _scheduleOverrideEndTimeController.text = preparedSchedule.endTime ?? '';
+    _scheduleOverrideBreakController.text = _formatBreakInput(
+      preparedSchedule.breakMinutes,
+    );
+    _scheduleOverrideNoteController.text = switch (preset) {
+      _TodayOverridePreset.startLater => 'Entrata posticipata',
+      _TodayOverridePreset.finishEarlier => 'Uscita anticipata',
+      _TodayOverridePreset.longerBreak => 'Pausa pranzo modificata',
+      _TodayOverridePreset.dayOff => 'Giornata non lavorativa',
+    };
+
+    setState(() {
+      _selectedSection = _HomeSection.calendar;
+      _calendarView = _CalendarView.day;
+    });
+  }
+
+  Future<void> _removeTodayOverride() async {
+    await _setSelectedDate(_todayDate);
+    await _removeScheduleOverride();
+  }
+
+  DaySchedule _buildPresetSchedule(
+    _TodayOverridePreset preset,
+    DaySchedule baseSchedule,
+  ) {
+    final startMinutes = parseTimeInput(baseSchedule.startTime);
+    final endMinutes = parseTimeInput(baseSchedule.endTime);
+
+    switch (preset) {
+      case _TodayOverridePreset.startLater:
+        if (startMinutes != null && endMinutes != null) {
+          return DaySchedule(
+            targetMinutes: baseSchedule.targetMinutes,
+            startTime: formatTimeInput(startMinutes + 60),
+            endTime: formatTimeInput(endMinutes + 60),
+            breakMinutes: baseSchedule.breakMinutes,
+          );
+        }
+        return DaySchedule(
+          targetMinutes: baseSchedule.targetMinutes,
+          breakMinutes: baseSchedule.breakMinutes,
+        );
+      case _TodayOverridePreset.finishEarlier:
+        final nextTarget = (baseSchedule.targetMinutes - 60).clamp(0, 24 * 60);
+        if (startMinutes != null && endMinutes != null) {
+          return DaySchedule(
+            targetMinutes: nextTarget,
+            startTime: baseSchedule.startTime,
+            endTime: formatTimeInput((endMinutes - 60).clamp(0, 24 * 60)),
+            breakMinutes: baseSchedule.breakMinutes,
+          );
+        }
+        return DaySchedule(
+          targetMinutes: nextTarget,
+          breakMinutes: baseSchedule.breakMinutes,
+        );
+      case _TodayOverridePreset.longerBreak:
+        if (startMinutes != null && endMinutes != null) {
+          return DaySchedule(
+            targetMinutes: baseSchedule.targetMinutes,
+            startTime: baseSchedule.startTime,
+            endTime: formatTimeInput((endMinutes + 30).clamp(0, 24 * 60)),
+            breakMinutes: baseSchedule.breakMinutes + 30,
+          );
+        }
+        return DaySchedule(
+          targetMinutes: baseSchedule.targetMinutes,
+          breakMinutes: baseSchedule.breakMinutes + 30,
+        );
+      case _TodayOverridePreset.dayOff:
+        return const DaySchedule(targetMinutes: 0);
+    }
   }
 
   Future<DashboardSnapshot> _fetchSnapshotForMonth(String month) async {
@@ -1362,6 +1520,101 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     ).where((item) => item.date == selectedIsoDate).toList(growable: false);
   }
 
+  _TodayStatus _resolveTodayStatus(_DayMetrics metrics) {
+    final registeredMinutes = metrics.workedMinutes + metrics.leaveMinutes;
+    if (metrics.expectedMinutes == 0 && registeredMinutes == 0) {
+      return _TodayStatus.dayOff;
+    }
+    if (metrics.leaveMinutes >= metrics.expectedMinutes &&
+        metrics.expectedMinutes > 0) {
+      return _TodayStatus.absent;
+    }
+    if (registeredMinutes >= metrics.expectedMinutes && metrics.expectedMinutes > 0) {
+      return _TodayStatus.completed;
+    }
+
+    final now = DateTime.now();
+    final currentMinutesOfDay = (now.hour * 60) + now.minute;
+    final scheduledStart = parseTimeInput(metrics.schedule.startTime);
+    final scheduledEnd = parseTimeInput(metrics.schedule.endTime);
+
+    if (registeredMinutes == 0) {
+      if (scheduledStart != null && currentMinutesOfDay < scheduledStart) {
+        return _TodayStatus.planned;
+      }
+      return _TodayStatus.needsAttention;
+    }
+
+    if (scheduledEnd != null && currentMinutesOfDay >= scheduledEnd + 15) {
+      return _TodayStatus.needsAttention;
+    }
+
+    return _TodayStatus.inProgress;
+  }
+
+  List<({IconData icon, String title, String description})> _buildTodayReminders(
+    DashboardSnapshot snapshot,
+    _DayMetrics metrics,
+  ) {
+    final reminders = <({IconData icon, String title, String description})>[];
+    final todayStatus = _resolveTodayStatus(metrics);
+    final now = DateTime.now();
+    final currentMinutesOfDay = (now.hour * 60) + now.minute;
+    final scheduledStart = parseTimeInput(metrics.schedule.startTime);
+    final scheduledEnd = parseTimeInput(metrics.schedule.endTime);
+
+    if (todayStatus == _TodayStatus.needsAttention &&
+        scheduledStart != null &&
+        currentMinutesOfDay >= scheduledStart) {
+      reminders.add((
+        icon: Icons.play_circle_outline,
+        title: 'Giornata da avviare o chiudere',
+        description:
+            'Oggi risulti ancora incompleto. Registra le ore mancanti oppure chiudi la giornata.',
+      ));
+    }
+
+    if (todayStatus == _TodayStatus.inProgress &&
+        scheduledEnd != null &&
+        currentMinutesOfDay >= scheduledEnd - 30) {
+      reminders.add((
+        icon: Icons.alarm_on_outlined,
+        title: 'Controlla la chiusura di oggi',
+        description:
+            'La fascia prevista sta per finire. Ti conviene verificare l ultima registrazione della giornata.',
+      ));
+    }
+
+    final tomorrow = _todayDate.add(const Duration(days: 1));
+    final tomorrowSnapshot =
+        _snapshotForMonth(DashboardService.formatMonth(tomorrow)) ??
+        (_isSameMonth(tomorrow, _monthToDate(snapshot.summary.month))
+            ? snapshot
+            : null);
+    final tomorrowOverride = tomorrowSnapshot == null
+        ? null
+        : _findScheduleOverrideForDate(tomorrowSnapshot, tomorrow);
+    if (tomorrowOverride != null) {
+      reminders.add((
+        icon: Icons.event_repeat_outlined,
+        title: 'Domani hai un eccezione',
+        description:
+            'Il programma di domani e diverso dal solito. Controlla la fascia prevista prima di iniziare.',
+      ));
+    }
+
+    if (metrics.hasOverride) {
+      reminders.add((
+        icon: Icons.rule_folder_outlined,
+        title: 'Oggi c e una regola speciale',
+        description:
+            'La giornata di oggi usa un orario modificato rispetto alla regola standard.',
+      ));
+    }
+
+    return reminders;
+  }
+
   String _humanizeError(Object error) {
     if (error is ApiException) {
       return error.message;
@@ -1417,7 +1670,45 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Widget _buildSelectedSection(DashboardSnapshot snapshot) {
     switch (_selectedSection) {
       case _HomeSection.overview:
-        return _OverviewCard(snapshot: snapshot);
+        final today = _todayDate;
+        final todaySnapshot =
+            _snapshotForMonth(DashboardService.formatMonth(today)) ?? snapshot;
+        final todayMetrics = _buildDayMetrics(today);
+        final todayStatus = _resolveTodayStatus(todayMetrics);
+        return _OverviewCard(
+          selectedDate: today,
+          todayMetrics: todayMetrics,
+          todayStatus: todayStatus,
+          effectiveSchedule: _resolveEffectiveDayScheduleForDate(
+            todaySnapshot,
+            today,
+          ),
+          todayOverride: _findScheduleOverrideForDate(todaySnapshot, today),
+          todayActivities: _buildActivitiesForDate(todaySnapshot, today),
+          reminders: _buildTodayReminders(todaySnapshot, todayMetrics),
+          onOpenWorkEntry: () => _openWorkQuickEntryForDate(
+            today,
+            prefilledMinutes: (todayMetrics.expectedMinutes -
+                    todayMetrics.workedMinutes -
+                    todayMetrics.leaveMinutes)
+                .clamp(0, 24 * 60),
+          ),
+          onOpenLeaveEntry: () => _openLeaveQuickEntryForDate(
+            today,
+            prefilledMinutes: todayMetrics.expectedMinutes == 0
+                ? null
+                : (todayMetrics.expectedMinutes -
+                        todayMetrics.workedMinutes -
+                        todayMetrics.leaveMinutes)
+                    .clamp(60, 24 * 60),
+            leaveType: LeaveType.permit,
+          ),
+          onOpenTodayCalendar: () => _openCalendarForDate(today),
+          onApplyPreset: _prepareTodayOverridePreset,
+          onRemoveTodayOverride: todayMetrics.hasOverride
+              ? _removeTodayOverride
+              : null,
+        );
       case _HomeSection.quickEntry:
         return _QuickEntryCard(
           formKey: _quickEntryFormKey,
@@ -4341,61 +4632,374 @@ class _Header extends StatelessWidget {
 }
 
 class _OverviewCard extends StatelessWidget {
-  const _OverviewCard({required this.snapshot});
+  const _OverviewCard({
+    required this.selectedDate,
+    required this.todayMetrics,
+    required this.todayStatus,
+    required this.effectiveSchedule,
+    required this.todayOverride,
+    required this.todayActivities,
+    required this.reminders,
+    required this.onOpenWorkEntry,
+    required this.onOpenLeaveEntry,
+    required this.onOpenTodayCalendar,
+    required this.onApplyPreset,
+    this.onRemoveTodayOverride,
+  });
 
-  final DashboardSnapshot snapshot;
+  final DateTime selectedDate;
+  final _DayMetrics todayMetrics;
+  final _TodayStatus todayStatus;
+  final DaySchedule effectiveSchedule;
+  final ScheduleOverride? todayOverride;
+  final List<_ActivityItem> todayActivities;
+  final List<({IconData icon, String title, String description})> reminders;
+  final VoidCallback onOpenWorkEntry;
+  final VoidCallback onOpenLeaveEntry;
+  final Future<void> Function() onOpenTodayCalendar;
+  final Future<void> Function(_TodayOverridePreset preset) onApplyPreset;
+  final Future<void> Function()? onRemoveTodayOverride;
 
   @override
   Widget build(BuildContext context) {
-    final summary = snapshot.summary;
-    final targetPerDay = _formatHours(snapshot.profile.dailyTargetMinutes);
-    final balanceText = _formatHours(summary.balanceMinutes, signed: true);
-    final balanceColor = summary.balanceMinutes >= 0
-        ? const Color(0xFF0B6E69)
-        : const Color(0xFF9D3D2F);
+    final registeredMinutes =
+        todayMetrics.workedMinutes + todayMetrics.leaveMinutes;
+    final remainingMinutes =
+        (todayMetrics.expectedMinutes - registeredMinutes).clamp(0, 24 * 60);
+    final statusMeta = _statusMeta(context, todayStatus);
+    final primaryAction = _primaryAction();
 
     return _SectionCard(
-      title: 'Panoramica del mese',
+      title: 'Oggi',
       subtitle:
-          '${_formatMonthLabel(summary.month)} - target giornaliero $targetPerDay',
-      trailing: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        decoration: BoxDecoration(
-          color: balanceColor.withValues(alpha: 0.12),
-          borderRadius: BorderRadius.circular(999),
-        ),
-        child: Text(
-          'Saldo $balanceText',
-          style: Theme.of(context).textTheme.labelLarge?.copyWith(
-            color: balanceColor,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
+          'Controlla subito come e organizzata la giornata e fai solo la prossima azione utile.',
+      trailing: _TodayStatusBadge(
+        label: statusMeta.label,
+        color: statusMeta.color,
+        icon: statusMeta.icon,
       ),
-      child: Wrap(
-        spacing: 12,
-        runSpacing: 12,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _MetricCard(
-            icon: Icons.flag_outlined,
-            label: 'Target mensile',
-            value: _formatHours(summary.expectedMinutes),
+          _InlineInfoPanel(
+            title: _formatLongDate(selectedDate),
+            description: _formatDayScheduleDetails(effectiveSchedule),
+            statusText: todayOverride == null
+                ? 'Programma standard di oggi'
+                : 'Eccezione attiva per oggi',
           ),
-          _MetricCard(
-            icon: Icons.schedule_outlined,
-            label: 'Ore registrate',
-            value: _formatHours(summary.workedMinutes),
+          if (todayOverride?.note?.isNotEmpty == true) ...[
+            const SizedBox(height: 10),
+            Text(
+              'Nota: ${todayOverride!.note!}',
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+          ],
+          const SizedBox(height: 16),
+          Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            children: [
+              _MetricCard(
+                icon: Icons.flag_outlined,
+                label: 'Previsto oggi',
+                value: _formatHours(todayMetrics.expectedMinutes),
+              ),
+              _MetricCard(
+                icon: Icons.schedule_outlined,
+                label: 'Registrato',
+                value: _formatHours(registeredMinutes),
+              ),
+              _MetricCard(
+                icon: Icons.pending_actions_outlined,
+                label: 'Ancora da fare',
+                value: _formatHours(remainingMinutes),
+              ),
+              _MetricCard(
+                icon: Icons.compare_arrows_outlined,
+                label: 'Scostamento',
+                value: _formatHours(todayMetrics.balanceMinutes, signed: true),
+                accentColor: _balanceColor(context, todayMetrics.balanceMinutes),
+              ),
+            ],
           ),
-          _MetricCard(
-            icon: Icons.event_busy_outlined,
-            label: 'Ferie e permessi',
-            value: _formatHours(summary.leaveMinutes),
+          const SizedBox(height: 20),
+          Text(
+            'Prossima azione',
+            style: Theme.of(
+              context,
+            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
           ),
-          _MetricCard(
-            icon: Icons.account_balance_wallet_outlined,
-            label: 'Saldo',
-            value: balanceText,
-            accentColor: balanceColor,
+          const SizedBox(height: 10),
+          FilledButton.icon(
+            onPressed: primaryAction.onPressed,
+            icon: Icon(primaryAction.icon),
+            label: Text(primaryAction.label),
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              OutlinedButton.icon(
+                onPressed: onOpenWorkEntry,
+                icon: const Icon(Icons.work_history_outlined),
+                label: const Text('Registra lavoro'),
+              ),
+              OutlinedButton.icon(
+                onPressed: onOpenLeaveEntry,
+                icon: const Icon(Icons.event_busy_outlined),
+                label: const Text('Segna assenza'),
+              ),
+              OutlinedButton.icon(
+                onPressed: () => onOpenTodayCalendar(),
+                icon: const Icon(Icons.edit_calendar_outlined),
+                label: const Text('Modifica oggi'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          Text(
+            'Eccezioni guidate',
+            style: Theme.of(
+              context,
+            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              ActionChip(
+                label: const Text('Entro piu tardi'),
+                onPressed: () => unawaited(
+                  onApplyPreset(_TodayOverridePreset.startLater),
+                ),
+              ),
+              ActionChip(
+                label: const Text('Esco prima'),
+                onPressed: () => unawaited(
+                  onApplyPreset(_TodayOverridePreset.finishEarlier),
+                ),
+              ),
+              ActionChip(
+                label: const Text('Pausa diversa'),
+                onPressed: () => unawaited(
+                  onApplyPreset(_TodayOverridePreset.longerBreak),
+                ),
+              ),
+              ActionChip(
+                label: const Text('Oggi non lavoro'),
+                onPressed: () => unawaited(
+                  onApplyPreset(_TodayOverridePreset.dayOff),
+                ),
+              ),
+              if (onRemoveTodayOverride != null)
+                ActionChip(
+                  label: const Text('Ripristina standard'),
+                  onPressed: () => unawaited(onRemoveTodayOverride!()),
+                ),
+            ],
+          ),
+          if (reminders.isNotEmpty) ...[
+            const SizedBox(height: 20),
+            Text(
+              'Promemoria di oggi',
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 10),
+            for (var index = 0; index < reminders.length; index += 1) ...[
+              _TodayReminderCard(
+                icon: reminders[index].icon,
+                title: reminders[index].title,
+                description: reminders[index].description,
+              ),
+              if (index < reminders.length - 1) const SizedBox(height: 10),
+            ],
+          ],
+          const SizedBox(height: 20),
+          Text(
+            'Attivita di oggi',
+            style: Theme.of(
+              context,
+            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 10),
+          if (todayActivities.isEmpty)
+            Text(
+              'Nessuna registrazione per oggi.',
+              style: Theme.of(context).textTheme.bodyLarge,
+            )
+          else
+            Column(
+              children: [
+                for (
+                  var index = 0;
+                  index < todayActivities.length;
+                  index += 1
+                ) ...[
+                  _ActivityRow(item: todayActivities[index]),
+                  if (index < todayActivities.length - 1)
+                    const Divider(height: 22),
+                ],
+              ],
+            ),
+        ],
+      ),
+    );
+  }
+
+  ({String label, IconData icon, Color color}) _statusMeta(BuildContext context, _TodayStatus status) {
+    return switch (status) {
+      _TodayStatus.dayOff => (
+        label: 'Libero',
+        icon: Icons.free_breakfast_outlined,
+        color: Theme.of(context).colorScheme.secondary,
+      ),
+      _TodayStatus.planned => (
+        label: 'Pianificata',
+        icon: Icons.schedule_outlined,
+        color: Theme.of(context).colorScheme.primary,
+      ),
+      _TodayStatus.needsAttention => (
+        label: 'Da completare',
+        icon: Icons.priority_high_outlined,
+        color: const Color(0xFF9D3D2F),
+      ),
+      _TodayStatus.inProgress => (
+        label: 'In corso',
+        icon: Icons.play_circle_outline,
+        color: const Color(0xFF0B6E69),
+      ),
+      _TodayStatus.completed => (
+        label: 'Completata',
+        icon: Icons.check_circle_outline,
+        color: const Color(0xFF0B6E69),
+      ),
+      _TodayStatus.absent => (
+        label: 'Assenza registrata',
+        icon: Icons.event_busy_outlined,
+        color: Theme.of(context).colorScheme.secondary,
+      ),
+    };
+  }
+
+  ({String label, IconData icon, VoidCallback onPressed}) _primaryAction() {
+    return switch (todayStatus) {
+      _TodayStatus.dayOff => (
+        label: 'Controlla il calendario',
+        icon: Icons.calendar_month_outlined,
+        onPressed: () => unawaited(onOpenTodayCalendar()),
+      ),
+      _TodayStatus.planned => (
+        label: 'Registra la giornata di oggi',
+        icon: Icons.play_arrow_outlined,
+        onPressed: onOpenWorkEntry,
+      ),
+      _TodayStatus.needsAttention => (
+        label: 'Completa la giornata',
+        icon: Icons.task_alt_outlined,
+        onPressed: onOpenWorkEntry,
+      ),
+      _TodayStatus.inProgress => (
+        label: 'Aggiorna le ore di oggi',
+        icon: Icons.schedule_send_outlined,
+        onPressed: onOpenWorkEntry,
+      ),
+      _TodayStatus.completed => (
+        label: 'Rivedi i dettagli di oggi',
+        icon: Icons.visibility_outlined,
+        onPressed: () => unawaited(onOpenTodayCalendar()),
+      ),
+      _TodayStatus.absent => (
+        label: 'Gestisci l assenza di oggi',
+        icon: Icons.event_note_outlined,
+        onPressed: onOpenLeaveEntry,
+      ),
+    };
+  }
+}
+
+class _TodayStatusBadge extends StatelessWidget {
+  const _TodayStatusBadge({
+    required this.label,
+    required this.color,
+    required this.icon,
+  });
+
+  final String label;
+  final Color color;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 18, color: color),
+          const SizedBox(width: 8),
+          Text(
+            label,
+            style: Theme.of(context).textTheme.labelLarge?.copyWith(
+              color: color,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TodayReminderCard extends StatelessWidget {
+  const _TodayReminderCard({
+    required this.icon,
+    required this.title,
+    required this.description,
+  });
+
+  final IconData icon;
+  final String title;
+  final String description;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF162121) : const Color(0xFFF7F3EC),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: theme.colorScheme.primary),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(description, style: theme.textTheme.bodyMedium),
+              ],
+            ),
           ),
         ],
       ),
@@ -4407,7 +5011,7 @@ extension on _HomeSection {
   String get label {
     switch (this) {
       case _HomeSection.overview:
-        return 'Panoramica';
+        return 'Oggi';
       case _HomeSection.quickEntry:
         return 'Registra';
       case _HomeSection.calendar:
@@ -4424,7 +5028,7 @@ extension on _HomeSection {
   IconData get icon {
     switch (this) {
       case _HomeSection.overview:
-        return Icons.dashboard_outlined;
+        return Icons.today_outlined;
       case _HomeSection.quickEntry:
         return Icons.edit_calendar_outlined;
       case _HomeSection.calendar:
