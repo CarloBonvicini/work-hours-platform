@@ -47,6 +47,8 @@ describe("Mobile updates API", () => {
     expect(response.headers["content-type"]).toContain("text/html");
     expect(response.body).toContain("Work Hours Platform");
     expect(response.body).toContain("APK non disponibile");
+    expect(response.body).toContain("Versione");
+    expect(response.body).not.toContain("Canale update");
   });
 
   it("returns 404 when no mobile release is published", async () => {
@@ -115,10 +117,13 @@ describe("Mobile updates API", () => {
     });
 
     expect(landingPageResponse.statusCode).toBe(200);
-    expect(landingPageResponse.body).toContain("Versione 0.1.4");
+    expect(landingPageResponse.body).toContain("Ultima release Android");
+    expect(landingPageResponse.body).toContain("Versione");
+    expect(landingPageResponse.body).toContain("0.1.4");
     expect(landingPageResponse.body).toContain(
       "https://updates.example.com/mobile-updates/releases/latest"
     );
+    expect(landingPageResponse.body).not.toContain("Verifica backend");
 
     const downloadResponse = await app.inject({
       method: "GET",

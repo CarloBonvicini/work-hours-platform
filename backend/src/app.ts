@@ -129,10 +129,9 @@ function renderLandingPage(options: {
 }) {
   const { baseUrl, latestRelease } = options;
   const downloadUrl = `${baseUrl}/mobile-updates/releases/latest`;
-  const healthUrl = `${baseUrl}/health`;
-  const feedUrl = `${baseUrl}/mobile-updates/latest.json`;
   const hasRelease = latestRelease !== null;
-  const versionLabel = hasRelease ? `Versione ${latestRelease.version}` : "APK in preparazione";
+  const titleLabel = hasRelease ? "Ultima release Android" : "APK in preparazione";
+  const versionValue = hasRelease ? latestRelease.version : "Non disponibile";
   const detailLabel = hasRelease
     ? `Build ${latestRelease.buildNumber} - file ${latestRelease.fileName}`
     : "Pubblica una release mobile per attivare il download pubblico.";
@@ -144,7 +143,7 @@ function renderLandingPage(options: {
     : null;
   const publishedLabel = publishedAt
     ? `Ultimo rilascio: ${publishedAt}`
-    : "Nessuna release pubblicata sul canale update.";
+    : "Nessuna release pubblicata.";
   const notesLabel = latestRelease?.releaseNotes ?? "Prima distribuzione Android via APK diretta.";
 
   const primaryAction = hasRelease
@@ -196,20 +195,8 @@ function renderLandingPage(options: {
         box-shadow: var(--shadow);
       }
 
-      .eyebrow {
-        display: inline-flex;
-        align-items: center;
-        gap: 10px;
-        padding: 8px 12px;
-        border-radius: 999px;
-        background: rgba(255, 255, 255, 0.12);
-        color: rgba(255, 255, 255, 0.84);
-        font-size: 14px;
-        letter-spacing: 0.02em;
-      }
-
       h1 {
-        margin: 18px 0 10px;
+        margin: 0 0 10px;
         font-size: clamp(40px, 6vw, 68px);
         line-height: 0.96;
         letter-spacing: -0.04em;
@@ -244,11 +231,6 @@ function renderLandingPage(options: {
       .button.primary {
         background: var(--accent);
         color: #17302d;
-      }
-
-      .button.secondary {
-        border: 1px solid rgba(255, 255, 255, 0.22);
-        color: white;
       }
 
       .button.disabled {
@@ -342,27 +324,21 @@ function renderLandingPage(options: {
   <body>
     <main>
       <section class="hero">
-        <span class="eyebrow">Distribuzione Android diretta</span>
         <h1>Work Hours Platform</h1>
         <p>Scarica l&#39;APK Android piu recente dal canale ufficiale del progetto. Il backend, il feed update e il download pubblico vivono sullo stesso dominio.</p>
         <div class="actions">
           ${primaryAction}
-          <a class="button secondary" href="${escapeHtml(healthUrl)}">Verifica backend</a>
         </div>
       </section>
 
       <section class="grid">
         <article class="panel release">
-          <h2>${escapeHtml(versionLabel)}</h2>
+          <h2>${escapeHtml(titleLabel)}</h2>
           <p>${escapeHtml(detailLabel)}</p>
           <div class="meta">
             <div class="meta-row">
-              <span class="label">Stato rilascio</span>
-              <strong>${hasRelease ? "Disponibile al download" : "In attesa della prossima release"}</strong>
-            </div>
-            <div class="meta-row">
-              <span class="label">Canale update</span>
-              <strong>${escapeHtml(feedUrl)}</strong>
+              <span class="label">Versione</span>
+              <strong>${escapeHtml(versionValue)}</strong>
             </div>
             <div class="meta-row">
               <span class="label">Ultima pubblicazione</span>
