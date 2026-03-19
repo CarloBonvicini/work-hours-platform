@@ -91,6 +91,32 @@ jobs:
             printf '\nAPI_IMAGE=%s\n' "${API_IMAGE}" >> infra/.env
           fi
 
+      - name: Validate runtime configuration
+        shell: bash
+        run: |
+          set -eu
+
+          data_provider="$(grep '^DATA_PROVIDER=' infra/.env | cut -d= -f2- || true)"
+          if [ "$data_provider" != "postgres" ]; then
+            exit 0
+          fi
+
+          database_url="$(grep '^DATABASE_URL=' infra/.env | cut -d= -f2- || true)"
+          if [ -z "$database_url" ]; then
+            echo "DATABASE_URL mancante mentre DATA_PROVIDER=postgres."
+            exit 1
+          fi
+
+          if ! printf '%s' "$database_url" | grep -Eq '^postgres(ql)?://'; then
+            echo "DATABASE_URL invalida: deve iniziare con postgres:// oppure postgresql://"
+            exit 1
+          fi
+
+          if printf '%s' "$database_url" | grep -q '[<>]'; then
+            echo "DATABASE_URL sembra ancora un placeholder non sostituito."
+            exit 1
+          fi
+
       - name: Pull and restart containers
         shell: bash
         run: |
