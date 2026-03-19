@@ -1,5 +1,18 @@
 import 'package:work_hours_mobile/domain/models/dashboard_snapshot.dart';
 
 abstract class DashboardRepository {
-  Future<DashboardSnapshot> loadSnapshot();
+  Future<DashboardSnapshot> loadSnapshot({required String month});
+
+  Future<DashboardSnapshot> saveProfile({
+    required String fullName,
+    required int dailyTargetMinutes,
+    required String month,
+  });
+
+  Future<DashboardSnapshot> addWorkEntry({
+    required String date,
+    required int minutes,
+    String? note,
+    required String month,
+  });
 }

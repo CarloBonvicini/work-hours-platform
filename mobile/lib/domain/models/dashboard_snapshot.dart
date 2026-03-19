@@ -1,19 +1,17 @@
+import 'package:work_hours_mobile/domain/models/monthly_summary.dart';
+import 'package:work_hours_mobile/domain/models/profile.dart';
+import 'package:work_hours_mobile/domain/models/work_entry.dart';
+
 class DashboardSnapshot {
-  DashboardSnapshot({
-    required this.fullName,
-    required this.monthlyTargetHours,
-    required this.trackedHours,
-    required this.leaveHours,
-    required this.balanceHours,
-    required this.focusItems,
-    required this.distributionChannel,
+  const DashboardSnapshot({
+    required this.profile,
+    required this.summary,
+    required this.workEntries,
+    required this.apiBaseUrl,
   });
 
-  final String fullName;
-  final int monthlyTargetHours;
-  final int trackedHours;
-  final int leaveHours;
-  final int balanceHours;
-  final List<String> focusItems;
-  final String distributionChannel;
+  final UserProfile profile;
+  final MonthlySummary summary;
+  final List<WorkEntry> workEntries;
+  final String apiBaseUrl;
 }

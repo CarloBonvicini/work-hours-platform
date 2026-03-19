@@ -17,9 +17,21 @@ describe("GET /health", () => {
     expect(body.service).toBe("work-hours-backend");
     expect(typeof body.timestamp).toBe("string");
   });
+
+  it("returns CORS headers when origin is present", async () => {
+    const response = await app.inject({
+      method: "GET",
+      url: "/health",
+      headers: {
+        origin: "http://localhost:3000"
+      }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["access-control-allow-origin"]).toBe("http://localhost:3000");
+  });
 });
 
 afterAll(async () => {
   await app.close();
 });
-

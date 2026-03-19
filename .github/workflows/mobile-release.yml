@@ -73,11 +73,35 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
+      - name: Prepare Android release signing
+        shell: bash
+        working-directory: .
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ] && [ -n "$ANDROID_KEY_ALIAS" ] && [ -n "$ANDROID_KEYSTORE_PASSWORD" ] && [ -n "$ANDROID_KEY_PASSWORD" ]; then
+            keystore_path="$GITHUB_WORKSPACE/mobile/android/release.keystore"
+            echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$keystore_path"
+            {
+              echo "ANDROID_KEYSTORE_PATH=$keystore_path"
+              echo "ANDROID_KEY_ALIAS=$ANDROID_KEY_ALIAS"
+              echo "ANDROID_KEYSTORE_PASSWORD=$ANDROID_KEYSTORE_PASSWORD"
+              echo "ANDROID_KEY_PASSWORD=$ANDROID_KEY_PASSWORD"
+            } >> "$GITHUB_ENV"
+          else
+            echo "ANDROID signing secrets not configured."
+            echo "Release APK will use debug signing and may not support in-place updates."
+          fi
+
       - name: Build release APK
         run: >
           flutter build apk --release
           --build-name="${{ steps.meta.outputs.build_name }}"
           --build-number="${{ steps.meta.outputs.build_number }}"
+          --dart-define=APP_VERSION="${{ steps.meta.outputs.build_name }}"
 
       - name: Create or update GitHub release
         env:

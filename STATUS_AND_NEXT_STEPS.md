@@ -16,6 +16,9 @@
 10. Workflow `Mobile Release` aggiunto per build e pubblicazione APK su GitHub Releases.
 11. Branding mobile e identificatori applicativi allineati a `Work Hours Platform`.
 12. Build APK Android `debug` e `release` verificate localmente.
+13. Client Flutter collegato al backend reale per profilo, work entries e monthly summary.
+14. Backend aggiornato con CORS configurabile per supportare il client anche da browser/desktop.
+15. Client mobile aggiornato con controllo automatico delle nuove release e apertura del download APK da GitHub Releases.
 
 ## Stato attuale (18 marzo 2026)
 
@@ -24,21 +27,28 @@
 3. Deploy pipeline pronta in versione self-hosted.
 4. Secret richiesto per il runtime: `RUNTIME_ENV_FILE`.
 5. Runner self-hosted da configurare/tenere online sul portatile.
-6. Mobile bootstrapato: progetto Flutter presente, `analyze`, `test`, `build apk --debug` e `build apk --release` verdi in locale.
+6. Mobile connesso al backend reale: `analyze`, `test`, `build apk --debug` e `build apk --release` verdi in locale.
 7. Priorita prodotto aggiornata: prima consegna utile = APK scaricabile direttamente da GitHub Releases.
 8. `applicationId` Android impostato a `com.carlobonvicini.workhours`.
 9. Il rilascio va comunque validato anche via GitHub Actions per confermare il workflow `Mobile Release`.
+10. Per update Android affidabili serve una chiave release stabile: il workflow supporta secret signing dedicati ma, se assenti, ricade sulla debug key.
+11. La feed GitHub `releases/latest` risponde `404` senza autenticazione al 19 marzo 2026, quindi il controllo automatico richiede feed pubblica alternativa o repository pubblico.
 
 ## Next step immediati
 
-1. Eseguire la prima release APK da GitHub:
-   - workflow `Mobile Release`
-   - oppure push di tag `mobile-v0.1.0`
-2. Collegare i dati reali del backend al client Flutter.
-3. Ridurre la dimensione della build `debug` locale se diventa un problema operativo.
-4. Configurare il runner in GitHub:
+1. Configurare i secret Android per firma release stabile:
+   - `ANDROID_KEYSTORE_BASE64`
+   - `ANDROID_KEY_ALIAS`
+   - `ANDROID_KEYSTORE_PASSWORD`
+   - `ANDROID_KEY_PASSWORD`
+2. Decidere la feed update pubblica:
+   - repository GitHub pubblico
+   - oppure endpoint backend/proxy per metadata release
+3. Estendere il client Flutter a ferie e permessi.
+4. Aggiungere un flusso piu completo di dashboard/storico sopra i dati gia letti dal backend.
+5. Configurare il runner in GitHub:
    - `Settings > Actions > Runners > New self-hosted runner`
-5. Inserire il secret repository:
+6. Inserire il secret repository:
    - `RUNTIME_ENV_FILE`
-6. Fare un push di test su `main`.
-7. Verificare workflow `Backend CD` verde e container `api` in `Up`.
+7. Fare un push di test su `main`.
+8. Verificare workflow `Backend CD` verde e container `api` in `Up`.

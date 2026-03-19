@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import cors from "@fastify/cors";
 import Fastify from "fastify";
 import { InMemoryStore } from "./data/in-memory-store.js";
 import type { AppStore } from "./data/store.js";
@@ -43,9 +44,14 @@ function isLeaveType(value: unknown): value is LeaveType {
 
 export function buildApp(options: BuildAppOptions = {}) {
   const store: AppStore = options.store ?? new InMemoryStore();
+  const corsOrigin = process.env.CORS_ORIGIN;
 
   const app = Fastify({
     logger: true
+  });
+
+  void app.register(cors, {
+    origin: corsOrigin ? corsOrigin.split(",").map((value) => value.trim()) : true
   });
 
   app.get("/health", async () => {

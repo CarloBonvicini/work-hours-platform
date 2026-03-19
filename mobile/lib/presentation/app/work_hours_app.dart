@@ -1,11 +1,17 @@
 import 'package:flutter/material.dart';
+import 'package:work_hours_mobile/application/services/app_update_service.dart';
 import 'package:work_hours_mobile/application/services/dashboard_service.dart';
 import 'package:work_hours_mobile/presentation/home/home_screen.dart';
 
 class WorkHoursApp extends StatelessWidget {
-  const WorkHoursApp({super.key, required this.dashboardService});
+  const WorkHoursApp({
+    super.key,
+    required this.dashboardService,
+    required this.appUpdateService,
+  });
 
   final DashboardService dashboardService;
+  final AppUpdateService appUpdateService;
 
   @override
   Widget build(BuildContext context) {
@@ -29,7 +35,10 @@ class WorkHoursApp extends StatelessWidget {
         ),
         useMaterial3: true,
       ),
-      home: HomeScreen(dashboardService: dashboardService),
+      home: HomeScreen(
+        dashboardService: dashboardService,
+        appUpdateService: appUpdateService,
+      ),
     );
   }
 }
