@@ -45,18 +45,44 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Ciao Carlo Bonvicini'), findsOneWidget);
-    expect(find.text('Navigazione'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('navigation-menu-button')),
+      findsOneWidget,
+    );
+    expect(find.text('Navigazione'), findsNothing);
     expect(find.text('Settimana'), findsWidgets);
-    expect(find.text('Impostazioni'), findsOneWidget);
+    expect(find.text('Impostazioni'), findsNothing);
     expect(find.text('Panoramica del mese'), findsNothing);
     expect(find.byKey(const ValueKey('home-section-overview')), findsNothing);
     expect(find.byKey(const ValueKey('home-section-quickEntry')), findsNothing);
-    expect(find.byKey(const ValueKey('home-section-recentActivity')), findsNothing);
+    expect(
+      find.byKey(const ValueKey('home-section-recentActivity')),
+      findsNothing,
+    );
+    expect(find.byKey(const ValueKey('home-section-profile')), findsNothing);
+    expect(find.byKey(const ValueKey('home-section-ticket')), findsNothing);
     expect(find.text('Aggiornamento disponibile'), findsOneWidget);
     expect(find.text('Ricordamelo piu tardi'), findsOneWidget);
     expect(find.text('Aggiorna'), findsNothing);
 
     await tester.tap(find.text('Ricordamelo piu tardi'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('navigation-menu-button')));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('navigation-option-calendar')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('navigation-option-profile')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('navigation-option-ticket')),
+      findsOneWidget,
+    );
+    await tester.tap(find.byKey(const ValueKey('navigation-option-calendar')));
     await tester.pumpAndSettle();
 
     expect(find.text('Calendario'), findsWidgets);
@@ -142,10 +168,9 @@ void main() {
     );
 
     await tester.pumpAndSettle();
-    await tester.ensureVisible(
-      find.byKey(const ValueKey('home-section-profile')),
-    );
-    await tester.tap(find.byKey(const ValueKey('home-section-profile')));
+    await tester.tap(find.byKey(const ValueKey('navigation-menu-button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('navigation-option-profile')));
     await tester.pumpAndSettle();
 
     await tester.scrollUntilVisible(
@@ -251,11 +276,9 @@ void main() {
     );
 
     await tester.pumpAndSettle();
-    await tester.ensureVisible(
-      find.byKey(const ValueKey('home-section-ticket')),
-    );
+    await tester.tap(find.byKey(const ValueKey('navigation-menu-button')));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('home-section-ticket')));
+    await tester.tap(find.byKey(const ValueKey('navigation-option-ticket')));
     await tester.pumpAndSettle();
 
     await tester.tap(find.byKey(const ValueKey('ticket-category-feature')));

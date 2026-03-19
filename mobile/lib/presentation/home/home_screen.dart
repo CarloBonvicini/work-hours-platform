@@ -45,6 +45,12 @@ enum _TodayStatus {
 
 enum _TodayOverridePreset { startLater, finishEarlier, longerBreak, dayOff }
 
+const _mainNavigationSections = [
+  _HomeSection.calendar,
+  _HomeSection.profile,
+  _HomeSection.ticket,
+];
+
 class HomeScreen extends StatefulWidget {
   const HomeScreen({
     super.key,
@@ -391,6 +397,22 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _loadSnapshot(month: _selectedMonth, selectedDate: _selectedDate),
       _checkForUpdate(),
     ]);
+  }
+
+  Future<void> _openNavigationMenu() async {
+    final selectedSection = await showModalBottomSheet<_HomeSection>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) =>
+          _NavigationMenuSheet(selectedSection: _selectedSection),
+    );
+    if (!mounted || selectedSection == null) {
+      return;
+    }
+
+    setState(() {
+      _selectedSection = selectedSection;
+    });
   }
 
   DateTime get _todayDate {
@@ -1714,8 +1736,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   String _humanizeError(Object error) {
     if (error is ApiException) {
-      if (
-          error.message.contains('weekdaySchedule must include') ||
+      if (error.message.contains('weekdaySchedule must include') ||
           error.message.contains('weekdayTargetMinutes must include') ||
           error.message.contains(
             'targetMinutes must match startTime/endTime minus breakMinutes',
@@ -1963,6 +1984,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               children: [
                 _Header(
                   profileName: snapshot?.profile.fullName,
+                  onOpenNavigationMenu: _openNavigationMenu,
                 ),
                 const SizedBox(height: 16),
                 if (_errorMessage != null) ...[
@@ -1970,15 +1992,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   const SizedBox(height: 16),
                 ],
                 if (snapshot != null) ...[
-                  _HomeSectionNavigation(
-                    selectedSection: _selectedSection,
-                    onSectionSelected: (section) {
-                      setState(() {
-                        _selectedSection = section;
-                      });
-                    },
-                  ),
-                  const SizedBox(height: 16),
                   AnimatedSwitcher(
                     duration: const Duration(milliseconds: 220),
                     switchInCurve: Curves.easeOut,
@@ -2126,49 +2139,6 @@ class _QuickEntryCard extends StatelessWidget {
               ),
             ),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-class _HomeSectionNavigation extends StatelessWidget {
-  const _HomeSectionNavigation({
-    required this.selectedSection,
-    required this.onSectionSelected,
-  });
-
-  final _HomeSection selectedSection;
-  final ValueChanged<_HomeSection> onSectionSelected;
-
-  @override
-  Widget build(BuildContext context) {
-    const visibleSections = [
-      _HomeSection.calendar,
-      _HomeSection.profile,
-      _HomeSection.ticket,
-    ];
-
-    return _SectionCard(
-      title: 'Navigazione',
-      subtitle: 'Solo le sezioni che servono davvero.',
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
-          children: visibleSections
-              .map(
-                (section) => Padding(
-                  padding: const EdgeInsets.only(right: 10),
-                  child: ChoiceChip(
-                    key: ValueKey('home-section-${section.name}'),
-                    selected: selectedSection == section,
-                    avatar: Icon(section.icon, size: 18),
-                    label: Text(section.label),
-                    onSelected: (_) => onSectionSelected(section),
-                  ),
-                ),
-              )
-              .toList(growable: false),
         ),
       ),
     );
@@ -5018,24 +4988,108 @@ String _textScaleLabel(double value) {
 }
 
 class _Header extends StatelessWidget {
-  const _Header({required this.profileName});
+  const _Header({
+    required this.profileName,
+    required this.onOpenNavigationMenu,
+  });
 
   final String? profileName;
+  final Future<void> Function() onOpenNavigationMenu;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    return Column(
+    return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          profileName == null ? 'Work Hours Platform' : 'Ciao ${profileName!}',
-          style: theme.textTheme.headlineMedium?.copyWith(
-            fontWeight: FontWeight.w800,
+        Expanded(
+          child: Text(
+            profileName == null
+                ? 'Work Hours Platform'
+                : 'Ciao ${profileName!}',
+            style: theme.textTheme.headlineMedium?.copyWith(
+              fontWeight: FontWeight.w800,
+            ),
           ),
         ),
+        const SizedBox(width: 12),
+        IconButton.filledTonal(
+          key: const ValueKey('navigation-menu-button'),
+          tooltip: 'Apri menu',
+          onPressed: onOpenNavigationMenu,
+          icon: const Icon(Icons.menu_rounded),
+        ),
       ],
+    );
+  }
+}
+
+class _NavigationMenuSheet extends StatelessWidget {
+  const _NavigationMenuSheet({required this.selectedSection});
+
+  final _HomeSection selectedSection;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return SafeArea(
+      child: SingleChildScrollView(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Menu',
+                style: theme.textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Apri la sezione che ti serve.',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 16),
+              ..._mainNavigationSections.map(
+                (section) => Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: ListTile(
+                    key: ValueKey('navigation-option-${section.name}'),
+                    leading: Icon(section.icon),
+                    title: Text(section.label),
+                    trailing: selectedSection == section
+                        ? Icon(
+                            Icons.check_rounded,
+                            color: theme.colorScheme.primary,
+                          )
+                        : null,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(18),
+                      side: BorderSide(
+                        color: selectedSection == section
+                            ? theme.colorScheme.primary.withValues(alpha: 0.35)
+                            : theme.colorScheme.outlineVariant,
+                      ),
+                    ),
+                    tileColor: selectedSection == section
+                        ? theme.colorScheme.primaryContainer.withValues(
+                            alpha: 0.3,
+                          )
+                        : theme.colorScheme.surfaceContainerLow,
+                    onTap: () => Navigator.of(context).pop(section),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
