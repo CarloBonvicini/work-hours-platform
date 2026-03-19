@@ -20,6 +20,8 @@
 14. Backend aggiornato con CORS configurabile per supportare il client anche da browser/desktop.
 15. Client mobile aggiornato con controllo automatico delle nuove release e apertura del download APK da GitHub Releases.
 16. Canale update produzione introdotto: il backend Linux puo servire feed update e APK da `infra/updates/`.
+17. Deploy infra esteso con proxy HTTPS opzionale via `Caddy` per pubblicare `workhours.developerdomain.org`.
+18. Client mobile esteso anche ai flussi ferie e permessi con backend reale.
 
 ## Stato attuale (18 marzo 2026)
 
@@ -47,11 +49,12 @@
    - secret `MOBILE_API_BASE_URL`
    - secret `MOBILE_UPDATE_BASE_URL`
    - env server `MOBILE_UPDATES_PUBLIC_BASE_URL`
-3. Estendere il client Flutter a ferie e permessi.
-4. Aggiungere un flusso piu completo di dashboard/storico sopra i dati gia letti dal backend.
-5. Configurare il runner in GitHub:
+3. Puntare il DNS `workhours.developerdomain.org` al server Linux e aprire `80/443`.
+4. Rifinire UX mobile per ferie/permessi e storico mensile.
+5. Aggiungere un flusso piu completo di dashboard/storico sopra i dati gia letti dal backend.
+6. Configurare il runner in GitHub:
    - `Settings > Actions > Runners > New self-hosted runner`
-6. Inserire il secret repository:
+7. Inserire il secret repository:
    - `RUNTIME_ENV_FILE`
-7. Fare un push di test su `main`.
-8. Verificare workflow `Backend CD` verde e container `api` in `Up`.
+8. Fare un push di test su `main`.
+9. Verificare workflow `Backend CD` verde e container `api` in `Up`.

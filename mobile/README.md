@@ -46,8 +46,8 @@ flutter run --dart-define=API_BASE_URL=http://10.0.2.2:8080
 flutter run ^
   --dart-define=API_BASE_URL=http://10.0.2.2:8080 ^
   --dart-define=APP_VERSION=0.1.2 ^
-  --dart-define=UPDATE_FEED_URL=https://api.github.com/repos/CarloBonvicini/work-hours-platform/releases/latest ^
-  --dart-define=UPDATE_PAGE_URL=https://github.com/CarloBonvicini/work-hours-platform/releases/latest
+  --dart-define=UPDATE_FEED_URL=https://workhours.developerdomain.org/mobile-updates/latest.json ^
+  --dart-define=UPDATE_PAGE_URL=https://workhours.developerdomain.org/mobile-updates/releases/latest
 ```
 
 Nota:
@@ -120,10 +120,10 @@ Il client accetta anche una feed JSON pubblica con questo schema:
 ```json
 {
   "tag_name": "mobile-v0.1.4",
-  "html_url": "https://auth.autocaptionservices.work/work-hours/releases/mobile-v0.1.4",
+  "html_url": "https://workhours.developerdomain.org/mobile-updates/releases/latest",
   "assets": [
     {
-      "browser_download_url": "https://auth.autocaptionservices.work/work-hours/downloads/app-release-0.1.4.apk"
+      "browser_download_url": "https://workhours.developerdomain.org/mobile-updates/downloads/work-hours-mobile-0.1.4.apk"
     }
   ]
 }
