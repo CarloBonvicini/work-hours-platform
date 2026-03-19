@@ -1,5 +1,5 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:work_hours_mobile/application/services/app_update_service.dart';
 import 'package:work_hours_mobile/application/services/dashboard_service.dart';
 import 'package:work_hours_mobile/application/services/onboarding_preference_store.dart';
@@ -117,14 +117,8 @@ class _WorkHoursAppState extends State<WorkHoursApp> {
       bodyColor: inkColor,
       displayColor: inkColor,
       fontSizeFactor: _appearanceSettings.textScale,
+      fontFamily: _platformFontFamily(_appearanceSettings.fontFamily),
     );
-    final themedTextTheme = switch (_appearanceSettings.fontFamily) {
-      AppFontFamily.serif => GoogleFonts.loraTextTheme(baseTextTheme),
-      AppFontFamily.monospace => GoogleFonts.ibmPlexMonoTextTheme(
-        baseTextTheme,
-      ),
-      AppFontFamily.system => baseTextTheme,
-    };
     final colorScheme =
         ColorScheme.fromSeed(
           seedColor: primaryColor,
@@ -140,7 +134,7 @@ class _WorkHoursAppState extends State<WorkHoursApp> {
       brightness: brightness,
       colorScheme: colorScheme,
       scaffoldBackgroundColor: canvasColor,
-      textTheme: themedTextTheme,
+      textTheme: baseTextTheme,
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: fieldColor,
@@ -191,5 +185,19 @@ class _WorkHoursAppState extends State<WorkHoursApp> {
       ),
       useMaterial3: true,
     );
+  }
+
+  String? _platformFontFamily(AppFontFamily fontFamily) {
+    return switch (fontFamily) {
+      AppFontFamily.system => null,
+      AppFontFamily.serif => switch (defaultTargetPlatform) {
+        TargetPlatform.iOS || TargetPlatform.macOS => 'Times New Roman',
+        _ => 'serif',
+      },
+      AppFontFamily.monospace => switch (defaultTargetPlatform) {
+        TargetPlatform.iOS || TargetPlatform.macOS => 'Courier',
+        _ => 'monospace',
+      },
+    };
   }
 }

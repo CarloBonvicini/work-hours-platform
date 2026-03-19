@@ -84,6 +84,7 @@ class SharedPreferencesThemePreferenceStore implements ThemePreferenceStore {
     final rawThemeMode = preferences.getString(_themeModeKey);
     final themeMode = switch (rawThemeMode) {
       'dark' => ThemeMode.dark,
+      'system' => ThemeMode.system,
       _ => ThemeMode.light,
     };
     final primaryColor =
@@ -116,6 +117,7 @@ class SharedPreferencesThemePreferenceStore implements ThemePreferenceStore {
     final preferences = await SharedPreferences.getInstance();
     final rawThemeMode = switch (settings.themeMode) {
       ThemeMode.dark => 'dark',
+      ThemeMode.system => 'system',
       _ => 'light',
     };
     await preferences.setString(_themeModeKey, rawThemeMode);

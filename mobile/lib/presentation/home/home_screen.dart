@@ -27,6 +27,8 @@ enum _QuickEntryMode { work, leave }
 
 enum _CalendarView { day, week, month, year }
 
+enum _AppearanceTab { theme, colors, typography }
+
 enum _HomeSection {
   overview,
   quickEntry,
@@ -4638,21 +4640,6 @@ class _ProfileCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const primaryOptions = <({String label, Color color})>[
-      (label: 'Verde', color: Color(0xFF0B6E69)),
-      (label: 'Blu', color: Color(0xFF2457BF)),
-      (label: 'Corallo', color: Color(0xFFC75B39)),
-      (label: 'Prato', color: Color(0xFF2C8A52)),
-      (label: 'Prugna', color: Color(0xFF7A3F96)),
-    ];
-    const secondaryOptions = <({String label, Color color})>[
-      (label: 'Ambra', color: Color(0xFFBF7A24)),
-      (label: 'Sabbia', color: Color(0xFF8A6F4D)),
-      (label: 'Turchese', color: Color(0xFF2E8C94)),
-      (label: 'Rosato', color: Color(0xFFB45D74)),
-      (label: 'Menta', color: Color(0xFF5A9D7A)),
-    ];
-
     return _SectionCard(
       title: 'Impostazioni',
       subtitle: 'Gestisci dati base, orari predefiniti e aspetto dell app.',
@@ -4784,102 +4771,13 @@ class _ProfileCard extends StatelessWidget {
             ),
             const SizedBox(height: 24),
             const Divider(),
-            const SizedBox(height: 8),
-            Text(
-              'Aspetto app',
-              style: Theme.of(
-                context,
-              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              'Scegli tema, colori, font e dimensione del testo.',
-              style: Theme.of(context).textTheme.bodyMedium,
-            ),
-            const SizedBox(height: 8),
-            SwitchListTile.adaptive(
-              key: const ValueKey('dark-theme-switch'),
-              contentPadding: EdgeInsets.zero,
-              value: isDarkTheme,
-              onChanged: isUpdatingThemeMode ? null : onDarkThemeChanged,
-              title: const Text('Tema scuro'),
-              subtitle: Text(
-                isUpdatingThemeMode
-                    ? 'Aggiorno l aspetto dell app...'
-                    : 'Attiva un tema piu scuro per usare l app con meno luminosita.',
-              ),
-            ),
             const SizedBox(height: 12),
-            _AppearanceChoiceGroup<({String label, Color color}), Color>(
-              title: 'Colore principale',
-              currentValue: appearanceSettings.primaryColor,
-              options: primaryOptions,
-              valueOf: (option) => option.color,
-              labelOf: (option) => option.label,
-              previewColorOf: (option) => option.color,
-              onSelected: isUpdatingThemeMode
-                  ? null
-                  : (color) => onAppearanceSettingsChanged(
-                      appearanceSettings.copyWith(primaryColor: color),
-                    ),
-            ),
-            const SizedBox(height: 16),
-            _AppearanceChoiceGroup<({String label, Color color}), Color>(
-              title: 'Colore secondario',
-              currentValue: appearanceSettings.secondaryColor,
-              options: secondaryOptions,
-              valueOf: (option) => option.color,
-              labelOf: (option) => option.label,
-              previewColorOf: (option) => option.color,
-              onSelected: isUpdatingThemeMode
-                  ? null
-                  : (color) => onAppearanceSettingsChanged(
-                      appearanceSettings.copyWith(secondaryColor: color),
-                    ),
-            ),
-            const SizedBox(height: 16),
-            _AppearanceChoiceGroup<AppFontFamily, AppFontFamily>(
-              title: 'Font testo',
-              currentValue: appearanceSettings.fontFamily,
-              options: const [
-                AppFontFamily.system,
-                AppFontFamily.serif,
-                AppFontFamily.monospace,
-              ],
-              valueOf: (fontFamily) => fontFamily,
-              labelOf: (fontFamily) => switch (fontFamily) {
-                AppFontFamily.system => 'Sistema',
-                AppFontFamily.serif => 'Serif',
-                AppFontFamily.monospace => 'Mono',
-              },
-              onSelected: isUpdatingThemeMode
-                  ? null
-                  : (fontFamily) => onAppearanceSettingsChanged(
-                      appearanceSettings.copyWith(fontFamily: fontFamily),
-                    ),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'Dimensione testo',
-              style: Theme.of(
-                context,
-              ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 6),
-            Slider(
-              value: appearanceSettings.textScale,
-              min: 0.9,
-              max: 1.25,
-              divisions: 7,
-              onChanged: isUpdatingThemeMode
-                  ? null
-                  : (value) => onAppearanceSettingsChanged(
-                      appearanceSettings.copyWith(textScale: value),
-                    ),
-            ),
-            Text(
-              _textScaleLabel(appearanceSettings.textScale),
-              style: Theme.of(context).textTheme.bodyMedium,
+            _AppearanceSettingsPanel(
+              isDarkTheme: isDarkTheme,
+              appearanceSettings: appearanceSettings,
+              isUpdatingThemeMode: isUpdatingThemeMode,
+              onDarkThemeChanged: onDarkThemeChanged,
+              onAppearanceSettingsChanged: onAppearanceSettingsChanged,
             ),
           ],
         ),
@@ -5021,24 +4919,29 @@ class _DayScheduleEditorRow extends StatelessWidget {
   }
 }
 
-class _AppearanceChoiceGroup<T, V> extends StatelessWidget {
-  const _AppearanceChoiceGroup({
-    required this.title,
-    required this.currentValue,
-    required this.options,
-    required this.valueOf,
-    required this.labelOf,
-    required this.onSelected,
-    this.previewColorOf,
+class _AppearanceSettingsPanel extends StatefulWidget {
+  const _AppearanceSettingsPanel({
+    required this.isDarkTheme,
+    required this.appearanceSettings,
+    required this.isUpdatingThemeMode,
+    required this.onDarkThemeChanged,
+    required this.onAppearanceSettingsChanged,
   });
 
-  final String title;
-  final V currentValue;
-  final List<T> options;
-  final V Function(T option) valueOf;
-  final String Function(T option) labelOf;
-  final Color Function(T option)? previewColorOf;
-  final Future<void> Function(V value)? onSelected;
+  final bool isDarkTheme;
+  final AppAppearanceSettings appearanceSettings;
+  final bool isUpdatingThemeMode;
+  final Future<void> Function(bool) onDarkThemeChanged;
+  final Future<void> Function(AppAppearanceSettings settings)
+  onAppearanceSettingsChanged;
+
+  @override
+  State<_AppearanceSettingsPanel> createState() =>
+      _AppearanceSettingsPanelState();
+}
+
+class _AppearanceSettingsPanelState extends State<_AppearanceSettingsPanel> {
+  _AppearanceTab _selectedTab = _AppearanceTab.theme;
 
   @override
   Widget build(BuildContext context) {
@@ -5046,39 +4949,518 @@ class _AppearanceChoiceGroup<T, V> extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          title,
+          'Aspetto app',
+          style: Theme.of(
+            context,
+          ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+        ),
+        const SizedBox(height: 6),
+        _AppearanceTabs(
+          selectedTab: _selectedTab,
+          onTabChanged: (tab) => setState(() {
+            _selectedTab = tab;
+          }),
+        ),
+        const SizedBox(height: 16),
+        AnimatedSwitcher(
+          duration: const Duration(milliseconds: 180),
+          switchInCurve: Curves.easeOut,
+          switchOutCurve: Curves.easeIn,
+          child: KeyedSubtree(
+            key: ValueKey(_selectedTab),
+            child: _AppearanceTabContent(
+              tab: _selectedTab,
+              appearanceSettings: widget.appearanceSettings,
+              isUpdatingThemeMode: widget.isUpdatingThemeMode,
+              onDarkThemeChanged: widget.onDarkThemeChanged,
+              onAppearanceSettingsChanged: widget.onAppearanceSettingsChanged,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _AppearanceTabs extends StatelessWidget {
+  const _AppearanceTabs({
+    required this.selectedTab,
+    required this.onTabChanged,
+  });
+
+  final _AppearanceTab selectedTab;
+  final ValueChanged<_AppearanceTab> onTabChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Container(
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+      ),
+      child: Row(
+        children: [
+          for (final tab in _AppearanceTab.values)
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 2),
+                child: _AppearanceTabButton(
+                  label: switch (tab) {
+                    _AppearanceTab.theme => 'Tema',
+                    _AppearanceTab.colors => 'Colori',
+                    _AppearanceTab.typography => 'Tipografia',
+                  },
+                  selected: selectedTab == tab,
+                  onTap: () => onTabChanged(tab),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AppearanceTabButton extends StatelessWidget {
+  const _AppearanceTabButton({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(14),
+      onTap: onTap,
+      child: Ink(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(14),
+          color: selected
+              ? theme.colorScheme.primary.withValues(alpha: 0.14)
+              : Colors.transparent,
+        ),
+        child: Text(
+          label,
+          textAlign: TextAlign.center,
+          style: theme.textTheme.titleSmall?.copyWith(
+            fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+            color: selected
+                ? theme.colorScheme.primary
+                : theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _AppearanceTabContent extends StatelessWidget {
+  const _AppearanceTabContent({
+    required this.tab,
+    required this.appearanceSettings,
+    required this.isUpdatingThemeMode,
+    required this.onDarkThemeChanged,
+    required this.onAppearanceSettingsChanged,
+  });
+
+  final _AppearanceTab tab;
+  final AppAppearanceSettings appearanceSettings;
+  final bool isUpdatingThemeMode;
+  final Future<void> Function(bool) onDarkThemeChanged;
+  final Future<void> Function(AppAppearanceSettings settings)
+  onAppearanceSettingsChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+      ),
+      child: switch (tab) {
+        _AppearanceTab.theme => _ThemeAppearanceTab(
+          appearanceSettings: appearanceSettings,
+          isUpdatingThemeMode: isUpdatingThemeMode,
+          onDarkThemeChanged: onDarkThemeChanged,
+          onAppearanceSettingsChanged: onAppearanceSettingsChanged,
+        ),
+        _AppearanceTab.colors => _ColorsAppearanceTab(
+          appearanceSettings: appearanceSettings,
+          isUpdatingThemeMode: isUpdatingThemeMode,
+          onAppearanceSettingsChanged: onAppearanceSettingsChanged,
+        ),
+        _AppearanceTab.typography => _TypographyAppearanceTab(
+          appearanceSettings: appearanceSettings,
+          isUpdatingThemeMode: isUpdatingThemeMode,
+          onAppearanceSettingsChanged: onAppearanceSettingsChanged,
+        ),
+      },
+    );
+  }
+}
+
+class _ThemeAppearanceTab extends StatelessWidget {
+  const _ThemeAppearanceTab({
+    required this.appearanceSettings,
+    required this.isUpdatingThemeMode,
+    required this.onDarkThemeChanged,
+    required this.onAppearanceSettingsChanged,
+  });
+
+  final AppAppearanceSettings appearanceSettings;
+  final bool isUpdatingThemeMode;
+  final Future<void> Function(bool) onDarkThemeChanged;
+  final Future<void> Function(AppAppearanceSettings settings)
+  onAppearanceSettingsChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Tema',
+          style: Theme.of(
+            context,
+          ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+        ),
+        const SizedBox(height: 12),
+        SwitchListTile.adaptive(
+          key: const ValueKey('dark-theme-switch'),
+          contentPadding: EdgeInsets.zero,
+          value: appearanceSettings.themeMode == ThemeMode.dark,
+          onChanged: isUpdatingThemeMode
+              ? null
+              : (value) => unawaited(onDarkThemeChanged(value)),
+          title: const Text('Tema scuro'),
+          subtitle: Text(
+            isUpdatingThemeMode
+                ? 'Aggiorno l aspetto dell app...'
+                : 'Attiva un tema piu scuro per usare l app con meno luminosita.',
+          ),
+        ),
+        const SizedBox(height: 10),
+        Text(
+          'Modalita rapida',
           style: Theme.of(
             context,
           ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
         ),
         const SizedBox(height: 8),
-        Wrap(
-          spacing: 10,
-          runSpacing: 10,
-          children: options
-              .map((option) {
-                final optionValue = valueOf(option);
-                final previewColor = previewColorOf?.call(option);
+        SegmentedButton<ThemeMode>(
+          showSelectedIcon: false,
+          segments: const [
+            ButtonSegment(value: ThemeMode.light, label: Text('Chiaro')),
+            ButtonSegment(value: ThemeMode.dark, label: Text('Scuro')),
+            ButtonSegment(value: ThemeMode.system, label: Text('Sistema')),
+          ],
+          selected: {appearanceSettings.themeMode},
+          onSelectionChanged: isUpdatingThemeMode
+              ? null
+              : (selection) => unawaited(
+                  onAppearanceSettingsChanged(
+                    appearanceSettings.copyWith(themeMode: selection.first),
+                  ),
+                ),
+        ),
+      ],
+    );
+  }
+}
 
-                return ChoiceChip(
-                  selected: optionValue == currentValue,
-                  onSelected: onSelected == null
-                      ? null
-                      : (_) => unawaited(onSelected!(optionValue)),
-                  avatar: previewColor == null
-                      ? null
-                      : Container(
-                          width: 14,
-                          height: 14,
-                          decoration: BoxDecoration(
-                            color: previewColor,
-                            shape: BoxShape.circle,
-                          ),
-                        ),
-                  label: Text(labelOf(option)),
-                );
-              })
-              .toList(growable: false),
+class _ColorsAppearanceTab extends StatelessWidget {
+  const _ColorsAppearanceTab({
+    required this.appearanceSettings,
+    required this.isUpdatingThemeMode,
+    required this.onAppearanceSettingsChanged,
+  });
+
+  final AppAppearanceSettings appearanceSettings;
+  final bool isUpdatingThemeMode;
+  final Future<void> Function(AppAppearanceSettings settings)
+  onAppearanceSettingsChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _RgbColorEditor(
+          title: 'Colore principale',
+          color: appearanceSettings.primaryColor,
+          enabled: !isUpdatingThemeMode,
+          onChanged: (color) => unawaited(
+            onAppearanceSettingsChanged(
+              appearanceSettings.copyWith(primaryColor: color),
+            ),
+          ),
+        ),
+        const SizedBox(height: 18),
+        const Divider(),
+        const SizedBox(height: 18),
+        _RgbColorEditor(
+          title: 'Colore secondario',
+          color: appearanceSettings.secondaryColor,
+          enabled: !isUpdatingThemeMode,
+          onChanged: (color) => unawaited(
+            onAppearanceSettingsChanged(
+              appearanceSettings.copyWith(secondaryColor: color),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _TypographyAppearanceTab extends StatelessWidget {
+  const _TypographyAppearanceTab({
+    required this.appearanceSettings,
+    required this.isUpdatingThemeMode,
+    required this.onAppearanceSettingsChanged,
+  });
+
+  final AppAppearanceSettings appearanceSettings;
+  final bool isUpdatingThemeMode;
+  final Future<void> Function(AppAppearanceSettings settings)
+  onAppearanceSettingsChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Font',
+          style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+        ),
+        const SizedBox(height: 10),
+        DropdownButtonFormField<AppFontFamily>(
+          initialValue: appearanceSettings.fontFamily,
+          decoration: const InputDecoration(labelText: 'Font del testo'),
+          items: const [
+            DropdownMenuItem(
+              value: AppFontFamily.system,
+              child: Text('Sistema'),
+            ),
+            DropdownMenuItem(
+              value: AppFontFamily.serif,
+              child: Text('Serif'),
+            ),
+            DropdownMenuItem(
+              value: AppFontFamily.monospace,
+              child: Text('Mono'),
+            ),
+          ],
+          onChanged: isUpdatingThemeMode
+              ? null
+              : (value) {
+                  if (value == null) {
+                    return;
+                  }
+                  unawaited(
+                    onAppearanceSettingsChanged(
+                      appearanceSettings.copyWith(fontFamily: value),
+                    ),
+                  );
+                },
+        ),
+        const SizedBox(height: 18),
+        Text(
+          'Dimensione testo',
+          style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+        ),
+        const SizedBox(height: 10),
+        Slider(
+          value: appearanceSettings.textScale,
+          min: 0.9,
+          max: 1.25,
+          divisions: 7,
+          onChanged: isUpdatingThemeMode
+              ? null
+              : (value) => unawaited(
+                  onAppearanceSettingsChanged(
+                    appearanceSettings.copyWith(textScale: value),
+                  ),
+                ),
+        ),
+        Text(_textScaleLabel(appearanceSettings.textScale)),
+        const SizedBox(height: 18),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surface,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: theme.colorScheme.outlineVariant),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Testo standard',
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Anteprima dal vivo del font e della dimensione scelta.',
+                style: theme.textTheme.bodyMedium,
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _RgbColorEditor extends StatelessWidget {
+  const _RgbColorEditor({
+    required this.title,
+    required this.color,
+    required this.enabled,
+    required this.onChanged,
+  });
+
+  final String title;
+  final Color color;
+  final bool enabled;
+  final ValueChanged<Color> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Text(
+              title,
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Container(
+              width: 20,
+              height: 20,
+              decoration: BoxDecoration(
+                color: color,
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.15),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              _formatColorHex(color),
+              style: theme.textTheme.labelLarge?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        _RgbSliderRow(
+          label: 'Rosso',
+          value: _colorChannel(color, _RgbColorChannel.red),
+          color: Colors.redAccent,
+          enabled: enabled,
+          onChanged: (value) =>
+              onChanged(_replaceColorChannel(color, red: value)),
+        ),
+        const SizedBox(height: 8),
+        _RgbSliderRow(
+          label: 'Verde',
+          value: _colorChannel(color, _RgbColorChannel.green),
+          color: Colors.green,
+          enabled: enabled,
+          onChanged: (value) =>
+              onChanged(_replaceColorChannel(color, green: value)),
+        ),
+        const SizedBox(height: 8),
+        _RgbSliderRow(
+          label: 'Blu',
+          value: _colorChannel(color, _RgbColorChannel.blue),
+          color: Colors.blue,
+          enabled: enabled,
+          onChanged: (value) =>
+              onChanged(_replaceColorChannel(color, blue: value)),
+        ),
+      ],
+    );
+  }
+}
+
+class _RgbSliderRow extends StatelessWidget {
+  const _RgbSliderRow({
+    required this.label,
+    required this.value,
+    required this.color,
+    required this.enabled,
+    required this.onChanged,
+  });
+
+  final String label;
+  final int value;
+  final Color color;
+  final bool enabled;
+  final ValueChanged<int> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        SizedBox(
+          width: 60,
+          child: Text(
+            label,
+            style: Theme.of(context).textTheme.labelLarge,
+          ),
+        ),
+        Expanded(
+          child: SliderTheme(
+            data: Theme.of(context).sliderTheme.copyWith(
+              activeTrackColor: color,
+              thumbColor: color,
+            ),
+            child: Slider(
+              value: value.toDouble(),
+              min: 0,
+              max: 255,
+              divisions: 255,
+              onChanged: enabled ? (next) => onChanged(next.round()) : null,
+            ),
+          ),
+        ),
+        SizedBox(
+          width: 44,
+          child: Text(
+            value.toString(),
+            textAlign: TextAlign.right,
+            style: Theme.of(context).textTheme.labelLarge,
+          ),
         ),
       ],
     );
@@ -6256,6 +6638,39 @@ String _textScaleLabel(double value) {
   }
 
   return 'Testo standard';
+}
+
+String _formatColorHex(Color color) {
+  return '#'
+      '${_colorChannel(color, _RgbColorChannel.red).toRadixString(16).padLeft(2, '0')}'
+      '${_colorChannel(color, _RgbColorChannel.green).toRadixString(16).padLeft(2, '0')}'
+      '${_colorChannel(color, _RgbColorChannel.blue).toRadixString(16).padLeft(2, '0')}'
+      .toUpperCase();
+}
+
+enum _RgbColorChannel { red, green, blue }
+
+int _colorChannel(Color color, _RgbColorChannel channel) {
+  final value = switch (channel) {
+    _RgbColorChannel.red => color.r,
+    _RgbColorChannel.green => color.g,
+    _RgbColorChannel.blue => color.b,
+  };
+  return (value * 255).round().clamp(0, 255);
+}
+
+Color _replaceColorChannel(
+  Color color, {
+  int? red,
+  int? green,
+  int? blue,
+}) {
+  return Color.fromARGB(
+    (color.a * 255).round().clamp(0, 255),
+    red ?? _colorChannel(color, _RgbColorChannel.red),
+    green ?? _colorChannel(color, _RgbColorChannel.green),
+    blue ?? _colorChannel(color, _RgbColorChannel.blue),
+  );
 }
 
 class _Header extends StatelessWidget {
