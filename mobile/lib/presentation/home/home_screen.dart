@@ -1305,13 +1305,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
-  int _resolveExpectedMinutesForDate(
-    DashboardSnapshot snapshot,
-    DateTime date,
-  ) {
-    return _resolveEffectiveDayScheduleForDate(snapshot, date).targetMinutes;
-  }
-
   DashboardSnapshot? _snapshotForMonth(String month) {
     final currentSnapshot = _snapshot;
     if (currentSnapshot != null && currentSnapshot.summary.month == month) {
@@ -1849,10 +1842,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           month: monthSnapshot.summary.month,
           selectedDate: _selectedDate,
           days: _buildCalendarDays(monthSnapshot),
-          expectedMinutes: _resolveExpectedMinutesForDate(
-            monthSnapshot,
-            _selectedDate,
-          ),
           baseDaySchedule: _resolveBaseDayScheduleForDate(
             monthSnapshot,
             _selectedDate,
@@ -2189,7 +2178,6 @@ class _CalendarCard extends StatelessWidget {
     required this.month,
     required this.selectedDate,
     required this.days,
-    required this.expectedMinutes,
     required this.baseDaySchedule,
     required this.effectiveDaySchedule,
     required this.selectedOverride,
@@ -2219,7 +2207,6 @@ class _CalendarCard extends StatelessWidget {
   final String month;
   final DateTime selectedDate;
   final List<_CalendarDay> days;
-  final int expectedMinutes;
   final DaySchedule baseDaySchedule;
   final DaySchedule effectiveDaySchedule;
   final ScheduleOverride? selectedOverride;
@@ -2327,35 +2314,10 @@ class _CalendarCard extends StatelessWidget {
           const Divider(),
           const SizedBox(height: 16),
           Text(
-            'Selezionato: $selectedDateLabel',
+            'Giorno selezionato: $selectedDateLabel',
             style: Theme.of(
               context,
             ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
-          ),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: [
-              _CompactMetricTile(
-                label: 'Previsto',
-                value: _formatHours(expectedMinutes),
-                icon: Icons.flag_outlined,
-              ),
-              _CompactMetricTile(
-                label: 'Registrato',
-                value: _formatHours(
-                  dayMetrics.workedMinutes + dayMetrics.leaveMinutes,
-                ),
-                icon: Icons.schedule_outlined,
-              ),
-              _CompactMetricTile(
-                label: 'Scostamento',
-                value: _formatHours(dayMetrics.balanceMinutes, signed: true),
-                icon: Icons.compare_arrows_outlined,
-                accentColor: _balanceColor(context, dayMetrics.balanceMinutes),
-              ),
-            ],
           ),
           const SizedBox(height: 8),
           _ScheduleSummary(
@@ -2578,43 +2540,14 @@ class _CalendarDaySummary extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final registeredMinutes = metrics.workedMinutes + metrics.leaveMinutes;
     final agendaRange = _resolveAgendaRange([metrics]);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Wrap(
-          spacing: 10,
-          runSpacing: 10,
-          children: [
-            _CompactMetricTile(
-              label: 'Previsto',
-              value: _formatHours(metrics.expectedMinutes),
-              icon: Icons.flag_outlined,
-            ),
-            _CompactMetricTile(
-              label: 'Registrato',
-              value: _formatHours(registeredMinutes),
-              icon: Icons.schedule_outlined,
-            ),
-            _CompactMetricTile(
-              label: 'Assenze',
-              value: _formatHours(metrics.leaveMinutes),
-              icon: Icons.event_busy_outlined,
-            ),
-            _CompactMetricTile(
-              label: 'Scostamento',
-              value: _formatHours(metrics.balanceMinutes, signed: true),
-              icon: Icons.compare_arrows_outlined,
-              accentColor: _balanceColor(context, metrics.balanceMinutes),
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
         _InlineInfoPanel(
           title: _formatLongDate(metrics.date),
-          description: _formatDayScheduleDetails(metrics.schedule),
+          description: _formatScheduleWindowDetails(metrics.schedule),
           statusText: metrics.hasOverride
               ? 'Eccezione attiva'
               : 'Regola standard',
@@ -2646,55 +2579,11 @@ class _CalendarWeekSummary extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final expectedMinutes = metrics.fold<int>(
-      0,
-      (sum, day) => sum + day.expectedMinutes,
-    );
-    final workedMinutes = metrics.fold<int>(
-      0,
-      (sum, day) => sum + day.workedMinutes,
-    );
-    final leaveMinutes = metrics.fold<int>(
-      0,
-      (sum, day) => sum + day.leaveMinutes,
-    );
-    final balanceMinutes = metrics.fold<int>(
-      0,
-      (sum, day) => sum + day.balanceMinutes,
-    );
     final agendaRange = _resolveAgendaRange(metrics);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Wrap(
-          spacing: 10,
-          runSpacing: 10,
-          children: [
-            _CompactMetricTile(
-              label: 'Previsto',
-              value: _formatHours(expectedMinutes),
-              icon: Icons.flag_outlined,
-            ),
-            _CompactMetricTile(
-              label: 'Registrato',
-              value: _formatHours(workedMinutes + leaveMinutes),
-              icon: Icons.schedule_outlined,
-            ),
-            _CompactMetricTile(
-              label: 'Assenze',
-              value: _formatHours(leaveMinutes),
-              icon: Icons.event_busy_outlined,
-            ),
-            _CompactMetricTile(
-              label: 'Scostamento',
-              value: _formatHours(balanceMinutes, signed: true),
-              icon: Icons.compare_arrows_outlined,
-              accentColor: _balanceColor(context, balanceMinutes),
-            ),
-          ],
-        ),
-        const SizedBox(height: 14),
         Text(
           'Agenda settimanale',
           style: Theme.of(
@@ -2825,7 +2714,6 @@ class _AgendaDayHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    final registeredMinutes = metrics.workedMinutes + metrics.leaveMinutes;
     final backgroundColor = isSelected
         ? const Color(0xFF0B6E69)
         : (isDark ? const Color(0xFF111919) : const Color(0xFFF7F3EC));
@@ -2842,7 +2730,7 @@ class _AgendaDayHeader extends StatelessWidget {
     final timeLabel =
         metrics.schedule.startTime != null && metrics.schedule.endTime != null
         ? '${metrics.schedule.startTime} - ${metrics.schedule.endTime}'
-        : 'Target ${_formatHours(metrics.expectedMinutes)}';
+        : 'Orari da definire';
 
     return Material(
       color: Colors.transparent,
@@ -2883,13 +2771,6 @@ class _AgendaDayHeader extends StatelessWidget {
                 ),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-              ),
-              const SizedBox(height: 2),
-              Text(
-                'Registrato ${_formatHours(registeredMinutes)}',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: secondaryTextColor,
-                ),
               ),
             ],
           ),
@@ -3021,12 +2902,6 @@ class _AgendaDaySurface extends StatelessWidget {
                       ),
                       textAlign: TextAlign.center,
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Target ${_formatHours(metrics.expectedMinutes)}',
-                      style: theme.textTheme.bodyMedium,
-                      textAlign: TextAlign.center,
-                    ),
                   ],
                 ),
               ),
@@ -3065,7 +2940,6 @@ class _AgendaScheduleBlock extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    final registeredMinutes = metrics.workedMinutes + metrics.leaveMinutes;
     final backgroundColor = metrics.hasOverride
         ? (isDark ? const Color(0xFF5E3D1C) : const Color(0xFFFFE6BF))
         : (isDark ? const Color(0xFF174744) : const Color(0xFFCDEDEA));
@@ -3125,8 +2999,6 @@ class _AgendaScheduleBlock extends StatelessWidget {
                 ),
                 if (showDetail) ...[
                   const SizedBox(height: 6),
-                  Text('Previsto ${_formatHours(metrics.expectedMinutes)}'),
-                  Text('Registrato ${_formatHours(registeredMinutes)}'),
                   if (metrics.schedule.breakMinutes > 0)
                     Text(
                       'Pausa ${_formatHours(metrics.schedule.breakMinutes)}',
@@ -3166,41 +3038,6 @@ class _CalendarMonthSummary extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Wrap(
-          spacing: 10,
-          runSpacing: 10,
-          children: [
-            _CompactMetricTile(
-              label: 'Previsto',
-              value: _formatHours(monthMetrics.expectedMinutes),
-              icon: Icons.flag_outlined,
-            ),
-            _CompactMetricTile(
-              label: 'Registrato',
-              value: _formatHours(
-                monthMetrics.workedMinutes + monthMetrics.leaveMinutes,
-              ),
-              icon: Icons.schedule_outlined,
-            ),
-            _CompactMetricTile(
-              label: 'Assenze',
-              value: _formatHours(monthMetrics.leaveMinutes),
-              icon: Icons.event_busy_outlined,
-            ),
-            _CompactMetricTile(
-              label: 'Scostamento',
-              value: _formatHours(monthMetrics.balanceMinutes, signed: true),
-              icon: Icons.compare_arrows_outlined,
-              accentColor: _balanceColor(context, monthMetrics.balanceMinutes),
-            ),
-            _CompactMetricTile(
-              label: 'Eccezioni',
-              value: '${monthMetrics.overrideCount}',
-              icon: Icons.event_repeat_outlined,
-            ),
-          ],
-        ),
-        const SizedBox(height: 16),
         const _WeekdayHeader(),
         const SizedBox(height: 10),
         LayoutBuilder(
@@ -3246,54 +3083,9 @@ class _CalendarYearSummary extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final expectedMinutes = yearMetrics.fold<int>(
-      0,
-      (sum, month) => sum + month.expectedMinutes,
-    );
-    final workedMinutes = yearMetrics.fold<int>(
-      0,
-      (sum, month) => sum + month.workedMinutes,
-    );
-    final leaveMinutes = yearMetrics.fold<int>(
-      0,
-      (sum, month) => sum + month.leaveMinutes,
-    );
-    final balanceMinutes = yearMetrics.fold<int>(
-      0,
-      (sum, month) => sum + month.balanceMinutes,
-    );
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Wrap(
-          spacing: 10,
-          runSpacing: 10,
-          children: [
-            _CompactMetricTile(
-              label: 'Previsto',
-              value: _formatHours(expectedMinutes),
-              icon: Icons.flag_outlined,
-            ),
-            _CompactMetricTile(
-              label: 'Registrato',
-              value: _formatHours(workedMinutes + leaveMinutes),
-              icon: Icons.schedule_outlined,
-            ),
-            _CompactMetricTile(
-              label: 'Assenze',
-              value: _formatHours(leaveMinutes),
-              icon: Icons.event_busy_outlined,
-            ),
-            _CompactMetricTile(
-              label: 'Scostamento',
-              value: _formatHours(balanceMinutes, signed: true),
-              icon: Icons.compare_arrows_outlined,
-              accentColor: _balanceColor(context, balanceMinutes),
-            ),
-          ],
-        ),
-        const SizedBox(height: 14),
         Wrap(
           spacing: 12,
           runSpacing: 12,
@@ -3359,7 +3151,6 @@ class _CalendarDayCell extends StatelessWidget {
     final isSelected = day.isSelected;
     final hasEntries =
         day.workedMinutes > 0 || day.leaveMinutes > 0 || day.hasOverride;
-    final registeredMinutes = day.workedMinutes + day.leaveMinutes;
     final backgroundColor = isSelected
         ? const Color(0xFF0B6E69)
         : hasEntries
@@ -3411,22 +3202,6 @@ class _CalendarDayCell extends StatelessWidget {
                 ),
               ),
               const Spacer(),
-              if (day.expectedMinutes > 0)
-                Text(
-                  'Prev ${_formatHours(day.expectedMinutes)}',
-                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                    color: detailColor,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              if (registeredMinutes > 0)
-                Text(
-                  'Reg ${_formatHours(registeredMinutes)}',
-                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                    color: detailColor,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
               if (day.hasOverride)
                 Text(
                   'Eccez.',
@@ -3438,52 +3213,6 @@ class _CalendarDayCell extends StatelessWidget {
             ],
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _CompactMetricTile extends StatelessWidget {
-  const _CompactMetricTile({
-    required this.label,
-    required this.value,
-    required this.icon,
-    this.accentColor,
-  });
-
-  final String label;
-  final String value;
-  final IconData icon;
-  final Color? accentColor;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-    final effectiveAccent = accentColor ?? theme.colorScheme.primary;
-
-    return Container(
-      constraints: const BoxConstraints(minWidth: 140),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF162121) : const Color(0xFFF7F3EC),
-        borderRadius: BorderRadius.circular(18),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, color: effectiveAccent, size: 18),
-          const SizedBox(height: 10),
-          Text(label, style: theme.textTheme.labelLarge),
-          const SizedBox(height: 4),
-          Text(
-            value,
-            style: theme.textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.w800,
-              color: effectiveAccent,
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -3571,27 +3300,18 @@ class _YearMonthCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 10),
                 Text(
-                  'Prev ${_formatHours(metrics.expectedMinutes)}',
+                  'Tocca per aprire il mese',
                   style: theme.textTheme.bodyMedium,
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  'Reg ${_formatHours(metrics.workedMinutes + metrics.leaveMinutes)}',
-                  style: theme.textTheme.bodyMedium,
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'Scost. ${_formatHours(metrics.balanceMinutes, signed: true)}',
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: _balanceColor(context, metrics.balanceMinutes),
-                    fontWeight: FontWeight.w700,
+                if (metrics.overrideCount > 0) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    metrics.overrideCount == 1
+                        ? '1 modifica presente'
+                        : '${metrics.overrideCount} modifiche presenti',
+                    style: theme.textTheme.labelLarge,
                   ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  'Eccezioni ${metrics.overrideCount}',
-                  style: theme.textTheme.labelLarge,
-                ),
+                ],
               ],
             ),
           ),
@@ -3668,8 +3388,6 @@ class _WeekPlanRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final registeredMinutes =
-        day.metrics.workedMinutes + day.metrics.leaveMinutes;
     final statusMeta = _todayStatusMeta(context, day.status);
 
     return Column(
@@ -3690,7 +3408,7 @@ class _WeekPlanRow extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    _formatDayScheduleDetails(day.metrics.schedule),
+                    _formatScheduleWindowDetails(day.metrics.schedule),
                     style: Theme.of(context).textTheme.bodyMedium,
                   ),
                   if (day.overrideNote?.isNotEmpty == true) ...[
@@ -3708,29 +3426,6 @@ class _WeekPlanRow extends StatelessWidget {
               label: statusMeta.label,
               color: statusMeta.color,
               icon: statusMeta.icon,
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        Wrap(
-          spacing: 10,
-          runSpacing: 10,
-          children: [
-            _CompactMetricTile(
-              label: 'Previsto',
-              value: _formatHours(day.metrics.expectedMinutes),
-              icon: Icons.flag_outlined,
-            ),
-            _CompactMetricTile(
-              label: 'Registrato',
-              value: _formatHours(registeredMinutes),
-              icon: Icons.schedule_outlined,
-            ),
-            _CompactMetricTile(
-              label: 'Scostamento',
-              value: _formatHours(day.metrics.balanceMinutes, signed: true),
-              icon: Icons.compare_arrows_outlined,
-              accentColor: _balanceColor(context, day.metrics.balanceMinutes),
             ),
           ],
         ),
@@ -5317,8 +5012,14 @@ String _formatDayScheduleDetails(DaySchedule schedule) {
   if (schedule.breakMinutes > 0) {
     scheduleParts.add('pausa ${_formatHoursInput(schedule.breakMinutes)}');
   }
-  scheduleParts.add('target ${_formatHours(schedule.targetMinutes)}');
+  if (scheduleParts.isEmpty) {
+    return 'Orari da definire';
+  }
   return scheduleParts.join(' - ');
+}
+
+String _formatScheduleWindowDetails(DaySchedule schedule) {
+  return _formatDayScheduleDetails(schedule);
 }
 
 String _formatBreakInput(int minutes) {

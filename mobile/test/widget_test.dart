@@ -65,7 +65,10 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('calendar-day-2026-03-04')));
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('Selezionato: 4 marzo 2026'), findsOneWidget);
+    expect(
+      find.textContaining('Giorno selezionato: 4 marzo 2026'),
+      findsOneWidget,
+    );
   });
 
   testWidgets('checks for updates again when app resumes', (tester) async {
