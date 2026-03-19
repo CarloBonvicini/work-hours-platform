@@ -5,6 +5,7 @@ import 'package:work_hours_mobile/application/services/dashboard_service.dart';
 import 'package:work_hours_mobile/application/services/onboarding_preference_store.dart';
 import 'package:work_hours_mobile/application/services/theme_preference_store.dart';
 import 'package:work_hours_mobile/application/services/update_reminder_store.dart';
+import 'package:work_hours_mobile/application/services/workday_start_store.dart';
 import 'package:work_hours_mobile/presentation/home/home_screen.dart';
 
 class WorkHoursApp extends StatefulWidget {
@@ -15,6 +16,7 @@ class WorkHoursApp extends StatefulWidget {
     required this.updateReminderStore,
     required this.themePreferenceStore,
     required this.onboardingPreferenceStore,
+    required this.workdayStartStore,
     this.initialAppearanceSettings = AppAppearanceSettings.defaults,
     this.hasCompletedInitialSetup = false,
   });
@@ -24,6 +26,7 @@ class WorkHoursApp extends StatefulWidget {
   final UpdateReminderStore updateReminderStore;
   final ThemePreferenceStore themePreferenceStore;
   final OnboardingPreferenceStore onboardingPreferenceStore;
+  final WorkdayStartStore workdayStartStore;
   final AppAppearanceSettings initialAppearanceSettings;
   final bool hasCompletedInitialSetup;
 
@@ -77,6 +80,7 @@ class _WorkHoursAppState extends State<WorkHoursApp> {
         appUpdateService: widget.appUpdateService,
         updateReminderStore: widget.updateReminderStore,
         onboardingPreferenceStore: widget.onboardingPreferenceStore,
+        workdayStartStore: widget.workdayStartStore,
         hasCompletedInitialSetup: widget.hasCompletedInitialSetup,
         isDarkTheme: _appearanceSettings.themeMode == ThemeMode.dark,
         appearanceSettings: _appearanceSettings,
@@ -121,15 +125,16 @@ class _WorkHoursAppState extends State<WorkHoursApp> {
       ),
       AppFontFamily.system => baseTextTheme,
     };
-    final colorScheme = ColorScheme.fromSeed(
-      seedColor: primaryColor,
-      brightness: brightness,
-      surface: canvasColor,
-    ).copyWith(
-      primary: primaryColor,
-      secondary: secondaryColor,
-      tertiary: secondaryColor,
-    );
+    final colorScheme =
+        ColorScheme.fromSeed(
+          seedColor: primaryColor,
+          brightness: brightness,
+          surface: canvasColor,
+        ).copyWith(
+          primary: primaryColor,
+          secondary: secondaryColor,
+          tertiary: secondaryColor,
+        );
 
     return ThemeData(
       brightness: brightness,

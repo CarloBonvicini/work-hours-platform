@@ -10,6 +10,7 @@ import 'package:work_hours_mobile/application/services/theme_preference_store.da
 import 'package:work_hours_mobile/application/services/time_input_parser.dart';
 import 'package:work_hours_mobile/application/services/update_launcher.dart';
 import 'package:work_hours_mobile/application/services/update_reminder_store.dart';
+import 'package:work_hours_mobile/application/services/workday_start_store.dart';
 import 'package:work_hours_mobile/data/api/work_hours_api_client.dart';
 import 'package:work_hours_mobile/domain/models/app_update.dart';
 import 'package:work_hours_mobile/domain/models/dashboard_snapshot.dart';
@@ -60,6 +61,7 @@ class HomeScreen extends StatefulWidget {
     required this.appUpdateService,
     required this.updateReminderStore,
     required this.onboardingPreferenceStore,
+    required this.workdayStartStore,
     required this.hasCompletedInitialSetup,
     required this.isDarkTheme,
     required this.appearanceSettings,
@@ -71,6 +73,7 @@ class HomeScreen extends StatefulWidget {
   final AppUpdateService appUpdateService;
   final UpdateReminderStore updateReminderStore;
   final OnboardingPreferenceStore onboardingPreferenceStore;
+  final WorkdayStartStore workdayStartStore;
   final bool hasCompletedInitialSetup;
   final bool isDarkTheme;
   final AppAppearanceSettings appearanceSettings;
@@ -141,9 +144,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _isShowingOnboardingDialog = false;
   bool _isLoadingCalendarData = false;
   bool _isUpdatingThemeMode = false;
+  bool _isSavingWorkdayStart = false;
   late bool _hasCompletedInitialSetup;
   _HomeSection _selectedSection = _HomeSection.calendar;
   SupportTicketCategory _selectedTicketCategory = SupportTicketCategory.bug;
+  int? _recordedWorkdayStartMinutes;
 
   @override
   void initState() {
@@ -156,6 +161,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _selectedDate,
     );
     _loadSnapshot();
+    unawaited(_loadRecordedWorkdayStartForDate(_selectedDate));
     if (_hasCompletedInitialSetup) {
       unawaited(_checkForUpdate());
     } else {
@@ -239,6 +245,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _selectedDate = resolvedSelectedDate;
         _isLoading = false;
       });
+      unawaited(_loadRecordedWorkdayStartForDate(resolvedSelectedDate));
       unawaited(_ensureCalendarDataForCurrentView());
       unawaited(_ensureUpcomingWeekData());
       await _maybeShowInitialSetup(snapshot);
@@ -399,6 +406,90 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _loadSnapshot(month: _selectedMonth, selectedDate: _selectedDate),
       _checkForUpdate(),
     ]);
+  }
+
+  Future<void> _loadRecordedWorkdayStartForDate(DateTime date) async {
+    final isoDate = DashboardService.defaultEntryDateOf(date);
+    final startMinutes = await widget.workdayStartStore.loadStartMinutes(
+      isoDate,
+    );
+    if (!mounted || !_isSameDay(_selectedDate, date)) {
+      return;
+    }
+
+    setState(() {
+      _recordedWorkdayStartMinutes = startMinutes;
+    });
+  }
+
+  Future<void> _recordWorkdayStartNow() async {
+    if (!_isSameDay(_selectedDate, _todayDate)) {
+      return;
+    }
+
+    final now = DateTime.now();
+    final startMinutes = (now.hour * 60) + now.minute;
+    final isoDate = DashboardService.defaultEntryDateOf(_selectedDate);
+
+    setState(() {
+      _isSavingWorkdayStart = true;
+    });
+
+    try {
+      await widget.workdayStartStore.saveStartMinutes(isoDate, startMinutes);
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _recordedWorkdayStartMinutes = startMinutes;
+        _isSavingWorkdayStart = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Entrata registrata alle ${formatTimeInput(startMinutes)}.',
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _isSavingWorkdayStart = false;
+        _errorMessage = 'Impossibile registrare l entrata in questo momento.';
+      });
+    }
+  }
+
+  Future<void> _clearRecordedWorkdayStart() async {
+    final isoDate = DashboardService.defaultEntryDateOf(_selectedDate);
+    setState(() {
+      _isSavingWorkdayStart = true;
+    });
+
+    try {
+      await widget.workdayStartStore.clearStartMinutes(isoDate);
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _recordedWorkdayStartMinutes = null;
+        _isSavingWorkdayStart = false;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _isSavingWorkdayStart = false;
+        _errorMessage = 'Impossibile rimuovere l entrata registrata.';
+      });
+    }
   }
 
   Future<void> _openNavigationMenu() async {
@@ -1196,6 +1287,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     setState(() {
       _selectedDate = nextSelectedDate;
     });
+    unawaited(_loadRecordedWorkdayStartForDate(nextSelectedDate));
     final currentSnapshot = _snapshot;
     if (currentSnapshot != null) {
       _hydrateSelectedDateControllers(currentSnapshot, nextSelectedDate);
@@ -2066,6 +2158,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           onPreviousPeriod: () => _shiftCalendarPeriod(-1),
           onNextPeriod: () => _shiftCalendarPeriod(1),
           onSelectDate: _selectDate,
+          isSelectedDateToday: _isSameDay(_selectedDate, _todayDate),
+          recordedWorkdayStartMinutes: _recordedWorkdayStartMinutes,
+          isSavingWorkdayStart: _isSavingWorkdayStart,
+          onRecordWorkdayStartNow: _recordWorkdayStartNow,
+          onClearRecordedWorkdayStart: _clearRecordedWorkdayStart,
           onPickOverrideTime: _pickScheduleOverrideTime,
           onAdjustOverrideTime: _adjustScheduleOverrideTime,
           onSetOverrideBreakMinutes: _setScheduleOverrideBreakMinutes,
@@ -2335,6 +2432,11 @@ class _CalendarCard extends StatelessWidget {
     required this.onPreviousPeriod,
     required this.onNextPeriod,
     required this.onSelectDate,
+    required this.isSelectedDateToday,
+    required this.recordedWorkdayStartMinutes,
+    required this.isSavingWorkdayStart,
+    required this.onRecordWorkdayStartNow,
+    required this.onClearRecordedWorkdayStart,
     required this.onPickOverrideTime,
     required this.onAdjustOverrideTime,
     required this.onSetOverrideBreakMinutes,
@@ -2370,6 +2472,11 @@ class _CalendarCard extends StatelessWidget {
   final Future<void> Function() onPreviousPeriod;
   final Future<void> Function() onNextPeriod;
   final ValueChanged<DateTime> onSelectDate;
+  final bool isSelectedDateToday;
+  final int? recordedWorkdayStartMinutes;
+  final bool isSavingWorkdayStart;
+  final Future<void> Function() onRecordWorkdayStartNow;
+  final Future<void> Function() onClearRecordedWorkdayStart;
   final Future<void> Function(_CalendarTimeField field) onPickOverrideTime;
   final void Function(_CalendarTimeField field, int deltaMinutes)
   onAdjustOverrideTime;
@@ -2505,6 +2612,18 @@ class _CalendarCard extends StatelessWidget {
             Text(
               'Nota eccezione: ${selectedOverride!.note!}',
               style: Theme.of(context).textTheme.bodyMedium,
+            ),
+          ],
+          if (isSelectedDateToday) ...[
+            const SizedBox(height: 16),
+            _WorkdayStartCard(
+              startMinutes: recordedWorkdayStartMinutes,
+              schedule: effectiveDaySchedule,
+              isBusy: isSavingWorkdayStart,
+              onRecordNow: onRecordWorkdayStartNow,
+              onClear: recordedWorkdayStartMinutes == null
+                  ? null
+                  : onClearRecordedWorkdayStart,
             ),
           ],
           const SizedBox(height: 16),
@@ -2718,6 +2837,102 @@ class _CalendarQuickScheduleEditor extends StatelessWidget {
           ],
         ),
       ],
+    );
+  }
+}
+
+class _WorkdayStartCard extends StatelessWidget {
+  const _WorkdayStartCard({
+    required this.startMinutes,
+    required this.schedule,
+    required this.isBusy,
+    required this.onRecordNow,
+    this.onClear,
+  });
+
+  final int? startMinutes;
+  final DaySchedule schedule;
+  final bool isBusy;
+  final Future<void> Function() onRecordNow;
+  final Future<void> Function()? onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final expectedEndInfo = _resolveExpectedEndInfo(
+      startMinutes: startMinutes,
+      schedule: schedule,
+    );
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.login_rounded, color: theme.colorScheme.primary),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Entrata di oggi',
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            startMinutes == null
+                ? 'Premi Entrata e salvo l orario attuale. Da li ti mostro subito quando puoi uscire.'
+                : 'Entrata registrata alle ${formatTimeInput(startMinutes!)}.',
+            style: theme.textTheme.bodyMedium,
+          ),
+          if (expectedEndInfo != null) ...[
+            const SizedBox(height: 10),
+            Text(
+              expectedEndInfo,
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w800,
+                color: theme.colorScheme.primary,
+              ),
+            ),
+          ],
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              FilledButton.icon(
+                key: const ValueKey('calendar-record-start-button'),
+                onPressed: isBusy ? null : onRecordNow,
+                icon: const Icon(Icons.play_arrow_rounded),
+                label: Text(
+                  isBusy
+                      ? 'Salvo...'
+                      : startMinutes == null
+                      ? 'Entrata'
+                      : 'Aggiorna entrata',
+                ),
+              ),
+              if (onClear != null)
+                OutlinedButton.icon(
+                  key: const ValueKey('calendar-clear-start-button'),
+                  onPressed: isBusy ? null : onClear,
+                  icon: const Icon(Icons.delete_outline),
+                  label: const Text('Rimuovi'),
+                ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 }
@@ -5432,6 +5647,21 @@ String _formatScheduleWindowDetails(DaySchedule schedule) {
 
 String _formatBreakInput(int minutes) {
   return minutes == 0 ? '' : formatHoursInput(minutes);
+}
+
+String? _resolveExpectedEndInfo({
+  required int? startMinutes,
+  required DaySchedule schedule,
+}) {
+  if (startMinutes == null || schedule.targetMinutes <= 0) {
+    return null;
+  }
+
+  final totalMinutes =
+      startMinutes + schedule.targetMinutes + schedule.breakMinutes;
+  final normalizedMinutes = totalMinutes % (24 * 60);
+  final nextDaySuffix = totalMinutes >= (24 * 60) ? ' del giorno dopo' : '';
+  return 'Puoi uscire alle ${formatTimeInput(normalizedMinutes)}$nextDaySuffix.';
 }
 
 Color _balanceColor(BuildContext context, int balanceMinutes) {

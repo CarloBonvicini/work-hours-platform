@@ -6,6 +6,7 @@ import 'package:work_hours_mobile/application/services/onboarding_preference_sto
 import 'package:work_hours_mobile/application/services/theme_preference_store.dart';
 import 'package:work_hours_mobile/application/services/update_launcher.dart';
 import 'package:work_hours_mobile/application/services/update_reminder_store.dart';
+import 'package:work_hours_mobile/application/services/workday_start_store.dart';
 import 'package:work_hours_mobile/domain/models/app_update.dart';
 import 'package:work_hours_mobile/domain/models/dashboard_snapshot.dart';
 import 'package:work_hours_mobile/domain/models/day_schedule.dart';
@@ -38,6 +39,7 @@ void main() {
           hasCompleted: true,
         ),
         themePreferenceStore: _FakeThemePreferenceStore(),
+        workdayStartStore: _FakeWorkdayStartStore(),
         hasCompletedInitialSetup: true,
       ),
     );
@@ -86,6 +88,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Calendario'), findsWidgets);
+    expect(
+      find.byKey(const ValueKey('calendar-record-start-button')),
+      findsOneWidget,
+    );
 
     await tester.tap(find.byKey(const ValueKey('calendar-day-2026-03-04')));
     await tester.pumpAndSettle();
@@ -106,6 +112,10 @@ void main() {
       find.byKey(const ValueKey('calendar-override-break-value')),
       findsOneWidget,
     );
+    expect(
+      find.byKey(const ValueKey('calendar-record-start-button')),
+      findsNothing,
+    );
     expect(find.text('Ore previste per questo giorno'), findsNothing);
   });
 
@@ -123,6 +133,7 @@ void main() {
           hasCompleted: true,
         ),
         themePreferenceStore: _FakeThemePreferenceStore(),
+        workdayStartStore: _FakeWorkdayStartStore(),
         hasCompletedInitialSetup: true,
       ),
     );
@@ -150,6 +161,7 @@ void main() {
           hasCompleted: true,
         ),
         themePreferenceStore: _FakeThemePreferenceStore(),
+        workdayStartStore: _FakeWorkdayStartStore(),
         hasCompletedInitialSetup: true,
       ),
     );
@@ -176,6 +188,7 @@ void main() {
           hasCompleted: true,
         ),
         themePreferenceStore: themePreferenceStore,
+        workdayStartStore: _FakeWorkdayStartStore(),
         hasCompletedInitialSetup: true,
       ),
     );
@@ -214,6 +227,7 @@ void main() {
         updateReminderStore: _FakeUpdateReminderStore(),
         onboardingPreferenceStore: onboardingStore,
         themePreferenceStore: themePreferenceStore,
+        workdayStartStore: _FakeWorkdayStartStore(),
         hasCompletedInitialSetup: false,
       ),
     );
@@ -284,6 +298,7 @@ void main() {
           hasCompleted: true,
         ),
         themePreferenceStore: _FakeThemePreferenceStore(),
+        workdayStartStore: _FakeWorkdayStartStore(),
         hasCompletedInitialSetup: true,
       ),
     );
@@ -430,6 +445,25 @@ class _FakeThemePreferenceStore implements ThemePreferenceStore {
   Future<void> saveAppearanceSettings(AppAppearanceSettings settings) async {
     this.settings = settings;
     savedThemeModes.add(settings.themeMode);
+  }
+}
+
+class _FakeWorkdayStartStore implements WorkdayStartStore {
+  final Map<String, int> _values = {};
+
+  @override
+  Future<void> clearStartMinutes(String isoDate) async {
+    _values.remove(isoDate);
+  }
+
+  @override
+  Future<int?> loadStartMinutes(String isoDate) async {
+    return _values[isoDate];
+  }
+
+  @override
+  Future<void> saveStartMinutes(String isoDate, int startMinutes) async {
+    _values[isoDate] = startMinutes;
   }
 }
 

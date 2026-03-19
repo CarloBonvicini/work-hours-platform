@@ -5,6 +5,7 @@ import 'package:work_hours_mobile/application/services/onboarding_preference_sto
 import 'package:work_hours_mobile/application/services/theme_preference_store.dart';
 import 'package:work_hours_mobile/application/services/update_reminder_store.dart';
 import 'package:work_hours_mobile/application/services/update_launcher.dart';
+import 'package:work_hours_mobile/application/services/workday_start_store.dart';
 import 'package:work_hours_mobile/data/api/github_release_client.dart';
 import 'package:work_hours_mobile/data/api/release_feed_config.dart';
 import 'package:work_hours_mobile/data/api/work_hours_api_client.dart';
@@ -33,6 +34,7 @@ Future<void> main() async {
   const themePreferenceStore = SharedPreferencesThemePreferenceStore();
   const onboardingPreferenceStore =
       SharedPreferencesOnboardingPreferenceStore();
+  const workdayStartStore = SharedPreferencesWorkdayStartStore();
   final initialAppearanceSettings = await themePreferenceStore
       .loadAppearanceSettings();
   final hasCompletedInitialSetup = await onboardingPreferenceStore
@@ -45,6 +47,7 @@ Future<void> main() async {
       updateReminderStore: updateReminderStore,
       themePreferenceStore: themePreferenceStore,
       onboardingPreferenceStore: onboardingPreferenceStore,
+      workdayStartStore: workdayStartStore,
       initialAppearanceSettings: initialAppearanceSettings,
       hasCompletedInitialSetup: hasCompletedInitialSetup,
     ),
