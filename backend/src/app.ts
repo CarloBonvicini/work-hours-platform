@@ -219,15 +219,15 @@ function renderLandingPage(options: {
   const downloadUrl = `${baseUrl}/mobile-updates/releases/latest`;
   const hasRelease = latestRelease !== null;
   const isPublishing = releaseStatus?.state === "publishing";
-  const titleLabel = hasRelease ? "Ultima release Android" : "APK in preparazione";
-  const versionValue = hasRelease ? latestRelease.version : "Non disponibile";
+  const titleLabel = hasRelease ? "APK disponibile" : "APK in preparazione";
+  const versionValue = hasRelease ? `Versione ${latestRelease.version}` : "Nessuna versione disponibile";
   const detailLabel = isPublishing
     ? hasRelease
-      ? `La versione ${releaseStatus.version} e in rilascio. Il download dell APK tornera disponibile appena la pubblicazione termina.`
-      : `La versione ${releaseStatus.version} e in rilascio. L APK sara disponibile appena la pubblicazione termina.`
+      ? `Una nuova versione e in rilascio. L APK tornera disponibile appena la pubblicazione termina.`
+      : `Una nuova versione e in rilascio. L APK sara disponibile appena la pubblicazione termina.`
     : hasRelease
-      ? `Build ${latestRelease.buildNumber} - file ${latestRelease.fileName}`
-      : "Pubblica una release mobile per attivare il download pubblico.";
+      ? "Scarica l ultima versione disponibile dell app Android."
+      : "La prima release Android verra pubblicata qui appena pronta.";
   const publishedAt = latestRelease?.publishedAt
     ? new Date(latestRelease.publishedAt).toLocaleString("it-IT", {
         dateStyle: "medium",
@@ -235,9 +235,9 @@ function renderLandingPage(options: {
       })
     : null;
   const publishedLabel = publishedAt
-    ? `Ultimo rilascio: ${publishedAt}`
-    : "Nessuna release pubblicata.";
-  const notesLabel = latestRelease?.releaseNotes ?? "Prima distribuzione Android via APK diretta.";
+    ? `Ultima pubblicazione: ${publishedAt}`
+    : "Pubblicazione non ancora disponibile.";
+  const notesLabel = latestRelease?.releaseNotes ?? "Versione Android pronta per il download diretto.";
 
   const primaryAction = isPublishing
     ? `<span class="button disabled">APK temporaneamente non disponibile</span>`
@@ -366,34 +366,11 @@ function renderLandingPage(options: {
       }
 
       .release {
-        grid-column: span 7;
+        grid-column: span 8;
       }
 
       .install {
-        grid-column: span 5;
-      }
-
-      .meta {
-        display: grid;
-        gap: 12px;
-        margin-top: 18px;
-      }
-
-      .meta-row {
-        display: flex;
-        justify-content: space-between;
-        gap: 16px;
-        padding-bottom: 12px;
-        border-bottom: 1px solid var(--line);
-      }
-
-      .meta-row:last-child {
-        padding-bottom: 0;
-        border-bottom: 0;
-      }
-
-      .label {
-        color: var(--muted);
+        grid-column: span 4;
       }
 
       ul {
@@ -412,7 +389,6 @@ function renderLandingPage(options: {
         main { width: min(100% - 24px, 1000px); padding-top: 20px; }
         .hero { padding: 24px; border-radius: 28px; }
         .release, .install { grid-column: 1 / -1; }
-        .meta-row { flex-direction: column; gap: 4px; }
       }
     </style>
   </head>
@@ -430,20 +406,9 @@ function renderLandingPage(options: {
         <article class="panel release">
           <h2>${escapeHtml(titleLabel)}</h2>
           <p>${escapeHtml(detailLabel)}</p>
-          <div class="meta">
-            <div class="meta-row">
-              <span class="label">Versione</span>
-              <strong>${escapeHtml(versionValue)}</strong>
-            </div>
-            <div class="meta-row">
-              <span class="label">Ultima pubblicazione</span>
-              <strong>${escapeHtml(publishedLabel)}</strong>
-            </div>
-            <div class="meta-row">
-              <span class="label">Note</span>
-              <strong>${escapeHtml(notesLabel)}</strong>
-            </div>
-          </div>
+          <p><strong>${escapeHtml(versionValue)}</strong></p>
+          <p>${escapeHtml(publishedLabel)}</p>
+          <p>${escapeHtml(notesLabel)}</p>
         </article>
 
         <article class="panel install">

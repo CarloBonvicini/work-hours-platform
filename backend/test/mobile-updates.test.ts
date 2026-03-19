@@ -47,7 +47,6 @@ describe("Mobile updates API", () => {
     expect(response.headers["content-type"]).toContain("text/html");
     expect(response.body).toContain("Work Hours Platform");
     expect(response.body).toContain("APK non disponibile");
-    expect(response.body).toContain("Versione");
     expect(response.body).not.toContain("Canale update");
   });
 
@@ -117,9 +116,8 @@ describe("Mobile updates API", () => {
     });
 
     expect(landingPageResponse.statusCode).toBe(200);
-    expect(landingPageResponse.body).toContain("Ultima release Android");
-    expect(landingPageResponse.body).toContain("Versione");
-    expect(landingPageResponse.body).toContain("0.1.4");
+    expect(landingPageResponse.body).toContain("APK disponibile");
+    expect(landingPageResponse.body).toContain("Versione 0.1.4");
     expect(landingPageResponse.body).toContain(
       "https://updates.example.com/mobile-updates/releases/latest"
     );
@@ -172,8 +170,8 @@ describe("Mobile updates API", () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.body).toContain("0.1.8");
-    expect(response.body).toContain("La versione 0.1.9 e in rilascio.");
+    expect(response.body).toContain("Versione 0.1.8");
+    expect(response.body).toContain("Una nuova versione e in rilascio.");
     expect(response.body).toContain("APK temporaneamente non disponibile");
     expect(response.body).not.toContain("APK non disponibile");
   });
