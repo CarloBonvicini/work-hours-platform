@@ -46,7 +46,6 @@ Valore (multi-line, esempio):
 
 ```dotenv
 COMPOSE_PROJECT_NAME=work-hours-platform
-COMPOSE_PROFILES=public
 HOST=0.0.0.0
 PORT=8080
 API_IMAGE=ghcr.io/carlobonvicini/work-hours-api:latest
@@ -59,7 +58,6 @@ Per modalita scalabile con PostgreSQL:
 
 ```dotenv
 COMPOSE_PROJECT_NAME=work-hours-platform
-COMPOSE_PROFILES=public
 HOST=0.0.0.0
 PORT=8080
 API_IMAGE=ghcr.io/carlobonvicini/work-hours-api:latest
@@ -82,7 +80,7 @@ Ad ogni push su `main`:
    - `docker compose up -d --remove-orphans`
    - `docker image prune -f`
 
-Se `COMPOSE_PROFILES=public`, Docker Compose avvia anche `Caddy`, che:
+Se `APP_DOMAIN` e valorizzato, il deploy include anche `docker-compose.public.yml` e avvia `Caddy`, che:
 
 1. ascolta su `80/443`
 2. ottiene automaticamente il certificato HTTPS
@@ -131,4 +129,4 @@ Se usi `docker-compose` v1, sostituisci i comandi.
 1. Puoi pushare da qualsiasi PC: il deploy parte comunque, perche triggerato da GitHub.
 2. Il portatile runner deve essere acceso e online.
 3. Niente SSH nel deploy pipeline.
-4. Con `COMPOSE_PROFILES=public` la URL pubblica corretta diventa `https://workhours.developerdomain.org`, mentre `127.0.0.1:8080` resta solo un bind locale del server.
+4. Con `APP_DOMAIN=workhours.developerdomain.org` la URL pubblica corretta diventa `https://workhours.developerdomain.org`, mentre `127.0.0.1:8080` resta solo un bind locale del server.

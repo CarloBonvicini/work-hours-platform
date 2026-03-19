@@ -12,24 +12,3 @@ services:
     expose:
       - "8080"
     restart: unless-stopped
-
-  caddy:
-    profiles:
-      - public
-    image: caddy:2.10-alpine
-    depends_on:
-      - api
-    env_file:
-      - .env
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
-    ports:
-      - "80:80"
-      - "443:443"
-    restart: unless-stopped
-
-volumes:
-  caddy_data:
-  caddy_config:

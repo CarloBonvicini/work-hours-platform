@@ -24,6 +24,12 @@ compose() {
   fi
 }
 
-compose -f docker-compose.yml pull
-compose -f docker-compose.yml up -d --remove-orphans
+set -- -f docker-compose.yml
+app_domain="$(grep '^APP_DOMAIN=' .env 2>/dev/null | cut -d= -f2- || true)"
+if [ -n "$app_domain" ]; then
+  set -- "$@" -f docker-compose.public.yml
+fi
+
+compose "$@" pull
+compose "$@" up -d --remove-orphans
 docker image prune -f
