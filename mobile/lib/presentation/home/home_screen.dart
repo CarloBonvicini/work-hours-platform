@@ -1955,7 +1955,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               children: [
                 _Header(
                   profileName: snapshot?.profile.fullName,
-                  apiBaseUrl: snapshot?.apiBaseUrl,
                 ),
                 const SizedBox(height: 16),
                 if (_errorMessage != null) ...[
@@ -4540,39 +4539,6 @@ class _ActivityRow extends StatelessWidget {
   }
 }
 
-class _StatusBadge extends StatelessWidget {
-  const _StatusBadge({required this.isConnected, required this.text});
-
-  final bool isConnected;
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final backgroundColor = isConnected
-        ? (isDark ? const Color(0xFF14302E) : const Color(0xFFE6F4ED))
-        : (isDark ? const Color(0xFF3A201B) : const Color(0xFFFFF1EC));
-    final foregroundColor = isConnected
-        ? const Color(0xFF0B6E69)
-        : const Color(0xFF9D3D2F);
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
-        color: backgroundColor,
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Text(
-        text,
-        style: Theme.of(context).textTheme.labelLarge?.copyWith(
-          color: foregroundColor,
-          fontWeight: FontWeight.w700,
-        ),
-      ),
-    );
-  }
-}
-
 class _DateField extends StatelessWidget {
   const _DateField({required this.controller, required this.onPickDate});
 
@@ -5044,10 +5010,9 @@ String _textScaleLabel(double value) {
 }
 
 class _Header extends StatelessWidget {
-  const _Header({required this.profileName, required this.apiBaseUrl});
+  const _Header({required this.profileName});
 
   final String? profileName;
-  final String? apiBaseUrl;
 
   @override
   Widget build(BuildContext context) {
@@ -5061,13 +5026,6 @@ class _Header extends StatelessWidget {
           style: theme.textTheme.headlineMedium?.copyWith(
             fontWeight: FontWeight.w800,
           ),
-        ),
-        const SizedBox(height: 12),
-        _StatusBadge(
-          isConnected: apiBaseUrl != null,
-          text: apiBaseUrl == null
-              ? 'Connessione backend in corso'
-              : 'Backend collegato',
         ),
       ],
     );

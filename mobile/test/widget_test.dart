@@ -45,7 +45,6 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Ciao Carlo Bonvicini'), findsOneWidget);
-    expect(find.textContaining('Backend collegato'), findsOneWidget);
     expect(find.text('Navigazione'), findsOneWidget);
     expect(find.text('Settimana'), findsWidgets);
     expect(find.text('Impostazioni'), findsOneWidget);
