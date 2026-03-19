@@ -1,6 +1,7 @@
 import 'package:work_hours_mobile/application/services/app_update_service.dart';
 import 'package:flutter/material.dart';
 import 'package:work_hours_mobile/application/services/dashboard_service.dart';
+import 'package:work_hours_mobile/application/services/onboarding_preference_store.dart';
 import 'package:work_hours_mobile/application/services/theme_preference_store.dart';
 import 'package:work_hours_mobile/application/services/update_reminder_store.dart';
 import 'package:work_hours_mobile/application/services/update_launcher.dart';
@@ -30,7 +31,11 @@ Future<void> main() async {
   );
   const updateReminderStore = SharedPreferencesUpdateReminderStore();
   const themePreferenceStore = SharedPreferencesThemePreferenceStore();
+  const onboardingPreferenceStore =
+      SharedPreferencesOnboardingPreferenceStore();
   final initialThemeMode = await themePreferenceStore.loadThemeMode();
+  final hasCompletedInitialSetup = await onboardingPreferenceStore
+      .hasCompletedInitialSetup();
 
   runApp(
     WorkHoursApp(
@@ -38,7 +43,9 @@ Future<void> main() async {
       appUpdateService: appUpdateService,
       updateReminderStore: updateReminderStore,
       themePreferenceStore: themePreferenceStore,
+      onboardingPreferenceStore: onboardingPreferenceStore,
       initialThemeMode: initialThemeMode,
+      hasCompletedInitialSetup: hasCompletedInitialSetup,
     ),
   );
 }

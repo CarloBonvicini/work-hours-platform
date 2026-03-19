@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -108,14 +109,91 @@ void main() {
       ]);
     },
   );
+
+  test('downloads apk and reports progress', () async {
+    final tempDirectory = await Directory.systemTemp.createTemp(
+      'work-hours-update-',
+    );
+    addTearDown(() => tempDirectory.delete(recursive: true));
+
+    final service = ReleaseAppUpdateService(
+      releaseClient: GitHubReleaseClient(
+        latestReleaseApiUrl: 'https://example.invalid/releases/latest',
+        fallbackReleasePageUrl: 'https://example.invalid/releases',
+        httpClient: MockClient((request) async => http.Response('', 404)),
+      ),
+      updateLauncher: _FakeUpdateLauncher(),
+      httpClient: MockClient(
+        (request) async => http.Response.bytes(
+          [1, 2, 3, 4],
+          200,
+          headers: {'content-length': '4'},
+        ),
+      ),
+      temporaryDirectoryProvider: () async => tempDirectory,
+      currentVersion: '0.1.0',
+    );
+
+    final progressValues = <UpdateDownloadProgress>[];
+    final downloadedUpdate = await service.downloadUpdate(
+      const AppUpdate(
+        currentVersion: '0.1.0',
+        latestVersion: '0.1.1',
+        downloadUrl: 'https://example.invalid/downloads/app-release.apk',
+        releasePageUrl: 'https://example.invalid/releases/mobile-v0.1.1',
+      ),
+      onProgress: progressValues.add,
+    );
+
+    expect(progressValues, isNotEmpty);
+    expect(progressValues.last.receivedBytes, 4);
+    expect(progressValues.last.totalBytes, 4);
+    expect(File(downloadedUpdate.filePath).existsSync(), isTrue);
+  });
+
+  test('delegates apk installation to platform launcher', () async {
+    final launcher = _FakeUpdateLauncher(
+      installResult: UpdateInstallResult.started,
+    );
+    final service = ReleaseAppUpdateService(
+      releaseClient: GitHubReleaseClient(
+        latestReleaseApiUrl: 'https://example.invalid/releases/latest',
+        fallbackReleasePageUrl: 'https://example.invalid/releases',
+        httpClient: MockClient((request) async => http.Response('', 404)),
+      ),
+      updateLauncher: launcher,
+      currentVersion: '0.1.0',
+    );
+
+    final result = await service.installUpdate(
+      const DownloadedAppUpdate(
+        update: AppUpdate(
+          currentVersion: '0.1.0',
+          latestVersion: '0.1.1',
+          downloadUrl: 'https://example.invalid/downloads/app-release.apk',
+          releasePageUrl: 'https://example.invalid/releases/mobile-v0.1.1',
+        ),
+        filePath: '/tmp/app-release.apk',
+        fileName: 'app-release.apk',
+        bytesDownloaded: 1234,
+      ),
+    );
+
+    expect(result, UpdateInstallResult.started);
+    expect(launcher.installedFilePaths, ['/tmp/app-release.apk']);
+  });
 }
 
 class _FakeUpdateLauncher implements UpdateLauncher {
-  _FakeUpdateLauncher({List<bool>? results})
-    : _results = results ?? const [true];
+  _FakeUpdateLauncher({
+    List<bool>? results,
+    this.installResult = UpdateInstallResult.failed,
+  }) : _results = results ?? const [true];
 
   final List<bool> _results;
   final List<String> openedUrls = [];
+  final List<String> installedFilePaths = [];
+  final UpdateInstallResult installResult;
 
   @override
   Future<bool> open(String url) async {
@@ -126,5 +204,11 @@ class _FakeUpdateLauncher implements UpdateLauncher {
     }
 
     return _results.isNotEmpty ? _results.last : false;
+  }
+
+  @override
+  Future<UpdateInstallResult> installDownloadedApk(String filePath) async {
+    installedFilePaths.add(filePath);
+    return installResult;
   }
 }

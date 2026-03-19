@@ -2,6 +2,8 @@ import 'dart:io';
 
 import 'package:flutter/services.dart';
 
+import 'update_launcher.dart';
+
 const _updateChannel = MethodChannel('work_hours_mobile/update');
 
 Future<bool> openExternalUrl(String url) async {
@@ -28,4 +30,26 @@ Future<bool> openExternalUrl(String url) async {
   }
 
   return false;
+}
+
+Future<UpdateInstallResult> installDownloadedApkFromPath(
+  String filePath,
+) async {
+  if (!Platform.isAndroid) {
+    return UpdateInstallResult.failed;
+  }
+
+  final result = await _updateChannel.invokeMethod<String>(
+    'installDownloadedApk',
+    {'filePath': filePath},
+  );
+
+  switch (result) {
+    case 'started':
+      return UpdateInstallResult.started;
+    case 'permission_required':
+      return UpdateInstallResult.permissionRequired;
+    default:
+      return UpdateInstallResult.failed;
+  }
 }

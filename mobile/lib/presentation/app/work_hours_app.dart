@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:work_hours_mobile/application/services/app_update_service.dart';
 import 'package:work_hours_mobile/application/services/dashboard_service.dart';
+import 'package:work_hours_mobile/application/services/onboarding_preference_store.dart';
 import 'package:work_hours_mobile/application/services/theme_preference_store.dart';
 import 'package:work_hours_mobile/application/services/update_reminder_store.dart';
 import 'package:work_hours_mobile/presentation/home/home_screen.dart';
@@ -12,14 +13,18 @@ class WorkHoursApp extends StatefulWidget {
     required this.appUpdateService,
     required this.updateReminderStore,
     required this.themePreferenceStore,
+    required this.onboardingPreferenceStore,
     this.initialThemeMode = ThemeMode.light,
+    this.hasCompletedInitialSetup = false,
   });
 
   final DashboardService dashboardService;
   final AppUpdateService appUpdateService;
   final UpdateReminderStore updateReminderStore;
   final ThemePreferenceStore themePreferenceStore;
+  final OnboardingPreferenceStore onboardingPreferenceStore;
   final ThemeMode initialThemeMode;
+  final bool hasCompletedInitialSetup;
 
   @override
   State<WorkHoursApp> createState() => _WorkHoursAppState();
@@ -59,6 +64,8 @@ class _WorkHoursAppState extends State<WorkHoursApp> {
         dashboardService: widget.dashboardService,
         appUpdateService: widget.appUpdateService,
         updateReminderStore: widget.updateReminderStore,
+        onboardingPreferenceStore: widget.onboardingPreferenceStore,
+        hasCompletedInitialSetup: widget.hasCompletedInitialSetup,
         isDarkTheme: _themeMode == ThemeMode.dark,
         onThemeModeChanged: _updateThemeMode,
       ),

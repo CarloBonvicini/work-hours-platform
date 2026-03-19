@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:work_hours_mobile/application/services/app_update_service.dart';
 import 'package:work_hours_mobile/application/services/dashboard_service.dart';
+import 'package:work_hours_mobile/application/services/onboarding_preference_store.dart';
 import 'package:work_hours_mobile/application/services/theme_preference_store.dart';
+import 'package:work_hours_mobile/application/services/update_launcher.dart';
 import 'package:work_hours_mobile/application/services/update_reminder_store.dart';
 import 'package:work_hours_mobile/domain/models/app_update.dart';
 import 'package:work_hours_mobile/domain/models/dashboard_snapshot.dart';
@@ -29,7 +31,11 @@ void main() {
         ),
         appUpdateService: _FakeAppUpdateService(),
         updateReminderStore: _FakeUpdateReminderStore(),
+        onboardingPreferenceStore: _FakeOnboardingPreferenceStore(
+          hasCompleted: true,
+        ),
         themePreferenceStore: _FakeThemePreferenceStore(),
+        hasCompletedInitialSetup: true,
       ),
     );
 
@@ -68,7 +74,11 @@ void main() {
         ),
         appUpdateService: appUpdateService,
         updateReminderStore: _FakeUpdateReminderStore(),
+        onboardingPreferenceStore: _FakeOnboardingPreferenceStore(
+          hasCompleted: true,
+        ),
         themePreferenceStore: _FakeThemePreferenceStore(),
+        hasCompletedInitialSetup: true,
       ),
     );
 
@@ -91,7 +101,11 @@ void main() {
         ),
         appUpdateService: _FakeAppUpdateService(),
         updateReminderStore: reminderStore,
+        onboardingPreferenceStore: _FakeOnboardingPreferenceStore(
+          hasCompleted: true,
+        ),
         themePreferenceStore: _FakeThemePreferenceStore(),
+        hasCompletedInitialSetup: true,
       ),
     );
 
@@ -113,12 +127,18 @@ void main() {
         ),
         appUpdateService: _CountingAppUpdateService(),
         updateReminderStore: _FakeUpdateReminderStore(),
+        onboardingPreferenceStore: _FakeOnboardingPreferenceStore(
+          hasCompleted: true,
+        ),
         themePreferenceStore: themePreferenceStore,
+        hasCompletedInitialSetup: true,
       ),
     );
 
     await tester.pumpAndSettle();
-    await tester.ensureVisible(find.byKey(const ValueKey('home-section-profile')));
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('home-section-profile')),
+    );
     await tester.tap(find.byKey(const ValueKey('home-section-profile')));
     await tester.pumpAndSettle();
 
@@ -134,6 +154,53 @@ void main() {
     final app = tester.widget<MaterialApp>(find.byType(MaterialApp));
     expect(app.themeMode, ThemeMode.dark);
     expect(themePreferenceStore.savedThemeModes, [ThemeMode.dark]);
+  });
+
+  testWidgets('shows initial setup wizard only on first launch', (
+    tester,
+  ) async {
+    final onboardingStore = _FakeOnboardingPreferenceStore(hasCompleted: false);
+    final themePreferenceStore = _FakeThemePreferenceStore();
+    final repository = _FakeDashboardRepository();
+
+    await tester.pumpWidget(
+      WorkHoursApp(
+        dashboardService: DashboardService(repository: repository),
+        appUpdateService: _CountingAppUpdateService(),
+        updateReminderStore: _FakeUpdateReminderStore(),
+        onboardingPreferenceStore: onboardingStore,
+        themePreferenceStore: themePreferenceStore,
+        hasCompletedInitialSetup: false,
+      ),
+    );
+
+    await tester.pumpAndSettle();
+
+    expect(find.text('Configurazione iniziale 1/3'), findsOneWidget);
+    await tester.tap(find.text('Scuro'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Continua'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Configurazione iniziale 2/3'), findsOneWidget);
+    expect(find.byType(TextField), findsOneWidget);
+    await tester.enterText(find.byType(TextField), 'Carlo');
+    await tester.tap(find.text('Continua'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Configurazione iniziale 3/3'), findsOneWidget);
+    await tester.tap(find.text('Stesse ore ogni giorno lavorativo'));
+    await tester.pumpAndSettle();
+    expect(find.byType(TextField), findsOneWidget);
+    await tester.enterText(find.byType(TextField), '7,30');
+    await tester.tap(find.text('Inizia'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Configurazione iniziale 1/3'), findsNothing);
+    expect(onboardingStore.markCompletedCalls, 1);
+    expect(themePreferenceStore.savedThemeModes, [ThemeMode.dark]);
+    expect(repository.savedFullName, 'Carlo');
+    expect(repository.savedDailyTargetMinutes, 450);
   });
 }
 
@@ -152,6 +219,25 @@ class _FakeAppUpdateService implements AppUpdateService {
   Future<bool> openUpdate(AppUpdate update) async {
     return true;
   }
+
+  @override
+  Future<DownloadedAppUpdate> downloadUpdate(
+    AppUpdate update, {
+    required UpdateDownloadProgressCallback onProgress,
+  }) async {
+    onProgress(const UpdateDownloadProgress(receivedBytes: 10, totalBytes: 10));
+    return DownloadedAppUpdate(
+      update: update,
+      filePath: '/tmp/app-release.apk',
+      fileName: 'app-release.apk',
+      bytesDownloaded: 10,
+    );
+  }
+
+  @override
+  Future<UpdateInstallResult> installUpdate(DownloadedAppUpdate update) async {
+    return UpdateInstallResult.started;
+  }
 }
 
 class _CountingAppUpdateService implements AppUpdateService {
@@ -166,6 +252,25 @@ class _CountingAppUpdateService implements AppUpdateService {
   @override
   Future<bool> openUpdate(AppUpdate update) async {
     return true;
+  }
+
+  @override
+  Future<DownloadedAppUpdate> downloadUpdate(
+    AppUpdate update, {
+    required UpdateDownloadProgressCallback onProgress,
+  }) async {
+    onProgress(const UpdateDownloadProgress(receivedBytes: 10, totalBytes: 10));
+    return DownloadedAppUpdate(
+      update: update,
+      filePath: '/tmp/app-release.apk',
+      fileName: 'app-release.apk',
+      bytesDownloaded: 10,
+    );
+  }
+
+  @override
+  Future<UpdateInstallResult> installUpdate(DownloadedAppUpdate update) async {
+    return UpdateInstallResult.started;
   }
 }
 
@@ -203,7 +308,28 @@ class _FakeThemePreferenceStore implements ThemePreferenceStore {
   }
 }
 
+class _FakeOnboardingPreferenceStore implements OnboardingPreferenceStore {
+  _FakeOnboardingPreferenceStore({required this.hasCompleted});
+
+  final bool hasCompleted;
+  int markCompletedCalls = 0;
+
+  @override
+  Future<bool> hasCompletedInitialSetup() async {
+    return hasCompleted;
+  }
+
+  @override
+  Future<void> markInitialSetupCompleted() async {
+    markCompletedCalls += 1;
+  }
+}
+
 class _FakeDashboardRepository implements DashboardRepository {
+  String? savedFullName;
+  int? savedDailyTargetMinutes;
+  WeekdayTargetMinutes? savedWeekdayTargetMinutes;
+
   @override
   Future<DashboardSnapshot> addLeaveEntry({
     required String date,
@@ -287,6 +413,9 @@ class _FakeDashboardRepository implements DashboardRepository {
     required WeekdayTargetMinutes weekdayTargetMinutes,
     required String month,
   }) {
+    savedFullName = fullName;
+    savedDailyTargetMinutes = dailyTargetMinutes;
+    savedWeekdayTargetMinutes = weekdayTargetMinutes;
     return loadSnapshot(month: month);
   }
 

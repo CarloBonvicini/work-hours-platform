@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:work_hours_mobile/application/services/app_update_service.dart';
 import 'package:work_hours_mobile/application/services/dashboard_service.dart';
 import 'package:work_hours_mobile/application/services/hour_input_parser.dart';
+import 'package:work_hours_mobile/application/services/onboarding_preference_store.dart';
+import 'package:work_hours_mobile/application/services/update_launcher.dart';
 import 'package:work_hours_mobile/application/services/update_reminder_store.dart';
 import 'package:work_hours_mobile/data/api/work_hours_api_client.dart';
 import 'package:work_hours_mobile/domain/models/app_update.dart';
@@ -11,6 +13,7 @@ import 'package:work_hours_mobile/domain/models/dashboard_snapshot.dart';
 import 'package:work_hours_mobile/domain/models/leave_entry.dart';
 import 'package:work_hours_mobile/domain/models/schedule_override.dart';
 import 'package:work_hours_mobile/domain/models/weekday_target_minutes.dart';
+import 'package:work_hours_mobile/presentation/home/initial_setup_dialog.dart';
 
 enum _QuickEntryMode { work, leave }
 
@@ -22,6 +25,8 @@ class HomeScreen extends StatefulWidget {
     required this.dashboardService,
     required this.appUpdateService,
     required this.updateReminderStore,
+    required this.onboardingPreferenceStore,
+    required this.hasCompletedInitialSetup,
     required this.isDarkTheme,
     required this.onThemeModeChanged,
   });
@@ -29,6 +34,8 @@ class HomeScreen extends StatefulWidget {
   final DashboardService dashboardService;
   final AppUpdateService appUpdateService;
   final UpdateReminderStore updateReminderStore;
+  final OnboardingPreferenceStore onboardingPreferenceStore;
+  final bool hasCompletedInitialSetup;
   final bool isDarkTheme;
   final Future<void> Function(bool useDarkTheme) onThemeModeChanged;
 
@@ -66,7 +73,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _isSubmittingEntry = false;
   bool _isOpeningUpdate = false;
   bool _isShowingUpdateDialog = false;
+  bool _isShowingOnboardingDialog = false;
   bool _isUpdatingThemeMode = false;
+  late bool _hasCompletedInitialSetup;
   _HomeSection _selectedSection = _HomeSection.overview;
 
   @override
@@ -75,17 +84,24 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     _selectedMonth = widget.dashboardService.currentMonth;
     _selectedDate = _resolveSelectedDateForMonth(_selectedMonth);
+    _hasCompletedInitialSetup = widget.hasCompletedInitialSetup;
     _entryDateController.text = DashboardService.defaultEntryDateOf(
       _selectedDate,
     );
-    unawaited(_checkForUpdate());
     _loadSnapshot();
+    if (_hasCompletedInitialSetup) {
+      unawaited(_checkForUpdate());
+    } else {
+      _isCheckingForUpdate = false;
+    }
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
-    if (state == AppLifecycleState.resumed && !_isCheckingForUpdate) {
+    if (state == AppLifecycleState.resumed &&
+        !_isCheckingForUpdate &&
+        _hasCompletedInitialSetup) {
       unawaited(_checkForUpdate());
     }
   }
@@ -137,6 +153,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _selectedDate = resolvedSelectedDate;
         _isLoading = false;
       });
+      await _maybeShowInitialSetup(snapshot);
     } catch (error) {
       if (!mounted) {
         return;
@@ -146,6 +163,46 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _errorMessage = _humanizeError(error);
         _isLoading = false;
       });
+    }
+  }
+
+  Future<void> _maybeShowInitialSetup(DashboardSnapshot snapshot) async {
+    if (_hasCompletedInitialSetup || _isShowingOnboardingDialog || !mounted) {
+      return;
+    }
+
+    _isShowingOnboardingDialog = true;
+    final wasCompleted = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => InitialSetupDialog(
+        initialProfile: snapshot.profile,
+        initialIsDarkTheme: widget.isDarkTheme,
+        onThemeModeChanged: widget.onThemeModeChanged,
+        onSaveProfile: (configuration) async {
+          final savedSnapshot = await widget.dashboardService.saveProfile(
+            fullName: configuration.fullName,
+            useUniformDailyTarget: configuration.useUniformDailyTarget,
+            dailyTargetMinutes: configuration.dailyTargetMinutes,
+            weekdayTargetMinutes: configuration.weekdayTargetMinutes,
+            month: _snapshot?.summary.month,
+          );
+          _hydrateControllers(savedSnapshot, _selectedDate);
+          if (!mounted) {
+            return;
+          }
+          setState(() {
+            _snapshot = savedSnapshot;
+          });
+        },
+      ),
+    );
+    _isShowingOnboardingDialog = false;
+
+    if (wasCompleted == true && mounted) {
+      await widget.onboardingPreferenceStore.markInitialSetupCompleted();
+      _hasCompletedInitialSetup = true;
+      unawaited(_checkForUpdate());
     }
   }
 
@@ -206,7 +263,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     switch (action) {
       case _UpdateDialogAction.updateNow:
         await widget.updateReminderStore.deferAfterOpening(update);
-        await _openUpdate();
+        await _startInAppUpdateFlow(update);
         break;
       case _UpdateDialogAction.remindLater:
       case null:
@@ -515,6 +572,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         content: Text(
           'Impossibile aprire l aggiornamento. Apri manualmente ${availableUpdate.releasePageUrl}',
         ),
+      ),
+    );
+  }
+
+  Future<void> _startInAppUpdateFlow(AppUpdate update) async {
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => _UpdateDownloadDialog(
+        update: update,
+        appUpdateService: widget.appUpdateService,
+        onOpenReleasePage: _openUpdate,
       ),
     );
   }
@@ -1574,7 +1643,7 @@ class _UpdateDialog extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           const Text(
-            'Vuoi aprire subito il download della nuova APK oppure preferisci un promemoria piu tardi?',
+            'Vuoi scaricare subito la nuova APK dentro l app oppure preferisci un promemoria piu tardi?',
           ),
         ],
       ),
@@ -1594,6 +1663,219 @@ class _UpdateDialog extends StatelessWidget {
         ),
       ],
     );
+  }
+}
+
+enum _UpdateDownloadState { downloading, readyToInstall, failed, installing }
+
+class _UpdateDownloadDialog extends StatefulWidget {
+  const _UpdateDownloadDialog({
+    required this.update,
+    required this.appUpdateService,
+    required this.onOpenReleasePage,
+  });
+
+  final AppUpdate update;
+  final AppUpdateService appUpdateService;
+  final Future<void> Function() onOpenReleasePage;
+
+  @override
+  State<_UpdateDownloadDialog> createState() => _UpdateDownloadDialogState();
+}
+
+class _UpdateDownloadDialogState extends State<_UpdateDownloadDialog> {
+  UpdateDownloadProgress _progress = const UpdateDownloadProgress(
+    receivedBytes: 0,
+    totalBytes: null,
+  );
+  DownloadedAppUpdate? _downloadedUpdate;
+  _UpdateDownloadState _state = _UpdateDownloadState.downloading;
+  String? _message;
+
+  @override
+  void initState() {
+    super.initState();
+    _startDownload();
+  }
+
+  Future<void> _startDownload() async {
+    setState(() {
+      _state = _UpdateDownloadState.downloading;
+      _message = null;
+      _downloadedUpdate = null;
+      _progress = const UpdateDownloadProgress(
+        receivedBytes: 0,
+        totalBytes: null,
+      );
+    });
+
+    try {
+      final downloadedUpdate = await widget.appUpdateService.downloadUpdate(
+        widget.update,
+        onProgress: (progress) {
+          if (!mounted) {
+            return;
+          }
+
+          setState(() {
+            _progress = progress;
+          });
+        },
+      );
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _downloadedUpdate = downloadedUpdate;
+        _state = _UpdateDownloadState.readyToInstall;
+      });
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _state = _UpdateDownloadState.failed;
+        _message = 'Download non riuscito. Controlla la connessione e riprova.';
+      });
+    }
+  }
+
+  Future<void> _installDownloadedUpdate() async {
+    final downloadedUpdate = _downloadedUpdate;
+    if (downloadedUpdate == null || _state == _UpdateDownloadState.installing) {
+      return;
+    }
+
+    setState(() {
+      _state = _UpdateDownloadState.installing;
+      _message = null;
+    });
+
+    final result = await widget.appUpdateService.installUpdate(
+      downloadedUpdate,
+    );
+    if (!mounted) {
+      return;
+    }
+
+    switch (result) {
+      case UpdateInstallResult.started:
+        Navigator.of(context).pop();
+        break;
+      case UpdateInstallResult.permissionRequired:
+        setState(() {
+          _state = _UpdateDownloadState.readyToInstall;
+          _message =
+              'Per installare l APK devi autorizzare questa app nelle impostazioni Android, poi tocca di nuovo Installa.';
+        });
+        break;
+      case UpdateInstallResult.failed:
+        setState(() {
+          _state = _UpdateDownloadState.readyToInstall;
+          _message = 'Impossibile avviare l installazione dell aggiornamento.';
+        });
+        break;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final progressText = _progress.totalBytes == null
+        ? '${_formatDownloadSize(_progress.receivedBytes)} scaricati'
+        : '${_formatDownloadSize(_progress.receivedBytes)} di ${_formatDownloadSize(_progress.totalBytes!)}';
+
+    return AlertDialog(
+      title: Text(_resolveTitle()),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Versione attuale ${widget.update.currentVersion} -> nuova versione ${widget.update.latestVersion}',
+          ),
+          const SizedBox(height: 16),
+          if (_state == _UpdateDownloadState.downloading) ...[
+            LinearProgressIndicator(value: _progress.fractionCompleted),
+            const SizedBox(height: 12),
+            Text(progressText),
+          ] else if (_state == _UpdateDownloadState.readyToInstall) ...[
+            const Text(
+              'Download completato. Quando sei pronto puoi avviare subito l installazione.',
+            ),
+            const SizedBox(height: 12),
+            if (_downloadedUpdate != null)
+              Text(
+                'File pronto: ${_downloadedUpdate!.fileName}',
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+          ] else if (_state == _UpdateDownloadState.installing) ...[
+            const LinearProgressIndicator(),
+            const SizedBox(height: 12),
+            const Text('Avvio dell installazione in corso...'),
+          ] else ...[
+            const Text(
+              'Non siamo riusciti a scaricare l aggiornamento dentro l app.',
+            ),
+          ],
+          if (_message != null) ...[
+            const SizedBox(height: 12),
+            Text(
+              _message!,
+              style: Theme.of(
+                context,
+              ).textTheme.bodyMedium?.copyWith(color: const Color(0xFF9D3D2F)),
+            ),
+          ],
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: _state == _UpdateDownloadState.installing
+              ? null
+              : () => Navigator.of(context).pop(),
+          child: const Text('Piu tardi'),
+        ),
+        if (_state == _UpdateDownloadState.failed)
+          Wrap(
+            spacing: 10,
+            children: [
+              OutlinedButton(
+                onPressed: () async {
+                  await widget.onOpenReleasePage();
+                },
+                child: const Text('Apri pagina release'),
+              ),
+              FilledButton.icon(
+                onPressed: _startDownload,
+                icon: const Icon(Icons.refresh),
+                label: const Text('Riprova'),
+              ),
+            ],
+          )
+        else if (_state == _UpdateDownloadState.readyToInstall)
+          FilledButton.icon(
+            onPressed: _installDownloadedUpdate,
+            icon: const Icon(Icons.install_mobile_outlined),
+            label: const Text('Installa'),
+          ),
+      ],
+    );
+  }
+
+  String _resolveTitle() {
+    switch (_state) {
+      case _UpdateDownloadState.downloading:
+        return 'Scarico aggiornamento';
+      case _UpdateDownloadState.readyToInstall:
+        return 'Aggiornamento pronto';
+      case _UpdateDownloadState.failed:
+        return 'Download non riuscito';
+      case _UpdateDownloadState.installing:
+        return 'Avvio installazione';
+    }
   }
 }
 
@@ -1970,6 +2252,14 @@ bool _isSameMonth(DateTime left, DateTime right) {
 
 bool _isSameDay(DateTime left, DateTime right) {
   return _isSameMonth(left, right) && left.day == right.day;
+}
+
+String _formatDownloadSize(int bytes) {
+  if (bytes < 1024 * 1024) {
+    return '${(bytes / 1024).toStringAsFixed(0)} KB';
+  }
+
+  return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
 }
 
 String _formatMonthLabel(String month) {
