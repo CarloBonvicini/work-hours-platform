@@ -126,3 +126,42 @@ jobs:
           compose "${compose_files[@]}" pull
           compose "${compose_files[@]}" up -d --remove-orphans
           docker image prune -f
+
+      - name: Verify backend health on self-hosted runner
+        shell: bash
+        run: |
+          set -eu
+
+          cd infra
+
+          compose() {
+            if docker compose version >/dev/null 2>&1; then
+              docker compose "$@"
+            elif command -v docker-compose >/dev/null 2>&1; then
+              docker-compose "$@"
+            else
+              echo "Docker Compose non trovato sul self-hosted runner."
+              exit 1
+            fi
+          }
+
+          compose_files=(-f docker-compose.yml)
+          app_domain="$(grep '^APP_DOMAIN=' .env | cut -d= -f2- || true)"
+          if [ -n "$app_domain" ]; then
+            compose_files+=(-f docker-compose.public.yml)
+          fi
+
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            if curl -fsS http://127.0.0.1:8080/health >/dev/null; then
+              echo "Backend health check OK."
+              exit 0
+            fi
+
+            echo "Backend non ancora pronto (tentativo ${attempt}/10)."
+            sleep 3
+          done
+
+          echo "Backend non raggiungibile su http://127.0.0.1:8080/health"
+          compose "${compose_files[@]}" ps || true
+          compose "${compose_files[@]}" logs --tail=100 api || true
+          exit 1
