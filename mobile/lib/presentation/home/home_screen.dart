@@ -1397,6 +1397,56 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
+  Future<void> _openUpdateFromSettings() async {
+    if (_isOpeningUpdate || _isCheckingForUpdate) {
+      return;
+    }
+
+    final cachedUpdate = _availableUpdate;
+    if (cachedUpdate != null) {
+      await _startInAppUpdateFlow(cachedUpdate);
+      return;
+    }
+
+    setState(() {
+      _isCheckingForUpdate = true;
+    });
+
+    try {
+      final availableUpdate = await widget.appUpdateService.checkForUpdate();
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _availableUpdate = availableUpdate;
+        _isCheckingForUpdate = false;
+      });
+
+      if (availableUpdate == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Hai gia l ultima versione.')),
+        );
+        return;
+      }
+
+      await _startInAppUpdateFlow(availableUpdate);
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _isCheckingForUpdate = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Controllo aggiornamenti non riuscito.'),
+        ),
+      );
+    }
+  }
+
   Future<void> _startInAppUpdateFlow(AppUpdate update) async {
     await showDialog<void>(
       context: context,
@@ -2477,8 +2527,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           isBusy: _isSavingProfile,
           isDarkTheme: widget.isDarkTheme,
           appearanceSettings: widget.appearanceSettings,
+          availableUpdate: _availableUpdate,
+          isCheckingForUpdate: _isCheckingForUpdate,
+          isOpeningUpdate: _isOpeningUpdate,
           isUpdatingThemeMode: _isUpdatingThemeMode,
           onDarkThemeChanged: _toggleThemeMode,
+          onOpenUpdateFromSettings: _openUpdateFromSettings,
           onAppearanceSettingsChanged: _updateAppearanceSettings,
           onSubmit: _submitProfile,
         );
@@ -4611,8 +4665,12 @@ class _ProfileCard extends StatelessWidget {
     required this.isBusy,
     required this.isDarkTheme,
     required this.appearanceSettings,
+    required this.availableUpdate,
+    required this.isCheckingForUpdate,
+    required this.isOpeningUpdate,
     required this.isUpdatingThemeMode,
     required this.onDarkThemeChanged,
+    required this.onOpenUpdateFromSettings,
     required this.onAppearanceSettingsChanged,
     required this.onSubmit,
   });
@@ -4632,8 +4690,12 @@ class _ProfileCard extends StatelessWidget {
   final bool isBusy;
   final bool isDarkTheme;
   final AppAppearanceSettings appearanceSettings;
+  final AppUpdate? availableUpdate;
+  final bool isCheckingForUpdate;
+  final bool isOpeningUpdate;
   final bool isUpdatingThemeMode;
   final Future<void> Function(bool) onDarkThemeChanged;
+  final Future<void> Function() onOpenUpdateFromSettings;
   final Future<void> Function(AppAppearanceSettings settings)
   onAppearanceSettingsChanged;
   final Future<void> Function() onSubmit;
@@ -4772,6 +4834,13 @@ class _ProfileCard extends StatelessWidget {
             const SizedBox(height: 24),
             const Divider(),
             const SizedBox(height: 12),
+            _AppUpdateSettingsCard(
+              availableUpdate: availableUpdate,
+              isCheckingForUpdate: isCheckingForUpdate,
+              isOpeningUpdate: isOpeningUpdate,
+              onPressed: onOpenUpdateFromSettings,
+            ),
+            const SizedBox(height: 20),
             _AppearanceSettingsPanel(
               isDarkTheme: isDarkTheme,
               appearanceSettings: appearanceSettings,
@@ -4978,6 +5047,73 @@ class _AppearanceSettingsPanelState extends State<_AppearanceSettingsPanel> {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _AppUpdateSettingsCard extends StatelessWidget {
+  const _AppUpdateSettingsCard({
+    required this.availableUpdate,
+    required this.isCheckingForUpdate,
+    required this.isOpeningUpdate,
+    required this.onPressed,
+  });
+
+  final AppUpdate? availableUpdate;
+  final bool isCheckingForUpdate;
+  final bool isOpeningUpdate;
+  final Future<void> Function() onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final hasUpdate = availableUpdate != null;
+    final title = hasUpdate
+        ? 'Aggiornamento disponibile'
+        : 'Aggiornamenti app';
+    final subtitle = hasUpdate
+        ? 'Versione attuale ${availableUpdate!.currentVersion} -> nuova versione ${availableUpdate!.latestVersion}'
+        : 'Controlla manualmente se c e una nuova versione, anche se hai scelto di ricordartelo piu tardi.';
+
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(subtitle, style: theme.textTheme.bodyMedium),
+          const SizedBox(height: 14),
+          FilledButton.tonalIcon(
+            key: const ValueKey('settings-update-button'),
+            onPressed: (isCheckingForUpdate || isOpeningUpdate)
+                ? null
+                : () => onPressed(),
+            icon: Icon(
+              hasUpdate ? Icons.system_update_alt : Icons.refresh_rounded,
+            ),
+            label: Text(
+              isCheckingForUpdate
+                  ? 'Controllo...'
+                  : isOpeningUpdate
+                  ? 'Apro...'
+                  : hasUpdate
+                  ? 'Aggiorna ora'
+                  : 'Controlla aggiornamenti',
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

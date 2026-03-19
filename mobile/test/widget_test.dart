@@ -225,6 +225,49 @@ void main() {
     expect(themePreferenceStore.savedThemeModes, [ThemeMode.dark]);
   });
 
+  testWidgets('shows manual update action in settings', (tester) async {
+    final appUpdateService = _ManualCheckAppUpdateService();
+
+    await tester.pumpWidget(
+      WorkHoursApp(
+        dashboardService: DashboardService(
+          repository: _FakeDashboardRepository(),
+        ),
+        appUpdateService: appUpdateService,
+        updateReminderStore: _FakeUpdateReminderStore(),
+        onboardingPreferenceStore: _FakeOnboardingPreferenceStore(
+          hasCompleted: true,
+        ),
+        themePreferenceStore: _FakeThemePreferenceStore(),
+        workdayStartStore: _FakeWorkdayStartStore(),
+        hasCompletedInitialSetup: true,
+      ),
+    );
+
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Ricordamelo piu tardi'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('navigation-menu-button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('navigation-option-profile')));
+    await tester.pumpAndSettle();
+
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('settings-update-button')),
+      250,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('settings-update-button')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('settings-update-button')));
+    await tester.pumpAndSettle();
+
+    expect(appUpdateService.checkCount, 1);
+    expect(find.text('Aggiornamento pronto'), findsOneWidget);
+    expect(find.text('Installa'), findsOneWidget);
+  });
+
   testWidgets('shows initial setup wizard only on first launch', (
     tester,
   ) async {
@@ -386,6 +429,45 @@ class _CountingAppUpdateService implements AppUpdateService {
   Future<AppUpdate?> checkForUpdate() async {
     checkCount += 1;
     return null;
+  }
+
+  @override
+  Future<bool> openUpdate(AppUpdate update) async {
+    return true;
+  }
+
+  @override
+  Future<DownloadedAppUpdate> downloadUpdate(
+    AppUpdate update, {
+    required UpdateDownloadProgressCallback onProgress,
+  }) async {
+    onProgress(const UpdateDownloadProgress(receivedBytes: 10, totalBytes: 10));
+    return DownloadedAppUpdate(
+      update: update,
+      filePath: '/tmp/app-release.apk',
+      fileName: 'app-release.apk',
+      bytesDownloaded: 10,
+    );
+  }
+
+  @override
+  Future<UpdateInstallResult> installUpdate(DownloadedAppUpdate update) async {
+    return UpdateInstallResult.started;
+  }
+}
+
+class _ManualCheckAppUpdateService implements AppUpdateService {
+  int checkCount = 0;
+
+  @override
+  Future<AppUpdate?> checkForUpdate() async {
+    checkCount += 1;
+    return const AppUpdate(
+      currentVersion: '0.1.0',
+      latestVersion: '0.1.1',
+      downloadUrl: 'https://example.com/app-release.apk',
+      releasePageUrl: 'https://example.com/release',
+    );
   }
 
   @override
