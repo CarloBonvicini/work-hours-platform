@@ -2,13 +2,13 @@ version: "2.1"
 
 services:
   api:
-    image: ${API_IMAGE:-ghcr.io/carlobonvicini/work-hours-api:latest}
+    image: ${API_IMAGE}
     env_file:
       - .env
     volumes:
       - ./updates:/app/updates
     ports:
-      - "${API_PORT_MAPPING:-8080:8080}"
+      - "8080:8080"
     expose:
       - "8080"
     restart: unless-stopped
@@ -26,8 +26,8 @@ services:
       - caddy_data:/data
       - caddy_config:/config
     ports:
-      - "${HTTP_PORT_MAPPING:-80:80}"
-      - "${HTTPS_PORT_MAPPING:-443:443}"
+      - "80:80"
+      - "443:443"
     restart: unless-stopped
 
 volumes:
