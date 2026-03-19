@@ -2022,7 +2022,8 @@ class _OverviewCard extends StatelessWidget {
 
     return _SectionCard(
       title: 'Panoramica del mese',
-      subtitle: 'Mese ${summary.month} - target giornaliero $targetPerDay',
+      subtitle:
+          '${_formatMonthLabel(summary.month)} - target giornaliero $targetPerDay',
       trailing: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         decoration: BoxDecoration(
