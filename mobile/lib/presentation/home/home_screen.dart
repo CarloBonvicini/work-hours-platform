@@ -1714,6 +1714,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   String _humanizeError(Object error) {
     if (error is ApiException) {
+      if (
+          error.message.contains('weekdaySchedule must include') ||
+          error.message.contains('weekdayTargetMinutes must include') ||
+          error.message.contains(
+            'targetMinutes must match startTime/endTime minus breakMinutes',
+          )) {
+        return 'Controlla le impostazioni orarie: ogni giorno deve avere ore valide e, se imposti inizio e fine, la pausa deve far tornare il totale.';
+      }
       return error.message;
     }
 
@@ -4359,7 +4367,7 @@ class _ErrorCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Connessione backend non riuscita',
+            'Operazione non riuscita',
             style: Theme.of(
               context,
             ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),

@@ -26,9 +26,9 @@ class DaySchedule {
   Map<String, dynamic> toJson() {
     return {
       'targetMinutes': targetMinutes,
-      'startTime': startTime,
-      'endTime': endTime,
       'breakMinutes': breakMinutes,
+      if (startTime != null && startTime!.isNotEmpty) 'startTime': startTime,
+      if (endTime != null && endTime!.isNotEmpty) 'endTime': endTime,
     };
   }
 }
