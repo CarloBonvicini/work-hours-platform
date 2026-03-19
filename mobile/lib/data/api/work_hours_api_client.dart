@@ -5,6 +5,7 @@ import 'package:work_hours_mobile/domain/models/leave_entry.dart';
 import 'package:work_hours_mobile/domain/models/monthly_summary.dart';
 import 'package:work_hours_mobile/domain/models/profile.dart';
 import 'package:work_hours_mobile/domain/models/schedule_override.dart';
+import 'package:work_hours_mobile/domain/models/support_ticket.dart';
 import 'package:work_hours_mobile/domain/models/weekday_target_minutes.dart';
 import 'package:work_hours_mobile/domain/models/work_entry.dart';
 
@@ -168,6 +169,30 @@ class WorkHoursApiClient {
 
   Future<void> deleteScheduleOverride({required String date}) async {
     final response = await _httpClient.delete(_buildUri('schedule-overrides/$date'));
+    _decodeResponse(response);
+  }
+
+  Future<void> createSupportTicket({
+    required SupportTicketCategory category,
+    String? name,
+    String? email,
+    required String subject,
+    required String message,
+    String? appVersion,
+  }) async {
+    final response = await _httpClient.post(
+      _buildUri('tickets'),
+      headers: _jsonHeaders,
+      body: jsonEncode({
+        'category': category.apiValue,
+        if (name != null && name.isNotEmpty) 'name': name,
+        if (email != null && email.isNotEmpty) 'email': email,
+        'subject': subject,
+        'message': message,
+        if (appVersion != null && appVersion.isNotEmpty) 'appVersion': appVersion,
+      }),
+    );
+
     _decodeResponse(response);
   }
 

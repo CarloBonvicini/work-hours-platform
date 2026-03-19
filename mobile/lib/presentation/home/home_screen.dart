@@ -12,12 +12,20 @@ import 'package:work_hours_mobile/domain/models/app_update.dart';
 import 'package:work_hours_mobile/domain/models/dashboard_snapshot.dart';
 import 'package:work_hours_mobile/domain/models/leave_entry.dart';
 import 'package:work_hours_mobile/domain/models/schedule_override.dart';
+import 'package:work_hours_mobile/domain/models/support_ticket.dart';
 import 'package:work_hours_mobile/domain/models/weekday_target_minutes.dart';
 import 'package:work_hours_mobile/presentation/home/initial_setup_dialog.dart';
 
 enum _QuickEntryMode { work, leave }
 
-enum _HomeSection { overview, quickEntry, calendar, recentActivity, profile }
+enum _HomeSection {
+  overview,
+  quickEntry,
+  calendar,
+  recentActivity,
+  profile,
+  ticket,
+}
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({
@@ -47,6 +55,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final _profileFormKey = GlobalKey<FormState>();
   final _quickEntryFormKey = GlobalKey<FormState>();
   final _scheduleOverrideFormKey = GlobalKey<FormState>();
+  final _ticketFormKey = GlobalKey<FormState>();
   final _fullNameController = TextEditingController();
   final _uniformDailyTargetController = TextEditingController();
   final _entryDateController = TextEditingController();
@@ -54,6 +63,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final _entryNoteController = TextEditingController();
   final _scheduleOverrideTargetController = TextEditingController();
   final _scheduleOverrideNoteController = TextEditingController();
+  final _ticketNameController = TextEditingController();
+  final _ticketEmailController = TextEditingController();
+  final _ticketSubjectController = TextEditingController();
+  final _ticketMessageController = TextEditingController();
+  final _ticketAppVersionController = TextEditingController(
+    text: const String.fromEnvironment('APP_VERSION', defaultValue: '0.1.0'),
+  );
   final Map<WeekdayKey, TextEditingController> _weekdayControllers = {
     for (final weekday in WeekdayKey.values) weekday: TextEditingController(),
   };
@@ -71,12 +87,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _isSavingProfile = false;
   bool _isSavingScheduleOverride = false;
   bool _isSubmittingEntry = false;
+  bool _isSubmittingTicket = false;
   bool _isOpeningUpdate = false;
   bool _isShowingUpdateDialog = false;
   bool _isShowingOnboardingDialog = false;
   bool _isUpdatingThemeMode = false;
   late bool _hasCompletedInitialSetup;
   _HomeSection _selectedSection = _HomeSection.overview;
+  SupportTicketCategory _selectedTicketCategory = SupportTicketCategory.bug;
 
   @override
   void initState() {
@@ -116,6 +134,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _entryNoteController.dispose();
     _scheduleOverrideTargetController.dispose();
     _scheduleOverrideNoteController.dispose();
+    _ticketNameController.dispose();
+    _ticketEmailController.dispose();
+    _ticketSubjectController.dispose();
+    _ticketMessageController.dispose();
+    _ticketAppVersionController.dispose();
     for (final controller in _weekdayControllers.values) {
       controller.dispose();
     }
@@ -292,6 +315,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         ? ''
         : _formatHoursInput(selectedOverride.targetMinutes);
     _scheduleOverrideNoteController.text = selectedOverride?.note ?? '';
+    if (_ticketNameController.text.trim().isEmpty) {
+      _ticketNameController.text = snapshot.profile.fullName;
+    }
   }
 
   Future<void> _refreshAll() async {
@@ -608,6 +634,58 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
+  Future<void> _submitSupportTicket() async {
+    final isValid = _ticketFormKey.currentState?.validate() ?? false;
+    if (!isValid) {
+      return;
+    }
+
+    setState(() {
+      _isSubmittingTicket = true;
+      _errorMessage = null;
+    });
+
+    try {
+      await widget.dashboardService.submitSupportTicket(
+        category: _selectedTicketCategory,
+        name: _ticketNameController.text.trim().isEmpty
+            ? null
+            : _ticketNameController.text.trim(),
+        email: _ticketEmailController.text.trim().isEmpty
+            ? null
+            : _ticketEmailController.text.trim(),
+        subject: _ticketSubjectController.text.trim(),
+        message: _ticketMessageController.text.trim(),
+        appVersion: _ticketAppVersionController.text.trim().isEmpty
+            ? null
+            : _ticketAppVersionController.text.trim(),
+      );
+
+      if (!mounted) {
+        return;
+      }
+
+      _ticketSubjectController.clear();
+      _ticketMessageController.clear();
+      setState(() {
+        _isSubmittingTicket = false;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Ticket inviato correttamente.')),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _errorMessage = _humanizeError(error);
+        _isSubmittingTicket = false;
+      });
+    }
+  }
+
   void _applyPresetMinutes(int minutes) {
     _entryMinutesController.text = minutes.toString();
   }
@@ -915,6 +993,23 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           isUpdatingThemeMode: _isUpdatingThemeMode,
           onDarkThemeChanged: _toggleThemeMode,
           onSubmit: _submitProfile,
+        );
+      case _HomeSection.ticket:
+        return _SupportTicketCard(
+          formKey: _ticketFormKey,
+          selectedCategory: _selectedTicketCategory,
+          onCategoryChanged: (category) {
+            setState(() {
+              _selectedTicketCategory = category;
+            });
+          },
+          nameController: _ticketNameController,
+          emailController: _ticketEmailController,
+          subjectController: _ticketSubjectController,
+          messageController: _ticketMessageController,
+          appVersionController: _ticketAppVersionController,
+          isSubmitting: _isSubmittingTicket,
+          onSubmit: _submitSupportTicket,
         );
     }
   }
@@ -1615,6 +1710,140 @@ class _ProfileCard extends StatelessWidget {
                     ? 'Aggiorno l aspetto dell app...'
                     : 'Attiva un tema piu scuro per usare l app con meno luminosita.',
               ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SupportTicketCard extends StatelessWidget {
+  const _SupportTicketCard({
+    required this.formKey,
+    required this.selectedCategory,
+    required this.onCategoryChanged,
+    required this.nameController,
+    required this.emailController,
+    required this.subjectController,
+    required this.messageController,
+    required this.appVersionController,
+    required this.isSubmitting,
+    required this.onSubmit,
+  });
+
+  final GlobalKey<FormState> formKey;
+  final SupportTicketCategory selectedCategory;
+  final ValueChanged<SupportTicketCategory> onCategoryChanged;
+  final TextEditingController nameController;
+  final TextEditingController emailController;
+  final TextEditingController subjectController;
+  final TextEditingController messageController;
+  final TextEditingController appVersionController;
+  final bool isSubmitting;
+  final Future<void> Function() onSubmit;
+
+  @override
+  Widget build(BuildContext context) {
+    return _SectionCard(
+      title: 'Ticket',
+      subtitle:
+          'Segnala bug, chiedi nuove funzioni o invia una richiesta di supporto senza uscire dall app.',
+      child: Form(
+        key: formKey,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: SupportTicketCategory.values
+                  .map(
+                    (category) => ChoiceChip(
+                      key: ValueKey('ticket-category-${category.apiValue}'),
+                      label: Text(category.label),
+                      selected: selectedCategory == category,
+                      onSelected: isSubmitting
+                          ? null
+                          : (_) => onCategoryChanged(category),
+                    ),
+                  )
+                  .toList(growable: false),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              selectedCategory.description,
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 18),
+            TextFormField(
+              controller: nameController,
+              decoration: const InputDecoration(labelText: 'Nome'),
+            ),
+            const SizedBox(height: 14),
+            TextFormField(
+              controller: emailController,
+              keyboardType: TextInputType.emailAddress,
+              decoration: const InputDecoration(
+                labelText: 'Email',
+                hintText: 'Facoltativa, se vuoi una risposta',
+              ),
+              validator: (value) {
+                final normalizedValue = value?.trim() ?? '';
+                if (normalizedValue.isEmpty) {
+                  return null;
+                }
+
+                final isValidEmail = RegExp(
+                  r'^[^\s@]+@[^\s@]+\.[^\s@]+$',
+                ).hasMatch(normalizedValue);
+                return isValidEmail ? null : 'Inserisci un email valida.';
+              },
+            ),
+            const SizedBox(height: 14),
+            TextFormField(
+              key: const ValueKey('ticket-subject-field'),
+              controller: subjectController,
+              decoration: const InputDecoration(labelText: 'Oggetto'),
+              validator: (value) {
+                if (value == null || value.trim().isEmpty) {
+                  return 'Inserisci un oggetto.';
+                }
+
+                return null;
+              },
+            ),
+            const SizedBox(height: 14),
+            TextFormField(
+              key: const ValueKey('ticket-message-field'),
+              controller: messageController,
+              maxLines: 6,
+              decoration: const InputDecoration(
+                labelText: 'Messaggio',
+                alignLabelWithHint: true,
+              ),
+              validator: (value) {
+                if (value == null || value.trim().isEmpty) {
+                  return 'Descrivi la richiesta o il problema.';
+                }
+
+                return null;
+              },
+            ),
+            const SizedBox(height: 14),
+            TextFormField(
+              controller: appVersionController,
+              decoration: const InputDecoration(
+                labelText: 'Versione app',
+                hintText: 'Facoltativa',
+              ),
+            ),
+            const SizedBox(height: 18),
+            FilledButton.icon(
+              key: const ValueKey('ticket-submit-button'),
+              onPressed: isSubmitting ? null : () => onSubmit(),
+              icon: const Icon(Icons.send_outlined),
+              label: Text(isSubmitting ? 'Invio...' : 'Invia ticket'),
             ),
           ],
         ),
@@ -2408,6 +2637,8 @@ extension on _HomeSection {
         return 'Storico';
       case _HomeSection.profile:
         return 'Profilo';
+      case _HomeSection.ticket:
+        return 'Ticket';
     }
   }
 
@@ -2423,6 +2654,8 @@ extension on _HomeSection {
         return Icons.history_outlined;
       case _HomeSection.profile:
         return Icons.settings_outlined;
+      case _HomeSection.ticket:
+        return Icons.support_agent_outlined;
     }
   }
 }

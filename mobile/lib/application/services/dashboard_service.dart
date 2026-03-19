@@ -1,5 +1,6 @@
 import 'package:work_hours_mobile/domain/models/dashboard_snapshot.dart';
 import 'package:work_hours_mobile/domain/models/leave_entry.dart';
+import 'package:work_hours_mobile/domain/models/support_ticket.dart';
 import 'package:work_hours_mobile/domain/models/weekday_target_minutes.dart';
 import 'package:work_hours_mobile/domain/repositories/dashboard_repository.dart';
 
@@ -76,6 +77,24 @@ class DashboardService {
     return _repository.removeScheduleOverride(
       date: date,
       month: date.substring(0, 7),
+    );
+  }
+
+  Future<void> submitSupportTicket({
+    required SupportTicketCategory category,
+    String? name,
+    String? email,
+    required String subject,
+    required String message,
+    String? appVersion,
+  }) {
+    return _repository.submitSupportTicket(
+      category: category,
+      name: name,
+      email: email,
+      subject: subject,
+      message: message,
+      appVersion: appVersion,
     );
   }
 

@@ -1,4 +1,5 @@
 import 'package:work_hours_mobile/domain/models/leave_entry.dart';
+import 'package:work_hours_mobile/domain/models/support_ticket.dart';
 import 'package:work_hours_mobile/domain/models/weekday_target_minutes.dart';
 import 'package:work_hours_mobile/data/api/work_hours_api_client.dart';
 import 'package:work_hours_mobile/domain/models/dashboard_snapshot.dart';
@@ -83,6 +84,25 @@ class ApiDashboardRepository implements DashboardRepository {
   }) async {
     await _apiClient.deleteScheduleOverride(date: date);
     return _buildSnapshot(month: month);
+  }
+
+  @override
+  Future<void> submitSupportTicket({
+    required SupportTicketCategory category,
+    String? name,
+    String? email,
+    required String subject,
+    required String message,
+    String? appVersion,
+  }) {
+    return _apiClient.createSupportTicket(
+      category: category,
+      name: name,
+      email: email,
+      subject: subject,
+      message: message,
+      appVersion: appVersion,
+    );
   }
 
   Future<DashboardSnapshot> _buildSnapshot({required String month}) async {

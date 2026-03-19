@@ -12,6 +12,7 @@ import 'package:work_hours_mobile/domain/models/leave_entry.dart';
 import 'package:work_hours_mobile/domain/models/monthly_summary.dart';
 import 'package:work_hours_mobile/domain/models/profile.dart';
 import 'package:work_hours_mobile/domain/models/schedule_override.dart';
+import 'package:work_hours_mobile/domain/models/support_ticket.dart';
 import 'package:work_hours_mobile/domain/models/weekday_target_minutes.dart';
 import 'package:work_hours_mobile/domain/models/work_entry.dart';
 import 'package:work_hours_mobile/domain/repositories/dashboard_repository.dart';
@@ -202,6 +203,51 @@ void main() {
     expect(repository.savedFullName, 'Carlo');
     expect(repository.savedDailyTargetMinutes, 450);
   });
+
+  testWidgets('submits a support ticket from the app', (tester) async {
+    final repository = _FakeDashboardRepository();
+    await tester.binding.setSurfaceSize(const Size(1400, 2200));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      WorkHoursApp(
+        dashboardService: DashboardService(repository: repository),
+        appUpdateService: _CountingAppUpdateService(),
+        updateReminderStore: _FakeUpdateReminderStore(),
+        onboardingPreferenceStore: _FakeOnboardingPreferenceStore(
+          hasCompleted: true,
+        ),
+        themePreferenceStore: _FakeThemePreferenceStore(),
+        hasCompletedInitialSetup: true,
+      ),
+    );
+
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const ValueKey('home-section-ticket')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('home-section-ticket')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('ticket-category-feature')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('ticket-subject-field')),
+      'Vista mensile migliore',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('ticket-message-field')),
+      'Vorrei una vista del calendario piu leggibile.',
+    );
+    await tester.tap(find.byKey(const ValueKey('ticket-submit-button')));
+    await tester.pumpAndSettle();
+
+    expect(repository.submittedTicketCategory, SupportTicketCategory.feature);
+    expect(repository.submittedTicketSubject, 'Vista mensile migliore');
+    expect(
+      repository.submittedTicketMessage,
+      'Vorrei una vista del calendario piu leggibile.',
+    );
+  });
 }
 
 class _FakeAppUpdateService implements AppUpdateService {
@@ -329,6 +375,12 @@ class _FakeDashboardRepository implements DashboardRepository {
   String? savedFullName;
   int? savedDailyTargetMinutes;
   WeekdayTargetMinutes? savedWeekdayTargetMinutes;
+  SupportTicketCategory? submittedTicketCategory;
+  String? submittedTicketName;
+  String? submittedTicketEmail;
+  String? submittedTicketSubject;
+  String? submittedTicketMessage;
+  String? submittedTicketAppVersion;
 
   @override
   Future<DashboardSnapshot> addLeaveEntry({
@@ -435,5 +487,22 @@ class _FakeDashboardRepository implements DashboardRepository {
     required String month,
   }) {
     return loadSnapshot(month: month);
+  }
+
+  @override
+  Future<void> submitSupportTicket({
+    required SupportTicketCategory category,
+    String? name,
+    String? email,
+    required String subject,
+    required String message,
+    String? appVersion,
+  }) async {
+    submittedTicketCategory = category;
+    submittedTicketName = name;
+    submittedTicketEmail = email;
+    submittedTicketSubject = subject;
+    submittedTicketMessage = message;
+    submittedTicketAppVersion = appVersion;
   }
 }
