@@ -1095,21 +1095,30 @@ class _CalendarCard extends StatelessWidget {
         children: [
           const _WeekdayHeader(),
           const SizedBox(height: 10),
-          GridView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: days.length,
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 7,
-              crossAxisSpacing: 8,
-              mainAxisSpacing: 8,
-              childAspectRatio: 0.84,
-            ),
-            itemBuilder: (context, index) {
-              final day = days[index];
-              return _CalendarDayCell(
-                day: day,
-                onTap: day.date == null ? null : () => onSelectDate(day.date!),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final isCompactCalendar = constraints.maxWidth < 420;
+
+              return GridView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: days.length,
+                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 7,
+                  crossAxisSpacing: isCompactCalendar ? 6 : 8,
+                  mainAxisSpacing: isCompactCalendar ? 6 : 8,
+                  childAspectRatio: isCompactCalendar ? 0.88 : 0.84,
+                ),
+                itemBuilder: (context, index) {
+                  final day = days[index];
+                  return _CalendarDayCell(
+                    day: day,
+                    isCompact: isCompactCalendar,
+                    onTap: day.date == null
+                        ? null
+                        : () => onSelectDate(day.date!),
+                  );
+                },
               );
             },
           ),
@@ -1249,9 +1258,14 @@ class _WeekdayHeader extends StatelessWidget {
 }
 
 class _CalendarDayCell extends StatelessWidget {
-  const _CalendarDayCell({required this.day, required this.onTap});
+  const _CalendarDayCell({
+    required this.day,
+    required this.isCompact,
+    required this.onTap,
+  });
 
   final _CalendarDay day;
+  final bool isCompact;
   final VoidCallback? onTap;
 
   @override
@@ -1286,7 +1300,7 @@ class _CalendarDayCell extends StatelessWidget {
         borderRadius: BorderRadius.circular(18),
         onTap: onTap,
         child: Ink(
-          padding: const EdgeInsets.all(10),
+          padding: EdgeInsets.all(isCompact ? 8 : 10),
           decoration: BoxDecoration(
             color: backgroundColor,
             borderRadius: BorderRadius.circular(18),
@@ -1298,11 +1312,20 @@ class _CalendarDayCell extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                '${day.date!.day}',
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w800,
-                  color: textColor,
+              SizedBox(
+                width: double.infinity,
+                child: FittedBox(
+                  alignment: Alignment.centerLeft,
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    '${day.date!.day}',
+                    maxLines: 1,
+                    softWrap: false,
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w800,
+                      color: textColor,
+                    ),
+                  ),
                 ),
               ),
               const Spacer(),
