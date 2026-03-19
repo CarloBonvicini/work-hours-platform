@@ -236,6 +236,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _isLoading = false;
       });
       unawaited(_ensureCalendarDataForCurrentView());
+      unawaited(_ensureUpcomingWeekData());
       await _maybeShowInitialSetup(snapshot);
     } catch (error) {
       if (!mounted) {
@@ -1520,7 +1521,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     ).where((item) => item.date == selectedIsoDate).toList(growable: false);
   }
 
-  _TodayStatus _resolveTodayStatus(_DayMetrics metrics) {
+  _TodayStatus _resolveDayStatus(DateTime date, _DayMetrics metrics) {
     final registeredMinutes = metrics.workedMinutes + metrics.leaveMinutes;
     if (metrics.expectedMinutes == 0 && registeredMinutes == 0) {
       return _TodayStatus.dayOff;
@@ -1529,7 +1530,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         metrics.expectedMinutes > 0) {
       return _TodayStatus.absent;
     }
-    if (registeredMinutes >= metrics.expectedMinutes && metrics.expectedMinutes > 0) {
+    if (registeredMinutes >= metrics.expectedMinutes &&
+        metrics.expectedMinutes > 0) {
       return _TodayStatus.completed;
     }
 
@@ -1537,6 +1539,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final currentMinutesOfDay = (now.hour * 60) + now.minute;
     final scheduledStart = parseTimeInput(metrics.schedule.startTime);
     final scheduledEnd = parseTimeInput(metrics.schedule.endTime);
+
+    if (date.isAfter(_todayDate)) {
+      return _TodayStatus.planned;
+    }
+
+    if (date.isBefore(_todayDate)) {
+      return registeredMinutes == 0
+          ? _TodayStatus.needsAttention
+          : _TodayStatus.inProgress;
+    }
 
     if (registeredMinutes == 0) {
       if (scheduledStart != null && currentMinutesOfDay < scheduledStart) {
@@ -1550,6 +1562,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
 
     return _TodayStatus.inProgress;
+  }
+
+  _TodayStatus _resolveTodayStatus(_DayMetrics metrics) {
+    return _resolveDayStatus(_todayDate, metrics);
   }
 
   List<({IconData icon, String title, String description})> _buildTodayReminders(
@@ -1613,6 +1629,60 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
 
     return reminders;
+  }
+
+  Future<void> _ensureUpcomingWeekData() async {
+    final days = List.generate(
+      7,
+      (index) => _todayDate.add(Duration(days: index)),
+      growable: false,
+    );
+    final missingMonths = days
+        .map(DashboardService.formatMonth)
+        .where((month) => !_snapshotCache.containsKey(month))
+        .toSet()
+        .toList(growable: false);
+    if (missingMonths.isEmpty) {
+      return;
+    }
+
+    try {
+      for (final month in missingMonths) {
+        final loadedSnapshot = await widget.dashboardService.loadSnapshot(
+          month: month,
+        );
+        _snapshotCache[month] = loadedSnapshot;
+      }
+      if (mounted) {
+        setState(() {});
+      }
+    } catch (error) {
+      if (mounted) {
+        setState(() {
+          _errorMessage = _humanizeError(error);
+        });
+      }
+    }
+  }
+
+  List<_WeekPlanDay> _buildUpcomingWeekPlan() {
+    return List.generate(7, (index) {
+      final date = _todayDate.add(Duration(days: index));
+      final month = DashboardService.formatMonth(date);
+      final monthSnapshot = _snapshotForMonth(month);
+      if (monthSnapshot == null) {
+        return _WeekPlanDay.empty(date);
+      }
+
+      final metrics = _buildDayMetrics(date);
+      final override = _findScheduleOverrideForDate(monthSnapshot, date);
+      return _WeekPlanDay(
+        date: date,
+        status: _resolveDayStatus(date, metrics),
+        metrics: metrics,
+        overrideNote: override?.note,
+      );
+    }, growable: false);
   }
 
   String _humanizeError(Object error) {
@@ -1784,7 +1854,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           onRemoveOverride: _removeScheduleOverride,
         );
       case _HomeSection.recentActivity:
-        return _RecentActivityCard(activities: _buildActivities(snapshot));
+        return _RecentActivityCard(
+          weekPlan: _buildUpcomingWeekPlan(),
+          onOpenDay: _openCalendarForDate,
+          onOpenWorkEntry: _openWorkQuickEntryForDate,
+          onOpenLeaveEntry: _openLeaveQuickEntryForDate,
+        );
       case _HomeSection.profile:
         return _ProfileCard(
           formKey: _profileFormKey,
@@ -3100,28 +3175,160 @@ class _YearMonthCard extends StatelessWidget {
 }
 
 class _RecentActivityCard extends StatelessWidget {
-  const _RecentActivityCard({required this.activities});
+  const _RecentActivityCard({
+    required this.weekPlan,
+    required this.onOpenDay,
+    required this.onOpenWorkEntry,
+    required this.onOpenLeaveEntry,
+  });
 
-  final List<_ActivityItem> activities;
+  final List<_WeekPlanDay> weekPlan;
+  final Future<void> Function(DateTime date) onOpenDay;
+  final void Function(DateTime date, {int? prefilledMinutes, String? note})
+  onOpenWorkEntry;
+  final void Function(
+    DateTime date, {
+    int? prefilledMinutes,
+    LeaveType leaveType,
+    String? note,
+  })
+  onOpenLeaveEntry;
 
   @override
   Widget build(BuildContext context) {
     return _SectionCard(
-      title: 'Ultimi movimenti',
-      subtitle: 'Uno storico unico con le ultime registrazioni.',
-      child: activities.isEmpty
-          ? Text(
-              'Nessuna registrazione disponibile per questo mese.',
-              style: Theme.of(context).textTheme.bodyLarge,
-            )
-          : Column(
-              children: [
-                for (var index = 0; index < activities.length; index += 1) ...[
-                  _ActivityRow(item: activities[index]),
-                  if (index < activities.length - 1) const Divider(height: 22),
-                ],
-              ],
+      title: 'Settimana',
+      subtitle:
+          'Controlla in pochi secondi i prossimi 7 giorni, con stato, fascia prevista ed eventuali eccezioni.',
+      child: Column(
+        children: [
+          for (var index = 0; index < weekPlan.length; index += 1) ...[
+            _WeekPlanRow(
+              day: weekPlan[index],
+              onOpenDay: () => onOpenDay(weekPlan[index].date),
+              onOpenWorkEntry: () => onOpenWorkEntry(
+                weekPlan[index].date,
+                prefilledMinutes: weekPlan[index].metrics.expectedMinutes,
+              ),
+              onOpenLeaveEntry: () => onOpenLeaveEntry(
+                weekPlan[index].date,
+                prefilledMinutes: weekPlan[index].metrics.expectedMinutes == 0
+                    ? null
+                    : weekPlan[index].metrics.expectedMinutes,
+                leaveType: LeaveType.permit,
+              ),
             ),
+            if (index < weekPlan.length - 1) const Divider(height: 22),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _WeekPlanRow extends StatelessWidget {
+  const _WeekPlanRow({
+    required this.day,
+    required this.onOpenDay,
+    required this.onOpenWorkEntry,
+    required this.onOpenLeaveEntry,
+  });
+
+  final _WeekPlanDay day;
+  final VoidCallback onOpenDay;
+  final VoidCallback onOpenWorkEntry;
+  final VoidCallback onOpenLeaveEntry;
+
+  @override
+  Widget build(BuildContext context) {
+    final registeredMinutes = day.metrics.workedMinutes + day.metrics.leaveMinutes;
+    final statusMeta = _todayStatusMeta(context, day.status);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    _formatLongDate(day.date),
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    _formatDayScheduleDetails(day.metrics.schedule),
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                  if (day.overrideNote?.isNotEmpty == true) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      'Nota: ${day.overrideNote!}',
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            _TodayStatusBadge(
+              label: statusMeta.label,
+              color: statusMeta.color,
+              icon: statusMeta.icon,
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          children: [
+            _CompactMetricTile(
+              label: 'Previsto',
+              value: _formatHours(day.metrics.expectedMinutes),
+              icon: Icons.flag_outlined,
+            ),
+            _CompactMetricTile(
+              label: 'Registrato',
+              value: _formatHours(registeredMinutes),
+              icon: Icons.schedule_outlined,
+            ),
+            _CompactMetricTile(
+              label: 'Scostamento',
+              value: _formatHours(day.metrics.balanceMinutes, signed: true),
+              icon: Icons.compare_arrows_outlined,
+              accentColor: _balanceColor(context, day.metrics.balanceMinutes),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          children: [
+            OutlinedButton.icon(
+              onPressed: onOpenDay,
+              icon: const Icon(Icons.visibility_outlined),
+              label: const Text('Apri giorno'),
+            ),
+            OutlinedButton.icon(
+              onPressed: onOpenWorkEntry,
+              icon: const Icon(Icons.work_history_outlined),
+              label: const Text('Registra'),
+            ),
+            OutlinedButton.icon(
+              onPressed: onOpenLeaveEntry,
+              icon: const Icon(Icons.event_busy_outlined),
+              label: const Text('Assenza'),
+            ),
+          ],
+        ),
+      ],
     );
   }
 }
@@ -4407,6 +4614,28 @@ class _MonthMetrics {
   final int overrideCount;
 }
 
+class _WeekPlanDay {
+  const _WeekPlanDay({
+    required this.date,
+    required this.status,
+    required this.metrics,
+    this.overrideNote,
+  });
+
+  factory _WeekPlanDay.empty(DateTime date) {
+    return _WeekPlanDay(
+      date: date,
+      status: _TodayStatus.planned,
+      metrics: _DayMetrics.empty(date),
+    );
+  }
+
+  final DateTime date;
+  final _TodayStatus status;
+  final _DayMetrics metrics;
+  final String? overrideNote;
+}
+
 String _formatHours(int minutes, {bool signed = false}) {
   final absoluteHours = minutes.abs() / 60;
   final formattedHours = absoluteHours == absoluteHours.truncateToDouble()
@@ -4666,7 +4895,7 @@ class _OverviewCard extends StatelessWidget {
         todayMetrics.workedMinutes + todayMetrics.leaveMinutes;
     final remainingMinutes =
         (todayMetrics.expectedMinutes - registeredMinutes).clamp(0, 24 * 60);
-    final statusMeta = _statusMeta(context, todayStatus);
+    final statusMeta = _todayStatusMeta(context, todayStatus);
     final primaryAction = _primaryAction();
 
     return _SectionCard(
@@ -4851,41 +5080,6 @@ class _OverviewCard extends StatelessWidget {
     );
   }
 
-  ({String label, IconData icon, Color color}) _statusMeta(BuildContext context, _TodayStatus status) {
-    return switch (status) {
-      _TodayStatus.dayOff => (
-        label: 'Libero',
-        icon: Icons.free_breakfast_outlined,
-        color: Theme.of(context).colorScheme.secondary,
-      ),
-      _TodayStatus.planned => (
-        label: 'Pianificata',
-        icon: Icons.schedule_outlined,
-        color: Theme.of(context).colorScheme.primary,
-      ),
-      _TodayStatus.needsAttention => (
-        label: 'Da completare',
-        icon: Icons.priority_high_outlined,
-        color: const Color(0xFF9D3D2F),
-      ),
-      _TodayStatus.inProgress => (
-        label: 'In corso',
-        icon: Icons.play_circle_outline,
-        color: const Color(0xFF0B6E69),
-      ),
-      _TodayStatus.completed => (
-        label: 'Completata',
-        icon: Icons.check_circle_outline,
-        color: const Color(0xFF0B6E69),
-      ),
-      _TodayStatus.absent => (
-        label: 'Assenza registrata',
-        icon: Icons.event_busy_outlined,
-        color: Theme.of(context).colorScheme.secondary,
-      ),
-    };
-  }
-
   ({String label, IconData icon, VoidCallback onPressed}) _primaryAction() {
     return switch (todayStatus) {
       _TodayStatus.dayOff => (
@@ -5007,6 +5201,44 @@ class _TodayReminderCard extends StatelessWidget {
   }
 }
 
+({String label, IconData icon, Color color}) _todayStatusMeta(
+  BuildContext context,
+  _TodayStatus status,
+) {
+  return switch (status) {
+    _TodayStatus.dayOff => (
+      label: 'Libero',
+      icon: Icons.free_breakfast_outlined,
+      color: Theme.of(context).colorScheme.secondary,
+    ),
+    _TodayStatus.planned => (
+      label: 'Pianificata',
+      icon: Icons.schedule_outlined,
+      color: Theme.of(context).colorScheme.primary,
+    ),
+    _TodayStatus.needsAttention => (
+      label: 'Da completare',
+      icon: Icons.priority_high_outlined,
+      color: const Color(0xFF9D3D2F),
+    ),
+    _TodayStatus.inProgress => (
+      label: 'In corso',
+      icon: Icons.play_circle_outline,
+      color: const Color(0xFF0B6E69),
+    ),
+    _TodayStatus.completed => (
+      label: 'Completata',
+      icon: Icons.check_circle_outline,
+      color: const Color(0xFF0B6E69),
+    ),
+    _TodayStatus.absent => (
+      label: 'Assenza registrata',
+      icon: Icons.event_busy_outlined,
+      color: Theme.of(context).colorScheme.secondary,
+    ),
+  };
+}
+
 extension on _HomeSection {
   String get label {
     switch (this) {
@@ -5017,7 +5249,7 @@ extension on _HomeSection {
       case _HomeSection.calendar:
         return 'Calendario';
       case _HomeSection.recentActivity:
-        return 'Storico';
+        return 'Settimana';
       case _HomeSection.profile:
         return 'Profilo';
       case _HomeSection.ticket:
@@ -5034,7 +5266,7 @@ extension on _HomeSection {
       case _HomeSection.calendar:
         return Icons.calendar_month_outlined;
       case _HomeSection.recentActivity:
-        return Icons.history_outlined;
+        return Icons.view_week_outlined;
       case _HomeSection.profile:
         return Icons.settings_outlined;
       case _HomeSection.ticket:
