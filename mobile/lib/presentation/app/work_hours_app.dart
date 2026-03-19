@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:work_hours_mobile/application/services/app_update_service.dart';
 import 'package:work_hours_mobile/application/services/dashboard_service.dart';
+import 'package:work_hours_mobile/application/services/update_reminder_store.dart';
 import 'package:work_hours_mobile/presentation/home/home_screen.dart';
 
 class WorkHoursApp extends StatelessWidget {
@@ -8,10 +9,12 @@ class WorkHoursApp extends StatelessWidget {
     super.key,
     required this.dashboardService,
     required this.appUpdateService,
+    required this.updateReminderStore,
   });
 
   final DashboardService dashboardService;
   final AppUpdateService appUpdateService;
+  final UpdateReminderStore updateReminderStore;
 
   @override
   Widget build(BuildContext context) {
@@ -75,6 +78,7 @@ class WorkHoursApp extends StatelessWidget {
       home: HomeScreen(
         dashboardService: dashboardService,
         appUpdateService: appUpdateService,
+        updateReminderStore: updateReminderStore,
       ),
     );
   }

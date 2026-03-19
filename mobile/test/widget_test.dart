@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:work_hours_mobile/application/services/app_update_service.dart';
 import 'package:work_hours_mobile/application/services/dashboard_service.dart';
+import 'package:work_hours_mobile/application/services/update_reminder_store.dart';
 import 'package:work_hours_mobile/domain/models/app_update.dart';
 import 'package:work_hours_mobile/domain/models/dashboard_snapshot.dart';
 import 'package:work_hours_mobile/domain/models/leave_entry.dart';
@@ -14,6 +15,8 @@ import 'package:work_hours_mobile/domain/repositories/dashboard_repository.dart'
 import 'package:work_hours_mobile/presentation/app/work_hours_app.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   testWidgets('shows simplified dashboard flow', (tester) async {
     await tester.binding.setSurfaceSize(const Size(1400, 2200));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -24,6 +27,7 @@ void main() {
           repository: _FakeDashboardRepository(),
         ),
         appUpdateService: _FakeAppUpdateService(),
+        updateReminderStore: _FakeUpdateReminderStore(),
       ),
     );
 
@@ -34,6 +38,10 @@ void main() {
     expect(find.text('Panoramica del mese'), findsOneWidget);
     expect(find.text('Calendario'), findsOneWidget);
     expect(find.text('Aggiornamento disponibile'), findsOneWidget);
+    expect(find.text('Ricordamelo piu tardi'), findsOneWidget);
+
+    await tester.tap(find.text('Ricordamelo piu tardi'));
+    await tester.pumpAndSettle();
 
     await tester.tap(find.byKey(const ValueKey('calendar-day-2026-03-04')));
     await tester.pumpAndSettle();
@@ -50,6 +58,7 @@ void main() {
           repository: _FakeDashboardRepository(),
         ),
         appUpdateService: appUpdateService,
+        updateReminderStore: _FakeUpdateReminderStore(),
       ),
     );
 
@@ -60,6 +69,27 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(appUpdateService.checkCount, 2);
+  });
+
+  testWidgets('snoozes update dialog when user chooses later', (tester) async {
+    final reminderStore = _FakeUpdateReminderStore();
+
+    await tester.pumpWidget(
+      WorkHoursApp(
+        dashboardService: DashboardService(
+          repository: _FakeDashboardRepository(),
+        ),
+        appUpdateService: _FakeAppUpdateService(),
+        updateReminderStore: reminderStore,
+      ),
+    );
+
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Ricordamelo piu tardi'));
+    await tester.pumpAndSettle();
+
+    expect(reminderStore.remindedLaterVersions, ['0.1.1']);
+    expect(find.text('Aggiornamento disponibile'), findsNothing);
   });
 }
 
@@ -91,6 +121,26 @@ class _CountingAppUpdateService implements AppUpdateService {
 
   @override
   Future<bool> openUpdate(AppUpdate update) async {
+    return true;
+  }
+}
+
+class _FakeUpdateReminderStore implements UpdateReminderStore {
+  final List<String> remindedLaterVersions = [];
+  final List<String> deferredAfterOpeningVersions = [];
+
+  @override
+  Future<void> deferAfterOpening(AppUpdate update) async {
+    deferredAfterOpeningVersions.add(update.latestVersion);
+  }
+
+  @override
+  Future<void> remindLater(AppUpdate update) async {
+    remindedLaterVersions.add(update.latestVersion);
+  }
+
+  @override
+  Future<bool> shouldPromptFor(AppUpdate update) async {
     return true;
   }
 }

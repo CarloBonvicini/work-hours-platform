@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:work_hours_mobile/application/services/app_update_service.dart';
 import 'package:work_hours_mobile/application/services/dashboard_service.dart';
+import 'package:work_hours_mobile/application/services/update_reminder_store.dart';
 import 'package:work_hours_mobile/data/api/work_hours_api_client.dart';
 import 'package:work_hours_mobile/domain/models/app_update.dart';
 import 'package:work_hours_mobile/domain/models/dashboard_snapshot.dart';
@@ -17,10 +18,12 @@ class HomeScreen extends StatefulWidget {
     super.key,
     required this.dashboardService,
     required this.appUpdateService,
+    required this.updateReminderStore,
   });
 
   final DashboardService dashboardService;
   final AppUpdateService appUpdateService;
+  final UpdateReminderStore updateReminderStore;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -55,6 +58,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _isSavingScheduleOverride = false;
   bool _isSubmittingEntry = false;
   bool _isOpeningUpdate = false;
+  bool _isShowingUpdateDialog = false;
 
   @override
   void initState() {
@@ -151,6 +155,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _availableUpdate = availableUpdate;
         _isCheckingForUpdate = false;
       });
+      if (availableUpdate != null) {
+        await _maybePromptForUpdate(availableUpdate);
+      }
     } catch (_) {
       if (!mounted) {
         return;
@@ -160,6 +167,40 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _availableUpdate = null;
         _isCheckingForUpdate = false;
       });
+    }
+  }
+
+  Future<void> _maybePromptForUpdate(AppUpdate update) async {
+    if (_isShowingUpdateDialog) {
+      return;
+    }
+
+    final shouldPrompt = await widget.updateReminderStore.shouldPromptFor(update);
+    if (!mounted || !shouldPrompt) {
+      return;
+    }
+
+    _isShowingUpdateDialog = true;
+    final action = await showDialog<_UpdateDialogAction>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => _UpdateDialog(update: update),
+    );
+    _isShowingUpdateDialog = false;
+
+    if (!mounted) {
+      return;
+    }
+
+    switch (action) {
+      case _UpdateDialogAction.updateNow:
+        await widget.updateReminderStore.deferAfterOpening(update);
+        await _openUpdate();
+        break;
+      case _UpdateDialogAction.remindLater:
+      case null:
+        await widget.updateReminderStore.remindLater(update);
+        break;
     }
   }
 
@@ -717,17 +758,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   onRefresh: _refreshAll,
                 ),
                 const SizedBox(height: 16),
-                if (_availableUpdate != null) ...[
-                  _UpdateCard(
-                    update: _availableUpdate!,
-                    isOpeningUpdate: _isOpeningUpdate,
-                    onOpenUpdate: _openUpdate,
-                  ),
-                  const SizedBox(height: 16),
-                ] else if (_isCheckingForUpdate) ...[
-                  const _UpdateCheckCard(),
-                  const SizedBox(height: 16),
-                ],
                 if (_errorMessage != null) ...[
                   _ErrorCard(message: _errorMessage!, onRetry: _refreshAll),
                   const SizedBox(height: 16),
@@ -1400,91 +1430,45 @@ class _ProfileCard extends StatelessWidget {
   }
 }
 
-class _UpdateCard extends StatelessWidget {
-  const _UpdateCard({
-    required this.update,
-    required this.isOpeningUpdate,
-    required this.onOpenUpdate,
-  });
+enum _UpdateDialogAction { updateNow, remindLater }
+
+class _UpdateDialog extends StatelessWidget {
+  const _UpdateDialog({required this.update});
 
   final AppUpdate update;
-  final bool isOpeningUpdate;
-  final Future<void> Function() onOpenUpdate;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: const Color(0xFFE7F4ED),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: const Color(0xFF97B8A9)),
-      ),
-      child: Wrap(
-        spacing: 16,
-        runSpacing: 12,
-        crossAxisAlignment: WrapCrossAlignment.center,
+    return AlertDialog(
+      title: const Text('Aggiornamento disponibile'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SizedBox(
-            width: 680,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Aggiornamento disponibile',
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  'Versione installata ${update.currentVersion}. Nuova release ${update.latestVersion}.',
-                  style: Theme.of(context).textTheme.bodyLarge,
-                ),
-              ],
-            ),
+          Text(
+            'Hai la versione ${update.currentVersion}. E disponibile la ${update.latestVersion}.',
           ),
-          FilledButton.icon(
-            onPressed: isOpeningUpdate ? null : () => onOpenUpdate(),
-            icon: const Icon(Icons.system_update_alt),
-            label: Text(
-              isOpeningUpdate ? 'Apro link...' : 'Scarica aggiornamento',
-            ),
+          const SizedBox(height: 12),
+          const Text(
+            'Vuoi aprire subito il download della nuova APK oppure preferisci un promemoria piu tardi?',
           ),
         ],
       ),
-    );
-  }
-}
-
-class _UpdateCheckCard extends StatelessWidget {
-  const _UpdateCheckCard();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: const Color(0xFFE0D8CA)),
-      ),
-      child: Row(
-        children: [
-          const SizedBox(
-            width: 18,
-            height: 18,
-            child: CircularProgressIndicator(strokeWidth: 2.1),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              'Controllo se esiste una release mobile piu recente.',
-              style: Theme.of(context).textTheme.bodyLarge,
-            ),
-          ),
-        ],
-      ),
+      actions: [
+        TextButton(
+          onPressed: () {
+            Navigator.of(context).pop(_UpdateDialogAction.remindLater);
+          },
+          child: const Text('Ricordamelo piu tardi'),
+        ),
+        FilledButton.icon(
+          onPressed: () {
+            Navigator.of(context).pop(_UpdateDialogAction.updateNow);
+          },
+          icon: const Icon(Icons.system_update_alt),
+          label: const Text('Aggiorna subito'),
+        ),
+      ],
     );
   }
 }

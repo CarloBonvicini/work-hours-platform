@@ -179,19 +179,21 @@ jobs:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          if [ -n "$ANDROID_KEYSTORE_BASE64" ] && [ -n "$ANDROID_KEY_ALIAS" ] && [ -n "$ANDROID_KEYSTORE_PASSWORD" ] && [ -n "$ANDROID_KEY_PASSWORD" ]; then
-            keystore_path="$GITHUB_WORKSPACE/mobile/android/release.keystore"
-            echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$keystore_path"
-            {
-              echo "ANDROID_KEYSTORE_PATH=$keystore_path"
-              echo "ANDROID_KEY_ALIAS=$ANDROID_KEY_ALIAS"
-              echo "ANDROID_KEYSTORE_PASSWORD=$ANDROID_KEYSTORE_PASSWORD"
-              echo "ANDROID_KEY_PASSWORD=$ANDROID_KEY_PASSWORD"
-            } >> "$GITHUB_ENV"
-          else
-            echo "ANDROID signing secrets not configured."
-            echo "Release APK will use debug signing and may not support in-place updates."
+          if [ -z "$ANDROID_KEYSTORE_BASE64" ] || [ -z "$ANDROID_KEY_ALIAS" ] || [ -z "$ANDROID_KEYSTORE_PASSWORD" ] || [ -z "$ANDROID_KEY_PASSWORD" ]; then
+            echo "ANDROID signing secrets mancanti."
+            echo "Configura ANDROID_KEYSTORE_BASE64, ANDROID_KEY_ALIAS, ANDROID_KEYSTORE_PASSWORD e ANDROID_KEY_PASSWORD."
+            echo "Le release non firmate sempre con la stessa chiave causano conflitti di package negli update Android."
+            exit 1
           fi
+
+          keystore_path="$GITHUB_WORKSPACE/mobile/android/release.keystore"
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$keystore_path"
+          {
+            echo "ANDROID_KEYSTORE_PATH=$keystore_path"
+            echo "ANDROID_KEY_ALIAS=$ANDROID_KEY_ALIAS"
+            echo "ANDROID_KEYSTORE_PASSWORD=$ANDROID_KEYSTORE_PASSWORD"
+            echo "ANDROID_KEY_PASSWORD=$ANDROID_KEY_PASSWORD"
+          } >> "$GITHUB_ENV"
 
       - name: Build release APK
         shell: bash

@@ -1,6 +1,7 @@
 import 'package:work_hours_mobile/application/services/app_update_service.dart';
 import 'package:flutter/material.dart';
 import 'package:work_hours_mobile/application/services/dashboard_service.dart';
+import 'package:work_hours_mobile/application/services/update_reminder_store.dart';
 import 'package:work_hours_mobile/application/services/update_launcher.dart';
 import 'package:work_hours_mobile/data/api/github_release_client.dart';
 import 'package:work_hours_mobile/data/api/release_feed_config.dart';
@@ -24,11 +25,13 @@ void main() {
     ),
     updateLauncher: const PlatformUpdateLauncher(),
   );
+  const updateReminderStore = SharedPreferencesUpdateReminderStore();
 
   runApp(
     WorkHoursApp(
       dashboardService: dashboardService,
       appUpdateService: appUpdateService,
+      updateReminderStore: updateReminderStore,
     ),
   );
 }
