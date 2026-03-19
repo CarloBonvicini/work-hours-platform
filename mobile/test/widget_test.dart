@@ -37,14 +37,20 @@ void main() {
 
     expect(find.text('Ciao Carlo Bonvicini'), findsOneWidget);
     expect(find.textContaining('Backend collegato'), findsOneWidget);
+    expect(find.text('Sezioni'), findsOneWidget);
     expect(find.text('Panoramica del mese'), findsOneWidget);
-    expect(find.text('Calendario'), findsOneWidget);
     expect(find.text('Aggiornamento disponibile'), findsOneWidget);
     expect(find.text('Ricordamelo piu tardi'), findsOneWidget);
     expect(find.text('Aggiorna'), findsNothing);
 
     await tester.tap(find.text('Ricordamelo piu tardi'));
     await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('home-section-calendar')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Calendario'), findsWidgets);
+    expect(find.text('Panoramica del mese'), findsNothing);
 
     await tester.tap(find.byKey(const ValueKey('calendar-day-2026-03-04')));
     await tester.pumpAndSettle();
@@ -112,13 +118,16 @@ void main() {
     );
 
     await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const ValueKey('home-section-profile')));
+    await tester.tap(find.byKey(const ValueKey('home-section-profile')));
+    await tester.pumpAndSettle();
+
     await tester.scrollUntilVisible(
       find.byKey(const ValueKey('dark-theme-switch')),
-      300,
+      250,
       scrollable: find.byType(Scrollable).first,
     );
     await tester.pumpAndSettle();
-
     await tester.tap(find.byKey(const ValueKey('dark-theme-switch')));
     await tester.pumpAndSettle();
 

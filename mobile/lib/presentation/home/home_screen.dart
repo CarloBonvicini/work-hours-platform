@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:work_hours_mobile/application/services/app_update_service.dart';
 import 'package:work_hours_mobile/application/services/dashboard_service.dart';
+import 'package:work_hours_mobile/application/services/hour_input_parser.dart';
 import 'package:work_hours_mobile/application/services/update_reminder_store.dart';
 import 'package:work_hours_mobile/data/api/work_hours_api_client.dart';
 import 'package:work_hours_mobile/domain/models/app_update.dart';
@@ -12,6 +13,8 @@ import 'package:work_hours_mobile/domain/models/schedule_override.dart';
 import 'package:work_hours_mobile/domain/models/weekday_target_minutes.dart';
 
 enum _QuickEntryMode { work, leave }
+
+enum _HomeSection { overview, quickEntry, calendar, recentActivity, profile }
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({
@@ -64,6 +67,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _isOpeningUpdate = false;
   bool _isShowingUpdateDialog = false;
   bool _isUpdatingThemeMode = false;
+  _HomeSection _selectedSection = _HomeSection.overview;
 
   @override
   void initState() {
@@ -272,8 +276,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final weekdayTargetMinutes = _buildWeekdayTargetMinutesFromControllers();
     if (weekdayTargetMinutes == null) {
       setState(() {
-        _errorMessage =
-            'Compila un valore valido per ogni giorno, usando formato ore come 7:30.';
+        _errorMessage = 'Compila un valore valido per ogni giorno.';
       });
       return;
     }
@@ -286,6 +289,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _errorMessage = 'Inserisci un orario giornaliero valido.';
       });
       return;
+    }
+
+    if (_useUniformDailyTarget && uniformDailyTargetMinutes != null) {
+      _uniformDailyTargetController.text = _formatHoursInput(
+        uniformDailyTargetMinutes,
+      );
     }
 
     setState(() {
@@ -401,6 +410,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       });
       return;
     }
+
+    _scheduleOverrideTargetController.text = _formatHoursInput(targetMinutes);
 
     setState(() {
       _isSavingScheduleOverride = true;
@@ -570,6 +581,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       if (parsedValue == null) {
         return null;
       }
+      _weekdayControllers[weekday]!.text = _formatHoursInput(parsedValue);
       parsedValues[weekday] = parsedValue;
     }
 
@@ -763,6 +775,81 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     return items.take(8).toList(growable: false);
   }
 
+  Widget _buildSelectedSection(DashboardSnapshot snapshot) {
+    switch (_selectedSection) {
+      case _HomeSection.overview:
+        return _OverviewCard(snapshot: snapshot);
+      case _HomeSection.quickEntry:
+        return _QuickEntryCard(
+          formKey: _quickEntryFormKey,
+          selectedEntryMode: _selectedEntryMode,
+          onEntryModeChanged: (mode) {
+            setState(() {
+              _selectedEntryMode = mode;
+            });
+          },
+          selectedLeaveType: _selectedLeaveType,
+          onLeaveTypeChanged: (leaveType) {
+            setState(() {
+              _selectedLeaveType = leaveType;
+            });
+          },
+          dateController: _entryDateController,
+          minutesController: _entryMinutesController,
+          noteController: _entryNoteController,
+          minutePresets: _minutesPresets,
+          onMinutePresetSelected: _applyPresetMinutes,
+          isBusy: _isSubmittingEntry,
+          onPickDate: _pickEntryDate,
+          onSubmit: _submitQuickEntry,
+        );
+      case _HomeSection.calendar:
+        return _CalendarCard(
+          month: snapshot.summary.month,
+          selectedDate: _selectedDate,
+          days: _buildCalendarDays(snapshot),
+          expectedMinutes: _resolveExpectedMinutesForDate(
+            snapshot,
+            _selectedDate,
+          ),
+          selectedOverride: _findScheduleOverrideForDate(
+            snapshot,
+            _selectedDate,
+          ),
+          overrideFormKey: _scheduleOverrideFormKey,
+          overrideTargetController: _scheduleOverrideTargetController,
+          overrideNoteController: _scheduleOverrideNoteController,
+          isSavingOverride: _isSavingScheduleOverride,
+          selectedActivities: _buildActivitiesForDate(snapshot, _selectedDate),
+          onPreviousMonth: () => _changeMonth(-1),
+          onNextMonth: () => _changeMonth(1),
+          onSelectDate: _selectDate,
+          onSaveOverride: _submitScheduleOverride,
+          onRemoveOverride: _removeScheduleOverride,
+        );
+      case _HomeSection.recentActivity:
+        return _RecentActivityCard(activities: _buildActivities(snapshot));
+      case _HomeSection.profile:
+        return _ProfileCard(
+          formKey: _profileFormKey,
+          fullNameController: _fullNameController,
+          useUniformDailyTarget: _useUniformDailyTarget,
+          onUniformDailyTargetChanged: (value) {
+            setState(() {
+              _useUniformDailyTarget = value;
+            });
+          },
+          uniformDailyTargetController: _uniformDailyTargetController,
+          weekdayControllers: _weekdayControllers,
+          isBusy: _isSavingProfile,
+          isDarkTheme: widget.isDarkTheme,
+          isUpdatingThemeMode: _isUpdatingThemeMode,
+          onDarkThemeChanged: _toggleThemeMode,
+          onSubmit: _submitProfile,
+        );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final snapshot = _snapshot;
@@ -790,102 +877,23 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   const SizedBox(height: 16),
                 ],
                 if (snapshot != null) ...[
-                  _OverviewCard(snapshot: snapshot),
-                  const SizedBox(height: 16),
-                  _CalendarCard(
-                    month: snapshot.summary.month,
-                    selectedDate: _selectedDate,
-                    days: _buildCalendarDays(snapshot),
-                    expectedMinutes: _resolveExpectedMinutesForDate(
-                      snapshot,
-                      _selectedDate,
-                    ),
-                    selectedOverride: _findScheduleOverrideForDate(
-                      snapshot,
-                      _selectedDate,
-                    ),
-                    overrideFormKey: _scheduleOverrideFormKey,
-                    overrideTargetController: _scheduleOverrideTargetController,
-                    overrideNoteController: _scheduleOverrideNoteController,
-                    isSavingOverride: _isSavingScheduleOverride,
-                    selectedActivities: _buildActivitiesForDate(
-                      snapshot,
-                      _selectedDate,
-                    ),
-                    onPreviousMonth: () => _changeMonth(-1),
-                    onNextMonth: () => _changeMonth(1),
-                    onSelectDate: _selectDate,
-                    onSaveOverride: _submitScheduleOverride,
-                    onRemoveOverride: _removeScheduleOverride,
+                  _HomeSectionNavigation(
+                    selectedSection: _selectedSection,
+                    onSectionSelected: (section) {
+                      setState(() {
+                        _selectedSection = section;
+                      });
+                    },
                   ),
                   const SizedBox(height: 16),
-                  LayoutBuilder(
-                    builder: (context, constraints) {
-                      final sideBySide = constraints.maxWidth >= 960;
-                      final cardWidth = sideBySide
-                          ? (constraints.maxWidth - 16) / 2
-                          : constraints.maxWidth;
-
-                      return Wrap(
-                        spacing: 16,
-                        runSpacing: 16,
-                        children: [
-                          SizedBox(
-                            width: cardWidth,
-                            child: _QuickEntryCard(
-                              formKey: _quickEntryFormKey,
-                              selectedEntryMode: _selectedEntryMode,
-                              onEntryModeChanged: (mode) {
-                                setState(() {
-                                  _selectedEntryMode = mode;
-                                });
-                              },
-                              selectedLeaveType: _selectedLeaveType,
-                              onLeaveTypeChanged: (leaveType) {
-                                setState(() {
-                                  _selectedLeaveType = leaveType;
-                                });
-                              },
-                              dateController: _entryDateController,
-                              minutesController: _entryMinutesController,
-                              noteController: _entryNoteController,
-                              minutePresets: _minutesPresets,
-                              onMinutePresetSelected: _applyPresetMinutes,
-                              isBusy: _isSubmittingEntry,
-                              onPickDate: _pickEntryDate,
-                              onSubmit: _submitQuickEntry,
-                            ),
-                          ),
-                          SizedBox(
-                            width: cardWidth,
-                            child: _RecentActivityCard(
-                              activities: _buildActivities(snapshot),
-                            ),
-                          ),
-                          SizedBox(
-                            width: constraints.maxWidth,
-                            child: _ProfileCard(
-                              formKey: _profileFormKey,
-                              fullNameController: _fullNameController,
-                              useUniformDailyTarget: _useUniformDailyTarget,
-                              onUniformDailyTargetChanged: (value) {
-                                setState(() {
-                                  _useUniformDailyTarget = value;
-                                });
-                              },
-                              uniformDailyTargetController:
-                                  _uniformDailyTargetController,
-                              weekdayControllers: _weekdayControllers,
-                              isBusy: _isSavingProfile,
-                              isDarkTheme: widget.isDarkTheme,
-                              isUpdatingThemeMode: _isUpdatingThemeMode,
-                              onDarkThemeChanged: _toggleThemeMode,
-                              onSubmit: _submitProfile,
-                            ),
-                          ),
-                        ],
-                      );
-                    },
+                  AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 220),
+                    switchInCurve: Curves.easeOut,
+                    switchOutCurve: Curves.easeIn,
+                    child: KeyedSubtree(
+                      key: ValueKey(_selectedSection),
+                      child: _buildSelectedSection(snapshot),
+                    ),
                   ),
                 ],
               ],
@@ -1031,6 +1039,43 @@ class _QuickEntryCard extends StatelessWidget {
   }
 }
 
+class _HomeSectionNavigation extends StatelessWidget {
+  const _HomeSectionNavigation({
+    required this.selectedSection,
+    required this.onSectionSelected,
+  });
+
+  final _HomeSection selectedSection;
+  final ValueChanged<_HomeSection> onSectionSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return _SectionCard(
+      title: 'Sezioni',
+      subtitle: 'Apri solo la parte che ti serve.',
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: _HomeSection.values
+              .map(
+                (section) => Padding(
+                  padding: const EdgeInsets.only(right: 10),
+                  child: ChoiceChip(
+                    key: ValueKey('home-section-${section.name}'),
+                    selected: selectedSection == section,
+                    avatar: Icon(section.icon, size: 18),
+                    label: Text(section.label),
+                    onSelected: (_) => onSectionSelected(section),
+                  ),
+                ),
+              )
+              .toList(growable: false),
+        ),
+      ),
+    );
+  }
+}
+
 class _CalendarCard extends StatelessWidget {
   const _CalendarCard({
     required this.month,
@@ -1156,7 +1201,6 @@ class _CalendarCard extends StatelessWidget {
                   ),
                   decoration: const InputDecoration(
                     labelText: 'Ore previste per questo giorno',
-                    helperText: 'Usa formato 7:30, 6 oppure 6.5',
                   ),
                   validator: (value) {
                     if (_parseHoursInput(value) == null) {
@@ -1447,7 +1491,6 @@ class _ProfileCard extends StatelessWidget {
                 ),
                 decoration: const InputDecoration(
                   labelText: 'Ore standard lun-ven',
-                  helperText: 'Esempi: 7:30, 6 oppure 6.5',
                 ),
                 validator: (value) {
                   if (_parseHoursInput(value) == null) {
@@ -1470,10 +1513,7 @@ class _ProfileCard extends StatelessWidget {
                           keyboardType: const TextInputType.numberWithOptions(
                             decimal: true,
                           ),
-                          decoration: InputDecoration(
-                            labelText: weekday.label,
-                            helperText: 'Ore',
-                          ),
+                          decoration: InputDecoration(labelText: weekday.label),
                           validator: (value) {
                             if (_parseHoursInput(value) == null) {
                               return 'Valore non valido.';
@@ -1910,38 +1950,11 @@ String _formatHours(int minutes, {bool signed = false}) {
 }
 
 int? _parseHoursInput(String? rawValue) {
-  final normalizedValue = (rawValue ?? '').trim();
-  if (normalizedValue.isEmpty) {
-    return null;
-  }
-
-  if (normalizedValue.contains(':')) {
-    final parts = normalizedValue.split(':');
-    if (parts.length != 2) {
-      return null;
-    }
-
-    final hours = int.tryParse(parts[0]);
-    final minutes = int.tryParse(parts[1]);
-    if (hours == null || minutes == null || minutes < 0 || minutes >= 60) {
-      return null;
-    }
-
-    return (hours * 60) + minutes;
-  }
-
-  final decimalValue = double.tryParse(normalizedValue.replaceAll(',', '.'));
-  if (decimalValue == null || decimalValue < 0) {
-    return null;
-  }
-
-  return (decimalValue * 60).round();
+  return parseHoursInput(rawValue);
 }
 
 String _formatHoursInput(int minutes) {
-  final hours = minutes ~/ 60;
-  final remainingMinutes = minutes % 60;
-  return '$hours:${remainingMinutes.toString().padLeft(2, '0')}';
+  return formatHoursInput(minutes);
 }
 
 DateTime _monthToDate(String month) {
@@ -2089,5 +2102,37 @@ class _OverviewCard extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+extension on _HomeSection {
+  String get label {
+    switch (this) {
+      case _HomeSection.overview:
+        return 'Panoramica';
+      case _HomeSection.quickEntry:
+        return 'Registra';
+      case _HomeSection.calendar:
+        return 'Calendario';
+      case _HomeSection.recentActivity:
+        return 'Storico';
+      case _HomeSection.profile:
+        return 'Profilo';
+    }
+  }
+
+  IconData get icon {
+    switch (this) {
+      case _HomeSection.overview:
+        return Icons.dashboard_outlined;
+      case _HomeSection.quickEntry:
+        return Icons.edit_calendar_outlined;
+      case _HomeSection.calendar:
+        return Icons.calendar_month_outlined;
+      case _HomeSection.recentActivity:
+        return Icons.history_outlined;
+      case _HomeSection.profile:
+        return Icons.settings_outlined;
+    }
   }
 }
