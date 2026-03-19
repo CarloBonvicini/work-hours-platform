@@ -219,15 +219,23 @@ function renderLandingPage(options: {
   const downloadUrl = `${baseUrl}/mobile-updates/releases/latest`;
   const hasRelease = latestRelease !== null;
   const isPublishing = releaseStatus?.state === "publishing";
-  const titleLabel = hasRelease ? "APK disponibile" : "APK in preparazione";
-  const versionValue = hasRelease ? `Versione ${latestRelease.version}` : "Nessuna versione disponibile";
+  const titleLabel = hasRelease
+    ? "Download disponibile"
+    : isPublishing
+      ? "Nuova versione in arrivo"
+      : "APK non ancora disponibile";
+  const versionValue = hasRelease
+    ? `Versione ${latestRelease.version}`
+    : isPublishing
+      ? "Stiamo preparando la prossima versione"
+      : "La prima versione Android non e ancora stata pubblicata";
   const detailLabel = isPublishing
     ? hasRelease
-      ? `Una nuova versione e in rilascio. L APK tornera disponibile appena la pubblicazione termina.`
-      : `Una nuova versione e in rilascio. L APK sara disponibile appena la pubblicazione termina.`
+      ? "Stiamo pubblicando una nuova versione. Il download tornera disponibile appena il rilascio e completato."
+      : "Stiamo pubblicando la prima versione Android. Il pulsante di download comparira qui appena pronto."
     : hasRelease
-      ? "Scarica l ultima versione disponibile dell app Android."
-      : "La prima release Android verra pubblicata qui appena pronta.";
+      ? "Qui trovi l ultima versione disponibile dell app Android."
+      : "Quando la prima versione Android sara pronta, la troverai qui.";
   const publishedAt = latestRelease?.publishedAt
     ? new Date(latestRelease.publishedAt).toLocaleString("it-IT", {
         dateStyle: "medium",
@@ -236,8 +244,36 @@ function renderLandingPage(options: {
     : null;
   const publishedLabel = publishedAt
     ? `Ultima pubblicazione: ${publishedAt}`
-    : "Pubblicazione non ancora disponibile.";
-  const notesLabel = latestRelease?.releaseNotes ?? "Versione Android pronta per il download diretto.";
+    : isPublishing
+      ? "Pubblicazione in corso."
+      : "Nessuna pubblicazione disponibile per ora.";
+  const notesLabel = latestRelease?.releaseNotes ?? (isPublishing
+    ? "Aggiorna questa pagina tra qualche minuto per vedere la nuova versione."
+    : "Il pulsante di download comparira qui appena il rilascio sara disponibile.");
+  const installTitle = hasRelease ? "Installazione rapida" : "Disponibilita";
+  const installDescription = hasRelease
+    ? "Il download funziona da browser mobile e desktop. Su Android devi confermare l installazione dell APK."
+    : isPublishing
+      ? "Il rilascio e in corso. Manteniamo disponibile qui l ultima informazione utile finche la nuova versione non e pronta."
+      : "L APK non e ancora stato pubblicato. Quando sara pronto, potrai scaricarlo direttamente da questa pagina.";
+  const installItems = hasRelease
+    ? [
+        "Apri la pagina dal telefono Android.",
+        "Tocca Scarica APK.",
+        "Se Android lo chiede, autorizza l installazione da questa sorgente.",
+        "Quando uscira una nuova release, l app mostrera il banner update."
+      ]
+    : isPublishing
+      ? [
+          "La nuova versione e in preparazione.",
+          "Il pulsante di download tornera disponibile appena il rilascio termina.",
+          "Non serve fare altro: basta riaprire questa pagina."
+        ]
+      : [
+          "La prima versione Android non e ancora pronta.",
+          "Quando verra pubblicata, il pulsante Scarica APK comparira qui.",
+          "Puoi tornare su questa pagina piu tardi per controllare."
+        ];
 
   const primaryAction = isPublishing
     ? `<span class="button disabled">APK temporaneamente non disponibile</span>`
@@ -412,13 +448,10 @@ function renderLandingPage(options: {
         </article>
 
         <article class="panel install">
-          <h2>Installazione rapida</h2>
-          <p>Il download funziona da browser mobile e desktop. Su Android devi confermare l&#39;installazione dell&#39;APK.</p>
+          <h2>${escapeHtml(installTitle)}</h2>
+          <p>${escapeHtml(installDescription)}</p>
           <ul>
-            <li>Apri la pagina dal telefono Android.</li>
-            <li>Tocca <strong>Scarica APK</strong>.</li>
-            <li>Se Android lo chiede, autorizza l installazione da questa sorgente.</li>
-            <li>Quando uscira una nuova release, l app mostrera il banner update.</li>
+            ${installItems.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}
           </ul>
         </article>
       </section>
