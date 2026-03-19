@@ -46,18 +46,17 @@ void main() {
 
     expect(find.text('Ciao Carlo Bonvicini'), findsOneWidget);
     expect(find.textContaining('Backend collegato'), findsOneWidget);
-    expect(find.text('Sezioni'), findsOneWidget);
+    expect(find.text('Navigazione'), findsOneWidget);
     expect(find.text('Settimana'), findsWidgets);
+    expect(find.text('Impostazioni'), findsOneWidget);
     expect(find.text('Panoramica del mese'), findsNothing);
     expect(find.byKey(const ValueKey('home-section-overview')), findsNothing);
+    expect(find.byKey(const ValueKey('home-section-quickEntry')), findsNothing);
     expect(find.text('Aggiornamento disponibile'), findsOneWidget);
     expect(find.text('Ricordamelo piu tardi'), findsOneWidget);
     expect(find.text('Aggiorna'), findsNothing);
 
     await tester.tap(find.text('Ricordamelo piu tardi'));
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.byKey(const ValueKey('home-section-calendar')));
     await tester.pumpAndSettle();
 
     expect(find.text('Calendario'), findsWidgets);
@@ -190,15 +189,27 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Configurazione iniziale 2/3'), findsOneWidget);
-    expect(find.byType(TextField), findsOneWidget);
-    await tester.enterText(find.byType(TextField), 'Carlo');
+    final nameField = find.byWidgetPredicate(
+      (widget) =>
+          widget is TextField &&
+          widget.decoration?.labelText == 'Come ti chiami?',
+    );
+    expect(nameField, findsOneWidget);
+    await tester.enterText(nameField, 'Carlo');
     await tester.tap(find.text('Continua'));
     await tester.pumpAndSettle();
 
     expect(find.text('Configurazione iniziale 3/3'), findsOneWidget);
     await tester.tap(find.text('Stesse ore ogni giorno lavorativo'));
     await tester.pumpAndSettle();
-    expect(find.byType(TextField), findsNWidgets(4));
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is TextField &&
+            widget.decoration?.labelText == 'Ore lun-ven',
+      ),
+      findsOneWidget,
+    );
     await tester.enterText(
       find.byWidgetPredicate(
         (widget) =>
@@ -240,7 +251,9 @@ void main() {
     );
 
     await tester.pumpAndSettle();
-    await tester.ensureVisible(find.byKey(const ValueKey('home-section-ticket')));
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('home-section-ticket')),
+    );
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('home-section-ticket')));
     await tester.pumpAndSettle();

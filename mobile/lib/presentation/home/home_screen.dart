@@ -134,7 +134,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _isLoadingCalendarData = false;
   bool _isUpdatingThemeMode = false;
   late bool _hasCompletedInitialSetup;
-  _HomeSection _selectedSection = _HomeSection.recentActivity;
+  _HomeSection _selectedSection = _HomeSection.calendar;
   SupportTicketCategory _selectedTicketCategory = SupportTicketCategory.bug;
 
   @override
@@ -662,7 +662,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('Profilo aggiornato.')));
+      ).showSnackBar(const SnackBar(content: Text('Impostazioni aggiornate.')));
     } catch (error) {
       if (!mounted) {
         return;
@@ -2137,16 +2137,15 @@ class _HomeSectionNavigation extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     const visibleSections = [
-      _HomeSection.recentActivity,
-      _HomeSection.quickEntry,
       _HomeSection.calendar,
+      _HomeSection.recentActivity,
       _HomeSection.profile,
       _HomeSection.ticket,
     ];
 
     return _SectionCard(
-      title: 'Sezioni',
-      subtitle: 'Apri solo la parte che ti serve.',
+      title: 'Navigazione',
+      subtitle: 'Calendario al centro, impostazioni separate.',
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
         child: Row(
@@ -3518,8 +3517,8 @@ class _ProfileCard extends StatelessWidget {
     ];
 
     return _SectionCard(
-      title: 'Profilo e impostazioni',
-      subtitle: 'Aggiorna nome, orari e aspetto dell app.',
+      title: 'Impostazioni',
+      subtitle: 'Gestisci dati base, orari predefiniti e aspetto dell app.',
       child: Form(
         key: formKey,
         child: Column(
@@ -5467,7 +5466,7 @@ extension on _HomeSection {
       case _HomeSection.recentActivity:
         return 'Settimana';
       case _HomeSection.profile:
-        return 'Profilo';
+        return 'Impostazioni';
       case _HomeSection.ticket:
         return 'Ticket';
     }
