@@ -49,4 +49,14 @@ class LeaveEntry {
       note: json['note'] as String?,
     );
   }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'date': date,
+      'minutes': minutes,
+      'type': type.apiValue,
+      if (note != null && note!.isNotEmpty) 'note': note,
+    };
+  }
 }

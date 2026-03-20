@@ -88,6 +88,9 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Calendario'), findsWidgets);
+    expect(find.byKey(const ValueKey('calendar-record-start-button')), findsNothing);
+    await tester.tap(find.text('Giorno').last);
+    await tester.pumpAndSettle();
     expect(
       find.byKey(const ValueKey('calendar-record-start-button')),
       findsOneWidget,
@@ -105,13 +108,6 @@ void main() {
       findsOneWidget,
     );
 
-    await tester.tap(find.byKey(const ValueKey('calendar-day-2026-03-04')));
-    await tester.pumpAndSettle();
-
-    expect(
-      find.textContaining('Giorno selezionato: 4 marzo 2026'),
-      findsOneWidget,
-    );
     expect(
       find.byKey(const ValueKey('calendar-override-start-time-button')),
       findsOneWidget,
@@ -212,12 +208,12 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.scrollUntilVisible(
-      find.byKey(const ValueKey('dark-theme-switch')),
+      find.text('Scuro').last,
       250,
       scrollable: find.byType(Scrollable).first,
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('dark-theme-switch')));
+    await tester.tap(find.text('Scuro').last);
     await tester.pumpAndSettle();
 
     final app = tester.widget<MaterialApp>(find.byType(MaterialApp));

@@ -1,13 +1,21 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-enum AppFontFamily { system, serif, monospace }
+enum AppFontFamily {
+  system,
+  sansSerif,
+  serif,
+  monospace,
+  rounded,
+  condensed,
+}
 
 class AppAppearanceSettings {
   const AppAppearanceSettings({
     required this.themeMode,
     required this.primaryColor,
     required this.secondaryColor,
+    this.textColor,
     required this.fontFamily,
     required this.textScale,
   });
@@ -15,6 +23,7 @@ class AppAppearanceSettings {
   final ThemeMode themeMode;
   final Color primaryColor;
   final Color secondaryColor;
+  final Color? textColor;
   final AppFontFamily fontFamily;
   final double textScale;
 
@@ -30,6 +39,8 @@ class AppAppearanceSettings {
     ThemeMode? themeMode,
     Color? primaryColor,
     Color? secondaryColor,
+    Color? textColor,
+    bool clearTextColor = false,
     AppFontFamily? fontFamily,
     double? textScale,
   }) {
@@ -37,6 +48,7 @@ class AppAppearanceSettings {
       themeMode: themeMode ?? this.themeMode,
       primaryColor: primaryColor ?? this.primaryColor,
       secondaryColor: secondaryColor ?? this.secondaryColor,
+      textColor: clearTextColor ? null : (textColor ?? this.textColor),
       fontFamily: fontFamily ?? this.fontFamily,
       textScale: textScale ?? this.textScale,
     );
@@ -64,6 +76,7 @@ class SharedPreferencesThemePreferenceStore implements ThemePreferenceStore {
   static const _themeModeKey = 'appearance.theme_mode';
   static const _primaryColorKey = 'appearance.primary_color';
   static const _secondaryColorKey = 'appearance.secondary_color';
+  static const _textColorKey = 'appearance.text_color';
   static const _fontFamilyKey = 'appearance.font_family';
   static const _textScaleKey = 'appearance.text_scale';
 
@@ -93,20 +106,25 @@ class SharedPreferencesThemePreferenceStore implements ThemePreferenceStore {
     final secondaryColor =
         preferences.getInt(_secondaryColorKey) ??
         AppAppearanceSettings.defaults.secondaryColor.toARGB32();
+    final textColor = preferences.getInt(_textColorKey);
     final fontFamily = switch (preferences.getString(_fontFamilyKey)) {
+      'sansSerif' => AppFontFamily.sansSerif,
       'serif' => AppFontFamily.serif,
       'monospace' => AppFontFamily.monospace,
+      'rounded' => AppFontFamily.rounded,
+      'condensed' => AppFontFamily.condensed,
       _ => AppFontFamily.system,
     };
     final textScale = (preferences.getDouble(_textScaleKey) ?? 1).clamp(
-      0.9,
-      1.25,
+      0.8,
+      1.5,
     );
 
     return AppAppearanceSettings(
       themeMode: themeMode,
       primaryColor: Color(primaryColor),
       secondaryColor: Color(secondaryColor),
+      textColor: textColor == null ? null : Color(textColor),
       fontFamily: fontFamily,
       textScale: textScale,
     );
@@ -126,6 +144,11 @@ class SharedPreferencesThemePreferenceStore implements ThemePreferenceStore {
       _secondaryColorKey,
       settings.secondaryColor.toARGB32(),
     );
+    if (settings.textColor == null) {
+      await preferences.remove(_textColorKey);
+    } else {
+      await preferences.setInt(_textColorKey, settings.textColor!.toARGB32());
+    }
     await preferences.setString(_fontFamilyKey, settings.fontFamily.name);
     await preferences.setDouble(_textScaleKey, settings.textScale);
   }

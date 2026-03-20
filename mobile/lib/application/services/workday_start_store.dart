@@ -2,17 +2,53 @@ import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
+class WorkdayBreakSegment {
+  const WorkdayBreakSegment({
+    required this.startMinutes,
+    required this.endMinutes,
+  });
+
+  final int startMinutes;
+  final int endMinutes;
+
+  Map<String, dynamic> toJson() {
+    return {
+      'startMinutes': startMinutes,
+      'endMinutes': endMinutes,
+    };
+  }
+
+  static WorkdayBreakSegment? fromJson(Object? rawValue) {
+    if (rawValue is! Map<String, dynamic>) {
+      return null;
+    }
+
+    final startMinutes = rawValue['startMinutes'];
+    final endMinutes = rawValue['endMinutes'];
+    if (startMinutes is! int || endMinutes is! int || endMinutes <= startMinutes) {
+      return null;
+    }
+
+    return WorkdayBreakSegment(
+      startMinutes: startMinutes,
+      endMinutes: endMinutes,
+    );
+  }
+}
+
 class WorkdaySession {
   const WorkdaySession({
     required this.startMinutes,
     this.breakStartedMinutes,
     this.accumulatedBreakMinutes = 0,
+    this.breakSegments = const [],
     this.endMinutes,
   });
 
   final int startMinutes;
   final int? breakStartedMinutes;
   final int accumulatedBreakMinutes;
+  final List<WorkdayBreakSegment> breakSegments;
   final int? endMinutes;
 
   bool get isOnBreak => breakStartedMinutes != null && endMinutes == null;
@@ -22,6 +58,7 @@ class WorkdaySession {
     int? startMinutes,
     Object? breakStartedMinutes = _noValue,
     int? accumulatedBreakMinutes,
+    List<WorkdayBreakSegment>? breakSegments,
     Object? endMinutes = _noValue,
   }) {
     return WorkdaySession(
@@ -31,6 +68,7 @@ class WorkdaySession {
           : breakStartedMinutes as int?,
       accumulatedBreakMinutes:
           accumulatedBreakMinutes ?? this.accumulatedBreakMinutes,
+      breakSegments: breakSegments ?? this.breakSegments,
       endMinutes: endMinutes == _noValue ? this.endMinutes : endMinutes as int?,
     );
   }
@@ -40,6 +78,7 @@ class WorkdaySession {
       'startMinutes': startMinutes,
       'breakStartedMinutes': breakStartedMinutes,
       'accumulatedBreakMinutes': accumulatedBreakMinutes,
+      'breakSegments': breakSegments.map((segment) => segment.toJson()).toList(),
       'endMinutes': endMinutes,
     };
   }
@@ -59,11 +98,20 @@ class WorkdaySession {
       return null;
     }
 
+    final breakSegmentsRaw = decoded['breakSegments'];
+    final breakSegments = breakSegmentsRaw is List
+        ? breakSegmentsRaw
+              .map(WorkdayBreakSegment.fromJson)
+              .whereType<WorkdayBreakSegment>()
+              .toList(growable: false)
+        : const <WorkdayBreakSegment>[];
+
     return WorkdaySession(
       startMinutes: startMinutes,
       breakStartedMinutes: decoded['breakStartedMinutes'] as int?,
       accumulatedBreakMinutes:
           (decoded['accumulatedBreakMinutes'] as int?) ?? 0,
+      breakSegments: breakSegments,
       endMinutes: decoded['endMinutes'] as int?,
     );
   }

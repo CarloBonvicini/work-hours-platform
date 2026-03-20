@@ -1,6 +1,7 @@
 import 'package:work_hours_mobile/application/services/app_update_service.dart';
 import 'package:flutter/material.dart';
 import 'package:work_hours_mobile/application/services/dashboard_service.dart';
+import 'package:work_hours_mobile/application/services/dashboard_snapshot_store.dart';
 import 'package:work_hours_mobile/application/services/onboarding_preference_store.dart';
 import 'package:work_hours_mobile/application/services/theme_preference_store.dart';
 import 'package:work_hours_mobile/application/services/update_reminder_store.dart';
@@ -39,6 +40,7 @@ Future<void> main() async {
           updateLauncher: const PlatformUpdateLauncher(),
         );
   const updateReminderStore = SharedPreferencesUpdateReminderStore();
+  const dashboardSnapshotStore = SharedPreferencesDashboardSnapshotStore();
   const themePreferenceStore = SharedPreferencesThemePreferenceStore();
   const onboardingPreferenceStore =
       SharedPreferencesOnboardingPreferenceStore();
@@ -54,6 +56,7 @@ Future<void> main() async {
       dashboardService: dashboardService,
       appUpdateService: appUpdateService,
       updateReminderStore: updateReminderStore,
+      dashboardSnapshotStore: dashboardSnapshotStore,
       themePreferenceStore: themePreferenceStore,
       onboardingPreferenceStore: onboardingPreferenceStore,
       workdayStartStore: workdayStartStore,

@@ -35,4 +35,15 @@ class UserProfile {
       ),
     );
   }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'fullName': fullName,
+      'useUniformDailyTarget': useUniformDailyTarget,
+      'dailyTargetMinutes': dailyTargetMinutes,
+      'weekdayTargetMinutes': weekdayTargetMinutes.toJson(),
+      'weekdaySchedule': weekdaySchedule.toJson(),
+    };
+  }
 }

@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:work_hours_mobile/application/services/app_update_service.dart';
 import 'package:work_hours_mobile/application/services/dashboard_service.dart';
+import 'package:work_hours_mobile/application/services/dashboard_snapshot_store.dart';
 import 'package:work_hours_mobile/application/services/onboarding_preference_store.dart';
 import 'package:work_hours_mobile/application/services/theme_preference_store.dart';
 import 'package:work_hours_mobile/application/services/update_reminder_store.dart';
@@ -14,6 +15,7 @@ class WorkHoursApp extends StatefulWidget {
     required this.dashboardService,
     required this.appUpdateService,
     required this.updateReminderStore,
+    this.dashboardSnapshotStore = const InMemoryDashboardSnapshotStore(),
     required this.themePreferenceStore,
     required this.onboardingPreferenceStore,
     required this.workdayStartStore,
@@ -24,6 +26,7 @@ class WorkHoursApp extends StatefulWidget {
   final DashboardService dashboardService;
   final AppUpdateService appUpdateService;
   final UpdateReminderStore updateReminderStore;
+  final DashboardSnapshotStore dashboardSnapshotStore;
   final ThemePreferenceStore themePreferenceStore;
   final OnboardingPreferenceStore onboardingPreferenceStore;
   final WorkdayStartStore workdayStartStore;
@@ -69,16 +72,28 @@ class _WorkHoursAppState extends State<WorkHoursApp> {
 
   @override
   Widget build(BuildContext context) {
+    final safeTextScale = _appearanceSettings.textScale.clamp(0.8, 1.5);
+
     return MaterialApp(
       title: 'Work Hours Platform',
       debugShowCheckedModeBanner: false,
       theme: _buildTheme(Brightness.light),
       darkTheme: _buildTheme(Brightness.dark),
       themeMode: _appearanceSettings.themeMode,
+      builder: (context, child) {
+        final mediaQuery = MediaQuery.of(context);
+        return MediaQuery(
+          data: mediaQuery.copyWith(
+            textScaler: TextScaler.linear(safeTextScale),
+          ),
+          child: child ?? const SizedBox.shrink(),
+        );
+      },
       home: HomeScreen(
         dashboardService: widget.dashboardService,
         appUpdateService: widget.appUpdateService,
         updateReminderStore: widget.updateReminderStore,
+        dashboardSnapshotStore: widget.dashboardSnapshotStore,
         onboardingPreferenceStore: widget.onboardingPreferenceStore,
         workdayStartStore: widget.workdayStartStore,
         hasCompletedInitialSetup: widget.hasCompletedInitialSetup,
@@ -99,7 +114,10 @@ class _WorkHoursAppState extends State<WorkHoursApp> {
       primaryColor,
       isDark ? 0.16 : 0.08,
     )!;
-    final inkColor = isDark ? const Color(0xFFE8F0EF) : const Color(0xFF1A2A2A);
+    final defaultInkColor = isDark
+        ? const Color(0xFFE8F0EF)
+        : const Color(0xFF1A2A2A);
+    final inkColor = _appearanceSettings.textColor ?? defaultInkColor;
     final fieldColor = Color.lerp(
       isDark ? const Color(0xFF162121) : Colors.white,
       primaryColor,
@@ -113,11 +131,11 @@ class _WorkHoursAppState extends State<WorkHoursApp> {
       primaryColor,
       0.28,
     )!;
-    final baseTextTheme = ThemeData(brightness: brightness).textTheme.apply(
-      bodyColor: inkColor,
-      displayColor: inkColor,
-      fontSizeFactor: _appearanceSettings.textScale,
-      fontFamily: _platformFontFamily(_appearanceSettings.fontFamily),
+    final resolvedFontFamily = _platformFontFamily(_appearanceSettings.fontFamily);
+    final baseTextTheme = _applyAppearanceToTextTheme(
+      ThemeData(brightness: brightness).textTheme,
+      inkColor: inkColor,
+      fontFamily: resolvedFontFamily,
     );
     final colorScheme =
         ColorScheme.fromSeed(
@@ -132,6 +150,7 @@ class _WorkHoursAppState extends State<WorkHoursApp> {
 
     return ThemeData(
       brightness: brightness,
+      fontFamily: resolvedFontFamily,
       colorScheme: colorScheme,
       scaffoldBackgroundColor: canvasColor,
       textTheme: baseTextTheme,
@@ -190,14 +209,66 @@ class _WorkHoursAppState extends State<WorkHoursApp> {
   String? _platformFontFamily(AppFontFamily fontFamily) {
     return switch (fontFamily) {
       AppFontFamily.system => null,
+      AppFontFamily.sansSerif => switch (defaultTargetPlatform) {
+        TargetPlatform.iOS || TargetPlatform.macOS => 'Helvetica Neue',
+        TargetPlatform.windows => 'Segoe UI',
+        _ => 'sans-serif',
+      },
       AppFontFamily.serif => switch (defaultTargetPlatform) {
         TargetPlatform.iOS || TargetPlatform.macOS => 'Times New Roman',
+        TargetPlatform.windows => 'Georgia',
         _ => 'serif',
       },
       AppFontFamily.monospace => switch (defaultTargetPlatform) {
         TargetPlatform.iOS || TargetPlatform.macOS => 'Courier',
+        TargetPlatform.windows => 'Consolas',
         _ => 'monospace',
       },
+      AppFontFamily.rounded => switch (defaultTargetPlatform) {
+        TargetPlatform.iOS || TargetPlatform.macOS => 'SF Pro Rounded',
+        TargetPlatform.windows => 'Trebuchet MS',
+        _ => 'sans-serif',
+      },
+      AppFontFamily.condensed => switch (defaultTargetPlatform) {
+        TargetPlatform.iOS || TargetPlatform.macOS => 'Avenir Next Condensed',
+        TargetPlatform.windows => 'Arial Narrow',
+        _ => 'sans-serif-condensed',
+      },
     };
+  }
+
+  TextTheme _applyAppearanceToTextTheme(
+    TextTheme textTheme, {
+    required Color inkColor,
+    required String? fontFamily,
+  }) {
+    TextStyle? transform(TextStyle? style) {
+      if (style == null) {
+        return null;
+      }
+
+      return style.copyWith(
+        color: inkColor,
+        fontFamily: fontFamily,
+      );
+    }
+
+    return textTheme.copyWith(
+      displayLarge: transform(textTheme.displayLarge),
+      displayMedium: transform(textTheme.displayMedium),
+      displaySmall: transform(textTheme.displaySmall),
+      headlineLarge: transform(textTheme.headlineLarge),
+      headlineMedium: transform(textTheme.headlineMedium),
+      headlineSmall: transform(textTheme.headlineSmall),
+      titleLarge: transform(textTheme.titleLarge),
+      titleMedium: transform(textTheme.titleMedium),
+      titleSmall: transform(textTheme.titleSmall),
+      bodyLarge: transform(textTheme.bodyLarge),
+      bodyMedium: transform(textTheme.bodyMedium),
+      bodySmall: transform(textTheme.bodySmall),
+      labelLarge: transform(textTheme.labelLarge),
+      labelMedium: transform(textTheme.labelMedium),
+      labelSmall: transform(textTheme.labelSmall),
+    );
   }
 }

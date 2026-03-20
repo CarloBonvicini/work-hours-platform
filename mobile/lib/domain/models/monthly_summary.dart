@@ -22,4 +22,14 @@ class MonthlySummary {
       balanceMinutes: json['balanceMinutes'] as int,
     );
   }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'month': month,
+      'expectedMinutes': expectedMinutes,
+      'workedMinutes': workedMinutes,
+      'leaveMinutes': leaveMinutes,
+      'balanceMinutes': balanceMinutes,
+    };
+  }
 }

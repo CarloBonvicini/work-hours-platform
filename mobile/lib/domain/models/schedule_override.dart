@@ -28,4 +28,16 @@ class ScheduleOverride {
       note: json['note'] as String?,
     );
   }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'date': date,
+      'targetMinutes': targetMinutes,
+      if (startTime != null && startTime!.isNotEmpty) 'startTime': startTime,
+      if (endTime != null && endTime!.isNotEmpty) 'endTime': endTime,
+      'breakMinutes': breakMinutes,
+      if (note != null && note!.isNotEmpty) 'note': note,
+    };
+  }
 }

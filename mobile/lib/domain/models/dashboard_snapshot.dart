@@ -20,4 +20,38 @@ class DashboardSnapshot {
   final List<LeaveEntry> leaveEntries;
   final List<ScheduleOverride> scheduleOverrides;
   final String apiBaseUrl;
+
+  factory DashboardSnapshot.fromJson(Map<String, dynamic> json) {
+    return DashboardSnapshot(
+      profile: UserProfile.fromJson(json['profile'] as Map<String, dynamic>),
+      summary: MonthlySummary.fromJson(json['summary'] as Map<String, dynamic>),
+      workEntries: (json['workEntries'] as List<dynamic>? ?? const [])
+          .map((item) => WorkEntry.fromJson(item as Map<String, dynamic>))
+          .toList(growable: false),
+      leaveEntries: (json['leaveEntries'] as List<dynamic>? ?? const [])
+          .map((item) => LeaveEntry.fromJson(item as Map<String, dynamic>))
+          .toList(growable: false),
+      scheduleOverrides:
+          (json['scheduleOverrides'] as List<dynamic>? ?? const [])
+              .map(
+                (item) =>
+                    ScheduleOverride.fromJson(item as Map<String, dynamic>),
+              )
+              .toList(growable: false),
+      apiBaseUrl: json['apiBaseUrl'] as String? ?? '',
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'profile': profile.toJson(),
+      'summary': summary.toJson(),
+      'workEntries': workEntries.map((entry) => entry.toJson()).toList(),
+      'leaveEntries': leaveEntries.map((entry) => entry.toJson()).toList(),
+      'scheduleOverrides': scheduleOverrides
+          .map((override) => override.toJson())
+          .toList(),
+      'apiBaseUrl': apiBaseUrl,
+    };
+  }
 }
