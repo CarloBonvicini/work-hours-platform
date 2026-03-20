@@ -4325,6 +4325,30 @@ class _CalendarCard extends StatelessWidget {
     final draftBreakMinutes = parseBreakDurationInput(
       overrideBreakController.text,
     );
+    final now = DateTime.now();
+    final nowMinutes = (now.hour * 60) + now.minute;
+    final liveSessionBreakMinutes = isSelectedDateToday
+        ? _currentSessionBreakMinutes(workdaySession, nowMinutes)
+        : 0;
+    final effectiveQuickEditorStartTime =
+        isSelectedDateToday && workdaySession != null
+        ? formatTimeInput(workdaySession!.startMinutes)
+        : (quickEditorDaySchedule.startTime ?? overrideStartTimeController.text);
+    final effectiveQuickEditorEndTime =
+        isSelectedDateToday && workdaySession?.endMinutes != null
+        ? formatTimeInput(workdaySession!.endMinutes!)
+        : (quickEditorDaySchedule.endTime ?? overrideEndTimeController.text);
+    final effectiveQuickEditorBreakMinutes = isSelectedDateToday &&
+            workdaySession != null
+        ? liveSessionBreakMinutes
+        : (() {
+            final quickPauseWindow = quickEditorPauseWindow;
+            if (quickPauseWindow == null) {
+              return draftBreakMinutes ?? quickEditorDaySchedule.breakMinutes;
+            }
+            return quickPauseWindow.resumeMinutes -
+                quickPauseWindow.pauseStartMinutes;
+          })();
     final selectedDayInfo = switch (_compareDateToToday(selectedDate)) {
       0 => (
           label: 'Oggi',
@@ -4438,21 +4462,9 @@ class _CalendarCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   _CalendarQuickScheduleEditor(
-                    startTimeText:
-                        quickEditorDaySchedule.startTime ??
-                        overrideStartTimeController.text,
-                    endTimeText:
-                        quickEditorDaySchedule.endTime ??
-                        overrideEndTimeController.text,
-                    breakMinutes: (() {
-                      final quickPauseWindow = quickEditorPauseWindow;
-                      if (quickPauseWindow == null) {
-                        return draftBreakMinutes ??
-                            quickEditorDaySchedule.breakMinutes;
-                      }
-                      return quickPauseWindow.resumeMinutes -
-                          quickPauseWindow.pauseStartMinutes;
-                    })(),
+                    startTimeText: effectiveQuickEditorStartTime,
+                    endTimeText: effectiveQuickEditorEndTime,
+                    breakMinutes: effectiveQuickEditorBreakMinutes,
                     onPickStartTime: () =>
                         onPickOverrideTime(_CalendarTimeField.start),
                     onPickEndTime: () =>
@@ -5217,8 +5229,8 @@ class _AgendaDayTimelineState extends State<_AgendaDayTimeline> {
   @override
   Widget build(BuildContext context) {
     final baseTimelineHeight = widget.range.timelineHeight(
-      pixelsPerHour: 64,
-      minHeight: 620,
+      pixelsPerHour: 32,
+      minHeight: 320,
     );
     final effectiveRange = _lockedRange ?? widget.range;
     final timelineHeight = baseTimelineHeight;
@@ -5293,7 +5305,10 @@ class _AgendaWeekTimeline extends StatelessWidget {
   Widget build(BuildContext context) {
     const headerHeight = 74.0;
     const columnWidth = 134.0;
-    final timelineHeight = range.timelineHeight();
+    final timelineHeight = range.timelineHeight(
+      pixelsPerHour: 18,
+      minHeight: 180,
+    );
     final now = DateTime.now();
     final nowMinutes = (now.hour * 60) + now.minute;
 
