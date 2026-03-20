@@ -17,6 +17,47 @@ flutter build apk --release
 flutter build apk --release --dart-define=APP_VERSION=0.1.2
 ```
 
+## Sviluppo rapido locale
+
+Per vedere le modifiche UI senza passare da release e APK, usa `flutter run` con hot reload.
+
+Nel repo c e gia uno script pronto:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\mobile-dev.ps1 -Device windows
+```
+
+Oppure su Chrome:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\mobile-dev.ps1 -Device chrome
+```
+
+Di default lo script punta al backend live:
+
+- `API_BASE_URL=https://workhours.developerdomain.org`
+- `UPDATE_FEED_URL=https://workhours.developerdomain.org/mobile-updates/latest.json`
+- `UPDATE_PAGE_URL=https://workhours.developerdomain.org/mobile-updates/releases/latest`
+
+Puoi forzare un backend locale:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\mobile-dev.ps1 `
+  -Device windows `
+  -ApiBaseUrl http://localhost:8080
+```
+
+Se usi VS Code, trovi anche due task gia pronti:
+
+- `Mobile: Run Windows`
+- `Mobile: Run Chrome`
+
+Una volta avviato `flutter run`:
+
+- `r` = hot reload
+- `R` = hot restart
+- `q` = chiudi
+
 ## Avvio con backend reale
 
 1. Avvia il backend su `http://localhost:8080`
