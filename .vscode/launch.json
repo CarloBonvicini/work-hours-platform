@@ -1,0 +1,33 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Mobile: Windows",
+      "request": "launch",
+      "type": "dart",
+      "flutterMode": "debug",
+      "cwd": "${workspaceFolder}/mobile",
+      "program": "${workspaceFolder}/mobile/lib/main.dart",
+      "deviceId": "windows",
+      "toolArgs": [
+        "--dart-define=API_BASE_URL=https://workhours.developerdomain.org",
+        "--dart-define=UPDATE_FEED_URL=https://workhours.developerdomain.org/mobile-updates/latest.json",
+        "--dart-define=UPDATE_PAGE_URL=https://workhours.developerdomain.org/mobile-updates/releases/latest"
+      ]
+    },
+    {
+      "name": "Mobile: Chrome",
+      "request": "launch",
+      "type": "dart",
+      "flutterMode": "debug",
+      "cwd": "${workspaceFolder}/mobile",
+      "program": "${workspaceFolder}/mobile/lib/main.dart",
+      "deviceId": "chrome",
+      "toolArgs": [
+        "--dart-define=API_BASE_URL=https://workhours.developerdomain.org",
+        "--dart-define=UPDATE_FEED_URL=https://workhours.developerdomain.org/mobile-updates/latest.json",
+        "--dart-define=UPDATE_PAGE_URL=https://workhours.developerdomain.org/mobile-updates/releases/latest"
+      ]
+    }
+  ]
+}
