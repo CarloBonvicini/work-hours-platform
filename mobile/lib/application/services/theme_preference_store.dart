@@ -1,14 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-enum AppFontFamily {
-  system,
-  sansSerif,
-  serif,
-  monospace,
-  rounded,
-  condensed,
-}
+enum AppFontFamily { system, sansSerif, serif, monospace, rounded, condensed }
+
+enum DayCalendarLayoutMode { quickEditorFirst, agendaFirst }
 
 class AppAppearanceSettings {
   const AppAppearanceSettings({
@@ -18,6 +13,11 @@ class AppAppearanceSettings {
     this.textColor,
     required this.fontFamily,
     required this.textScale,
+    required this.dayCalendarLayoutMode,
+    required this.showDayWorkdayCard,
+    required this.showDayTargetMinutes,
+    required this.showDayEndTime,
+    required this.showDayBreakMinutes,
   });
 
   final ThemeMode themeMode;
@@ -26,6 +26,11 @@ class AppAppearanceSettings {
   final Color? textColor;
   final AppFontFamily fontFamily;
   final double textScale;
+  final DayCalendarLayoutMode dayCalendarLayoutMode;
+  final bool showDayWorkdayCard;
+  final bool showDayTargetMinutes;
+  final bool showDayEndTime;
+  final bool showDayBreakMinutes;
 
   static const defaults = AppAppearanceSettings(
     themeMode: ThemeMode.light,
@@ -33,6 +38,11 @@ class AppAppearanceSettings {
     secondaryColor: Color(0xFFBF7A24),
     fontFamily: AppFontFamily.system,
     textScale: 1,
+    dayCalendarLayoutMode: DayCalendarLayoutMode.quickEditorFirst,
+    showDayWorkdayCard: true,
+    showDayTargetMinutes: false,
+    showDayEndTime: true,
+    showDayBreakMinutes: true,
   );
 
   AppAppearanceSettings copyWith({
@@ -43,6 +53,11 @@ class AppAppearanceSettings {
     bool clearTextColor = false,
     AppFontFamily? fontFamily,
     double? textScale,
+    DayCalendarLayoutMode? dayCalendarLayoutMode,
+    bool? showDayWorkdayCard,
+    bool? showDayTargetMinutes,
+    bool? showDayEndTime,
+    bool? showDayBreakMinutes,
   }) {
     return AppAppearanceSettings(
       themeMode: themeMode ?? this.themeMode,
@@ -51,6 +66,12 @@ class AppAppearanceSettings {
       textColor: clearTextColor ? null : (textColor ?? this.textColor),
       fontFamily: fontFamily ?? this.fontFamily,
       textScale: textScale ?? this.textScale,
+      dayCalendarLayoutMode:
+          dayCalendarLayoutMode ?? this.dayCalendarLayoutMode,
+      showDayWorkdayCard: showDayWorkdayCard ?? this.showDayWorkdayCard,
+      showDayTargetMinutes: showDayTargetMinutes ?? this.showDayTargetMinutes,
+      showDayEndTime: showDayEndTime ?? this.showDayEndTime,
+      showDayBreakMinutes: showDayBreakMinutes ?? this.showDayBreakMinutes,
     );
   }
 
@@ -70,7 +91,9 @@ class AppAppearanceSettings {
         (json['secondaryColor'] as int?) ??
             AppAppearanceSettings.defaults.secondaryColor.toARGB32(),
       ),
-      textColor: json['textColor'] is int ? Color(json['textColor'] as int) : null,
+      textColor: json['textColor'] is int
+          ? Color(json['textColor'] as int)
+          : null,
       fontFamily: switch (json['fontFamily'] as String?) {
         'sansSerif' => AppFontFamily.sansSerif,
         'serif' => AppFontFamily.serif,
@@ -80,6 +103,22 @@ class AppAppearanceSettings {
         _ => AppFontFamily.system,
       },
       textScale: ((json['textScale'] as num?)?.toDouble() ?? 1).clamp(0.8, 1.5),
+      dayCalendarLayoutMode: switch (json['dayCalendarLayoutMode'] as String?) {
+        'agendaFirst' => DayCalendarLayoutMode.agendaFirst,
+        _ => DayCalendarLayoutMode.quickEditorFirst,
+      },
+      showDayWorkdayCard:
+          json['showDayWorkdayCard'] as bool? ??
+          AppAppearanceSettings.defaults.showDayWorkdayCard,
+      showDayTargetMinutes:
+          json['showDayTargetMinutes'] as bool? ??
+          AppAppearanceSettings.defaults.showDayTargetMinutes,
+      showDayEndTime:
+          json['showDayEndTime'] as bool? ??
+          AppAppearanceSettings.defaults.showDayEndTime,
+      showDayBreakMinutes:
+          json['showDayBreakMinutes'] as bool? ??
+          AppAppearanceSettings.defaults.showDayBreakMinutes,
     );
   }
 
@@ -95,6 +134,11 @@ class AppAppearanceSettings {
       if (textColor != null) 'textColor': textColor!.toARGB32(),
       'fontFamily': fontFamily.name,
       'textScale': textScale,
+      'dayCalendarLayoutMode': dayCalendarLayoutMode.name,
+      'showDayWorkdayCard': showDayWorkdayCard,
+      'showDayTargetMinutes': showDayTargetMinutes,
+      'showDayEndTime': showDayEndTime,
+      'showDayBreakMinutes': showDayBreakMinutes,
     };
   }
 }
@@ -110,7 +154,9 @@ abstract class ThemePreferenceStore {
 
   Future<void> saveThemeMode(ThemeMode themeMode) async {
     final currentSettings = await loadAppearanceSettings();
-    await saveAppearanceSettings(currentSettings.copyWith(themeMode: themeMode));
+    await saveAppearanceSettings(
+      currentSettings.copyWith(themeMode: themeMode),
+    );
   }
 }
 
@@ -123,6 +169,12 @@ class SharedPreferencesThemePreferenceStore implements ThemePreferenceStore {
   static const _textColorKey = 'appearance.text_color';
   static const _fontFamilyKey = 'appearance.font_family';
   static const _textScaleKey = 'appearance.text_scale';
+  static const _dayCalendarLayoutModeKey =
+      'appearance.day_calendar_layout_mode';
+  static const _showDayWorkdayCardKey = 'appearance.show_day_workday_card';
+  static const _showDayTargetMinutesKey = 'appearance.show_day_target_minutes';
+  static const _showDayEndTimeKey = 'appearance.show_day_end_time';
+  static const _showDayBreakMinutesKey = 'appearance.show_day_break_minutes';
 
   @override
   Future<ThemeMode> loadThemeMode() async {
@@ -132,7 +184,9 @@ class SharedPreferencesThemePreferenceStore implements ThemePreferenceStore {
   @override
   Future<void> saveThemeMode(ThemeMode themeMode) async {
     final currentSettings = await loadAppearanceSettings();
-    await saveAppearanceSettings(currentSettings.copyWith(themeMode: themeMode));
+    await saveAppearanceSettings(
+      currentSettings.copyWith(themeMode: themeMode),
+    );
   }
 
   @override
@@ -163,6 +217,12 @@ class SharedPreferencesThemePreferenceStore implements ThemePreferenceStore {
       0.8,
       1.5,
     );
+    final dayCalendarLayoutMode = switch (preferences.getString(
+      _dayCalendarLayoutModeKey,
+    )) {
+      'agendaFirst' => DayCalendarLayoutMode.agendaFirst,
+      _ => DayCalendarLayoutMode.quickEditorFirst,
+    };
 
     return AppAppearanceSettings(
       themeMode: themeMode,
@@ -171,6 +231,19 @@ class SharedPreferencesThemePreferenceStore implements ThemePreferenceStore {
       textColor: textColor == null ? null : Color(textColor),
       fontFamily: fontFamily,
       textScale: textScale,
+      dayCalendarLayoutMode: dayCalendarLayoutMode,
+      showDayWorkdayCard:
+          preferences.getBool(_showDayWorkdayCardKey) ??
+          AppAppearanceSettings.defaults.showDayWorkdayCard,
+      showDayTargetMinutes:
+          preferences.getBool(_showDayTargetMinutesKey) ??
+          AppAppearanceSettings.defaults.showDayTargetMinutes,
+      showDayEndTime:
+          preferences.getBool(_showDayEndTimeKey) ??
+          AppAppearanceSettings.defaults.showDayEndTime,
+      showDayBreakMinutes:
+          preferences.getBool(_showDayBreakMinutesKey) ??
+          AppAppearanceSettings.defaults.showDayBreakMinutes,
     );
   }
 
@@ -183,7 +256,10 @@ class SharedPreferencesThemePreferenceStore implements ThemePreferenceStore {
       _ => 'light',
     };
     await preferences.setString(_themeModeKey, rawThemeMode);
-    await preferences.setInt(_primaryColorKey, settings.primaryColor.toARGB32());
+    await preferences.setInt(
+      _primaryColorKey,
+      settings.primaryColor.toARGB32(),
+    );
     await preferences.setInt(
       _secondaryColorKey,
       settings.secondaryColor.toARGB32(),
@@ -195,5 +271,22 @@ class SharedPreferencesThemePreferenceStore implements ThemePreferenceStore {
     }
     await preferences.setString(_fontFamilyKey, settings.fontFamily.name);
     await preferences.setDouble(_textScaleKey, settings.textScale);
+    await preferences.setString(
+      _dayCalendarLayoutModeKey,
+      settings.dayCalendarLayoutMode.name,
+    );
+    await preferences.setBool(
+      _showDayWorkdayCardKey,
+      settings.showDayWorkdayCard,
+    );
+    await preferences.setBool(
+      _showDayTargetMinutesKey,
+      settings.showDayTargetMinutes,
+    );
+    await preferences.setBool(_showDayEndTimeKey, settings.showDayEndTime);
+    await preferences.setBool(
+      _showDayBreakMinutesKey,
+      settings.showDayBreakMinutes,
+    );
   }
 }
