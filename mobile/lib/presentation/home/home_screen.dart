@@ -4143,12 +4143,18 @@ class _AgendaScheduleBlockState extends State<_AgendaScheduleBlock> {
   double _dragOffset = 0;
   late int _dragStartMinutes;
   late int _dragEndMinutes;
+  int? _previewStartMinutes;
+  int? _previewEndMinutes;
 
   void _handleDragStart(_AgendaDragMode mode) {
-    _dragMode = mode;
-    _dragOffset = 0;
-    _dragStartMinutes = widget.startMinutes;
-    _dragEndMinutes = widget.endMinutes;
+    setState(() {
+      _dragMode = mode;
+      _dragOffset = 0;
+      _dragStartMinutes = widget.startMinutes;
+      _dragEndMinutes = widget.endMinutes;
+      _previewStartMinutes = widget.startMinutes;
+      _previewEndMinutes = widget.endMinutes;
+    });
   }
 
   void _handleDragUpdate(DragUpdateDetails details) {
@@ -4183,6 +4189,10 @@ class _AgendaScheduleBlockState extends State<_AgendaScheduleBlock> {
           widget.range.endMinutes - durationMinutes,
         )
             .toInt();
+        setState(() {
+          _previewStartMinutes = clampedStart;
+          _previewEndMinutes = clampedStart + durationMinutes;
+        });
         widget.onScheduleChanged!(
           startMinutes: clampedStart,
           endMinutes: clampedStart + durationMinutes,
@@ -4200,6 +4210,10 @@ class _AgendaScheduleBlockState extends State<_AgendaScheduleBlock> {
           _dragEndMinutes - 5,
         )
             .toInt();
+        setState(() {
+          _previewStartMinutes = clampedStart;
+          _previewEndMinutes = _dragEndMinutes;
+        });
         widget.onScheduleChanged!(
           startMinutes: clampedStart,
           endMinutes: _dragEndMinutes,
@@ -4220,6 +4234,10 @@ class _AgendaScheduleBlockState extends State<_AgendaScheduleBlock> {
           widget.range.endMinutes,
         )
             .toInt();
+        setState(() {
+          _previewStartMinutes = _dragStartMinutes;
+          _previewEndMinutes = clampedEnd;
+        });
         widget.onScheduleChanged!(
           startMinutes: _dragStartMinutes,
           endMinutes: clampedEnd,
@@ -4233,8 +4251,12 @@ class _AgendaScheduleBlockState extends State<_AgendaScheduleBlock> {
   }
 
   void _handleDragEnd([DragEndDetails? _]) {
-    _dragMode = null;
-    _dragOffset = 0;
+    setState(() {
+      _dragMode = null;
+      _dragOffset = 0;
+      _previewStartMinutes = null;
+      _previewEndMinutes = null;
+    });
   }
 
   @override
@@ -4248,6 +4270,8 @@ class _AgendaScheduleBlockState extends State<_AgendaScheduleBlock> {
         ? const Color(0xFFC98421)
         : const Color(0xFF0B6E69);
     final title = widget.metrics.hasOverride ? 'Eccezione' : 'Fascia prevista';
+    final displayStartMinutes = _previewStartMinutes ?? widget.startMinutes;
+    final displayEndMinutes = _previewEndMinutes ?? widget.endMinutes;
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -4316,7 +4340,7 @@ class _AgendaScheduleBlockState extends State<_AgendaScheduleBlock> {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          '${formatTimeInput(widget.startMinutes)} - ${formatTimeInput(widget.endMinutes)}',
+                          '${formatTimeInput(displayStartMinutes)} - ${formatTimeInput(displayEndMinutes)}',
                           style: theme.textTheme.bodyMedium?.copyWith(
                             color: textColor,
                             fontWeight: FontWeight.w700,
@@ -4358,13 +4382,38 @@ class _AgendaScheduleBlockState extends State<_AgendaScheduleBlock> {
           ),
         );
 
+        final decoratedContent = Stack(
+          clipBehavior: Clip.none,
+          children: [
+            content,
+            if (_dragMode == _AgendaDragMode.resizeStart ||
+                _dragMode == _AgendaDragMode.move)
+              Positioned(
+                top: -12,
+                right: 12,
+                child: _AgendaDragTimeChip(
+                  label: formatTimeInput(displayStartMinutes),
+                ),
+              ),
+            if (_dragMode == _AgendaDragMode.resizeEnd ||
+                _dragMode == _AgendaDragMode.move)
+              Positioned(
+                bottom: -12,
+                right: 12,
+                child: _AgendaDragTimeChip(
+                  label: formatTimeInput(displayEndMinutes),
+                ),
+              ),
+          ],
+        );
+
         if (widget.onScheduleChanged == null) {
-          return content;
+          return decoratedContent;
         }
 
         return MouseRegion(
           cursor: SystemMouseCursors.move,
-          child: content,
+          child: decoratedContent,
         );
       },
     );
@@ -4388,6 +4437,40 @@ class _AgendaResizeHandle extends StatelessWidget {
         decoration: BoxDecoration(
           color: color.withValues(alpha: 0.75),
           borderRadius: BorderRadius.circular(999),
+        ),
+      ),
+    );
+  }
+}
+
+class _AgendaDragTimeChip extends StatelessWidget {
+  const _AgendaDragTimeChip({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: theme.colorScheme.primary, width: 1.2),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.18),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Text(
+        label,
+        style: theme.textTheme.labelLarge?.copyWith(
+          color: theme.colorScheme.primary,
+          fontWeight: FontWeight.w800,
         ),
       ),
     );
