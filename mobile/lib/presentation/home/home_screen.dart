@@ -1145,6 +1145,167 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _setScheduleOverrideBreakMinutes(pickedMinutes);
   }
 
+  Future<void> _pickUniformTargetMinutes() async {
+    final currentTargetMinutes =
+        parseHoursInput(_uniformDailyTargetController.text) ?? 8 * 60;
+    final pickedMinutes = await _showScheduleTargetWheelPicker(
+      title: 'Ore giornaliere',
+      initialMinutes: currentTargetMinutes,
+    );
+    if (pickedMinutes == null) {
+      return;
+    }
+
+    _uniformDailyTargetController.text = _formatHoursInput(pickedMinutes);
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  Future<void> _pickUniformScheduleTime(_CalendarTimeField field) async {
+    final controller = switch (field) {
+      _CalendarTimeField.start => _uniformStartTimeController,
+      _CalendarTimeField.end => _uniformEndTimeController,
+    };
+    final initialMinutes =
+        parseTimeInput(controller.text) ??
+        (field == _CalendarTimeField.start ? 9 * 60 : 18 * 60);
+    final pickedMinutes = await _showScheduleTimeWheelPicker(
+      title: field == _CalendarTimeField.start ? 'Entrata' : 'Uscita',
+      initialMinutes: initialMinutes,
+    );
+    if (pickedMinutes == null) {
+      return;
+    }
+
+    controller.text = formatTimeInput(pickedMinutes);
+    _syncProfileTargetFromTimes();
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  Future<void> _pickUniformBreakMinutes() async {
+    final currentBreakMinutes =
+        parseBreakDurationInput(_uniformBreakController.text) ?? 0;
+    final pickedMinutes = await _showScheduleBreakWheelPicker(
+      initialMinutes: currentBreakMinutes,
+    );
+    if (pickedMinutes == null) {
+      return;
+    }
+
+    _uniformBreakController.text = _formatBreakInput(pickedMinutes);
+    _syncProfileTargetFromTimes();
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  Future<void> _pickWeekdayTargetMinutes(WeekdayKey weekday) async {
+    final controller = _weekdayControllers[weekday]!;
+    final currentTargetMinutes = parseHoursInput(controller.text) ?? 8 * 60;
+    final pickedMinutes = await _showScheduleTargetWheelPicker(
+      title: 'Ore ${weekday.label.toLowerCase()}',
+      initialMinutes: currentTargetMinutes,
+    );
+    if (pickedMinutes == null) {
+      return;
+    }
+
+    controller.text = _formatHoursInput(pickedMinutes);
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  Future<void> _pickWeekdayScheduleTime(
+    WeekdayKey weekday,
+    _CalendarTimeField field,
+  ) async {
+    final controller = switch (field) {
+      _CalendarTimeField.start => _weekdayStartTimeControllers[weekday]!,
+      _CalendarTimeField.end => _weekdayEndTimeControllers[weekday]!,
+    };
+    final initialMinutes =
+        parseTimeInput(controller.text) ??
+        (field == _CalendarTimeField.start ? 9 * 60 : 18 * 60);
+    final pickedMinutes = await _showScheduleTimeWheelPicker(
+      title:
+          '${field == _CalendarTimeField.start ? 'Entrata' : 'Uscita'} ${weekday.label.toLowerCase()}',
+      initialMinutes: initialMinutes,
+    );
+    if (pickedMinutes == null) {
+      return;
+    }
+
+    controller.text = formatTimeInput(pickedMinutes);
+    _syncProfileTargetFromTimes(weekday: weekday);
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  Future<void> _pickWeekdayBreakMinutes(WeekdayKey weekday) async {
+    final controller = _weekdayBreakControllers[weekday]!;
+    final currentBreakMinutes = parseBreakDurationInput(controller.text) ?? 0;
+    final pickedMinutes = await _showScheduleBreakWheelPicker(
+      initialMinutes: currentBreakMinutes,
+    );
+    if (pickedMinutes == null) {
+      return;
+    }
+
+    controller.text = _formatBreakInput(pickedMinutes);
+    _syncProfileTargetFromTimes(weekday: weekday);
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  void _syncProfileTargetFromTimes({WeekdayKey? weekday}) {
+    final targetController = weekday == null
+        ? _uniformDailyTargetController
+        : _weekdayControllers[weekday]!;
+    final startController = weekday == null
+        ? _uniformStartTimeController
+        : _weekdayStartTimeControllers[weekday]!;
+    final endController = weekday == null
+        ? _uniformEndTimeController
+        : _weekdayEndTimeControllers[weekday]!;
+    final breakController = weekday == null
+        ? _uniformBreakController
+        : _weekdayBreakControllers[weekday]!;
+
+    final resolvedTargetMinutes = _resolveDraftTargetMinutes(
+      targetText: targetController.text,
+      startTimeText: startController.text,
+      endTimeText: endController.text,
+      breakText: breakController.text,
+    );
+    if (resolvedTargetMinutes == null) {
+      return;
+    }
+
+    final startMinutes = parseTimeInput(startController.text.trim());
+    final endMinutes = parseTimeInput(endController.text.trim());
+    final breakMinutes = parseBreakDurationInput(breakController.text) ?? 0;
+    if (startMinutes == null || endMinutes == null) {
+      return;
+    }
+
+    _normalizeScheduleInputs(
+      targetText: targetController.text,
+      startTimeText: startController.text,
+      endTimeText: endController.text,
+      breakText: breakController.text,
+      targetMinutes: resolvedTargetMinutes,
+      startMinutes: startMinutes,
+      endMinutes: endMinutes,
+      breakMinutes: breakMinutes,
+    );
+  }
+
   void _setScheduleOverrideBreakMinutes(int minutes) {
     final normalizedMinutes = minutes.clamp(0, 24 * 60);
     _scheduleOverrideBreakController.text = _formatBreakInput(
@@ -1232,6 +1393,55 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 Center(
                   child: Text(value == 0 ? 'Nessuna pausa' : '$value min'),
                 ),
+            ],
+          ),
+        ),
+      ),
+    );
+    return pickedMinutes;
+  }
+
+  Future<int?> _showScheduleTargetWheelPicker({
+    required String title,
+    required int initialMinutes,
+  }) async {
+    const stepMinutes = 5;
+    final allowedValues = List<int>.generate(
+      ((16 * 60) ~/ stepMinutes) + 1,
+      (index) => index * stepMinutes,
+    );
+    final normalizedInitial = ((initialMinutes / stepMinutes).round() *
+            stepMinutes)
+        .clamp(0, allowedValues.last);
+    final initialIndex = allowedValues.indexOf(normalizedInitial);
+    final pickedMinutes = await showModalBottomSheet<int>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => _WheelPickerBottomSheet<int>(
+        title: title,
+        initialValue: allowedValues[initialIndex],
+        valueBuilder: (controller) => ValueListenableBuilder<int>(
+          valueListenable: controller,
+          builder: (context, value, _) => Text(
+            _formatHoursInput(value),
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ),
+        pickerBuilder: (controller) => SizedBox(
+          height: 220,
+          child: CupertinoPicker(
+            scrollController: FixedExtentScrollController(
+              initialItem: initialIndex,
+            ),
+            itemExtent: 38,
+            onSelectedItemChanged: (index) {
+              controller.value = allowedValues[index];
+            },
+            children: [
+              for (final value in allowedValues)
+                Center(child: Text(_formatHoursInput(value))),
             ],
           ),
         ),
@@ -2533,6 +2743,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           isUpdatingThemeMode: _isUpdatingThemeMode,
           onDarkThemeChanged: _toggleThemeMode,
           onOpenUpdateFromSettings: _openUpdateFromSettings,
+          onPickUniformTargetMinutes: _pickUniformTargetMinutes,
+          onPickUniformScheduleTime: _pickUniformScheduleTime,
+          onPickUniformBreakMinutes: _pickUniformBreakMinutes,
+          onPickWeekdayTargetMinutes: _pickWeekdayTargetMinutes,
+          onPickWeekdayScheduleTime: _pickWeekdayScheduleTime,
+          onPickWeekdayBreakMinutes: _pickWeekdayBreakMinutes,
           onAppearanceSettingsChanged: _updateAppearanceSettings,
           onSubmit: _submitProfile,
         );
@@ -4671,6 +4887,12 @@ class _ProfileCard extends StatelessWidget {
     required this.isUpdatingThemeMode,
     required this.onDarkThemeChanged,
     required this.onOpenUpdateFromSettings,
+    required this.onPickUniformTargetMinutes,
+    required this.onPickUniformScheduleTime,
+    required this.onPickUniformBreakMinutes,
+    required this.onPickWeekdayTargetMinutes,
+    required this.onPickWeekdayScheduleTime,
+    required this.onPickWeekdayBreakMinutes,
     required this.onAppearanceSettingsChanged,
     required this.onSubmit,
   });
@@ -4696,6 +4918,13 @@ class _ProfileCard extends StatelessWidget {
   final bool isUpdatingThemeMode;
   final Future<void> Function(bool) onDarkThemeChanged;
   final Future<void> Function() onOpenUpdateFromSettings;
+  final Future<void> Function() onPickUniformTargetMinutes;
+  final Future<void> Function(_CalendarTimeField field) onPickUniformScheduleTime;
+  final Future<void> Function() onPickUniformBreakMinutes;
+  final Future<void> Function(WeekdayKey weekday) onPickWeekdayTargetMinutes;
+  final Future<void> Function(WeekdayKey weekday, _CalendarTimeField field)
+  onPickWeekdayScheduleTime;
+  final Future<void> Function(WeekdayKey weekday) onPickWeekdayBreakMinutes;
   final Future<void> Function(AppAppearanceSettings settings)
   onAppearanceSettingsChanged;
   final Future<void> Function() onSubmit;
@@ -4733,73 +4962,24 @@ class _ProfileCard extends StatelessWidget {
             ),
             const SizedBox(height: 18),
             if (useUniformDailyTarget)
-              Wrap(
-                spacing: 12,
-                runSpacing: 12,
-                children: [
-                  SizedBox(
-                    width: 150,
-                    child: TextFormField(
-                      controller: uniformDailyTargetController,
-                      keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true,
-                      ),
-                      decoration: const InputDecoration(
-                        labelText: 'Ore standard lun-ven',
-                      ),
-                      validator: (_) => _validateScheduleDraft(
-                        targetText: uniformDailyTargetController.text,
-                        startTimeText: uniformStartTimeController.text,
-                        endTimeText: uniformEndTimeController.text,
-                        breakText: uniformBreakController.text,
-                      ),
-                    ),
-                  ),
-                  SizedBox(
-                    width: 120,
-                    child: TextFormField(
-                      controller: uniformStartTimeController,
-                      keyboardType: TextInputType.datetime,
-                      decoration: const InputDecoration(labelText: 'Inizio'),
-                      validator: (_) => _validateScheduleDraft(
-                        targetText: uniformDailyTargetController.text,
-                        startTimeText: uniformStartTimeController.text,
-                        endTimeText: uniformEndTimeController.text,
-                        breakText: uniformBreakController.text,
-                      ),
-                    ),
-                  ),
-                  SizedBox(
-                    width: 120,
-                    child: TextFormField(
-                      controller: uniformEndTimeController,
-                      keyboardType: TextInputType.datetime,
-                      decoration: const InputDecoration(labelText: 'Fine'),
-                      validator: (_) => _validateScheduleDraft(
-                        targetText: uniformDailyTargetController.text,
-                        startTimeText: uniformStartTimeController.text,
-                        endTimeText: uniformEndTimeController.text,
-                        breakText: uniformBreakController.text,
-                      ),
-                    ),
-                  ),
-                  SizedBox(
-                    width: 120,
-                    child: TextFormField(
-                      controller: uniformBreakController,
-                      keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true,
-                      ),
-                      decoration: const InputDecoration(labelText: 'Pausa'),
-                      validator: (_) => _validateScheduleDraft(
-                        targetText: uniformDailyTargetController.text,
-                        startTimeText: uniformStartTimeController.text,
-                        endTimeText: uniformEndTimeController.text,
-                        breakText: uniformBreakController.text,
-                      ),
-                    ),
-                  ),
-                ],
+              _SettingsScheduleEditor(
+                title: 'Standard lun-ven',
+                targetText: uniformDailyTargetController.text,
+                startTimeText: uniformStartTimeController.text,
+                endTimeText: uniformEndTimeController.text,
+                breakText: uniformBreakController.text,
+                validationMessage: _validateScheduleDraft(
+                  targetText: uniformDailyTargetController.text,
+                  startTimeText: uniformStartTimeController.text,
+                  endTimeText: uniformEndTimeController.text,
+                  breakText: uniformBreakController.text,
+                ),
+                onPickTarget: onPickUniformTargetMinutes,
+                onPickStartTime: () =>
+                    onPickUniformScheduleTime(_CalendarTimeField.start),
+                onPickEndTime: () =>
+                    onPickUniformScheduleTime(_CalendarTimeField.end),
+                onPickBreak: onPickUniformBreakMinutes,
               )
             else
               Column(
@@ -4815,6 +4995,16 @@ class _ProfileCard extends StatelessWidget {
                           endTimeController:
                               weekdayEndTimeControllers[weekday]!,
                           breakController: weekdayBreakControllers[weekday]!,
+                          onPickTarget: () => onPickWeekdayTargetMinutes(weekday),
+                          onPickStartTime: () => onPickWeekdayScheduleTime(
+                            weekday,
+                            _CalendarTimeField.start,
+                          ),
+                          onPickEndTime: () => onPickWeekdayScheduleTime(
+                            weekday,
+                            _CalendarTimeField.end,
+                          ),
+                          onPickBreak: () => onPickWeekdayBreakMinutes(weekday),
                         ),
                       ),
                     )
@@ -4888,6 +5078,10 @@ class _DayScheduleEditorRow extends StatelessWidget {
     required this.startTimeController,
     required this.endTimeController,
     required this.breakController,
+    required this.onPickTarget,
+    required this.onPickStartTime,
+    required this.onPickEndTime,
+    required this.onPickBreak,
   });
 
   final WeekdayKey weekday;
@@ -4895,92 +5089,117 @@ class _DayScheduleEditorRow extends StatelessWidget {
   final TextEditingController startTimeController;
   final TextEditingController endTimeController;
   final TextEditingController breakController;
+  final Future<void> Function() onPickTarget;
+  final Future<void> Function() onPickStartTime;
+  final Future<void> Function() onPickEndTime;
+  final Future<void> Function() onPickBreak;
 
   @override
   Widget build(BuildContext context) {
+    return _SettingsScheduleEditor(
+      title: weekday.label,
+      targetText: targetController.text,
+      startTimeText: startTimeController.text,
+      endTimeText: endTimeController.text,
+      breakText: breakController.text,
+      validationMessage: _validateScheduleDraft(
+        targetText: targetController.text,
+        startTimeText: startTimeController.text,
+        endTimeText: endTimeController.text,
+        breakText: breakController.text,
+      ),
+      onPickTarget: onPickTarget,
+      onPickStartTime: onPickStartTime,
+      onPickEndTime: onPickEndTime,
+      onPickBreak: onPickBreak,
+    );
+  }
+}
+
+class _SettingsScheduleEditor extends StatelessWidget {
+  const _SettingsScheduleEditor({
+    required this.title,
+    required this.targetText,
+    required this.startTimeText,
+    required this.endTimeText,
+    required this.breakText,
+    required this.validationMessage,
+    required this.onPickTarget,
+    required this.onPickStartTime,
+    required this.onPickEndTime,
+    required this.onPickBreak,
+  });
+
+  final String title;
+  final String targetText;
+  final String startTimeText;
+  final String endTimeText;
+  final String breakText;
+  final String? validationMessage;
+  final Future<void> Function() onPickTarget;
+  final Future<void> Function() onPickStartTime;
+  final Future<void> Function() onPickEndTime;
+  final Future<void> Function() onPickBreak;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final helperColor = validationMessage == null
+        ? theme.colorScheme.onSurfaceVariant
+        : theme.colorScheme.error;
+
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(18),
         border: Border.all(
-          color: Theme.of(context).dividerColor.withValues(alpha: 0.35),
+          color: theme.dividerColor.withValues(alpha: 0.35),
         ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            weekday.label,
-            style: Theme.of(
-              context,
-            ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+            title,
+            style: theme.textTheme.titleSmall?.copyWith(
+              fontWeight: FontWeight.w800,
+            ),
           ),
           const SizedBox(height: 10),
           Wrap(
-            spacing: 10,
-            runSpacing: 10,
+            spacing: 16,
+            runSpacing: 12,
             children: [
-              SizedBox(
-                width: 120,
-                child: TextFormField(
-                  controller: targetController,
-                  keyboardType: const TextInputType.numberWithOptions(
-                    decimal: true,
-                  ),
-                  decoration: const InputDecoration(labelText: 'Ore'),
-                  validator: (_) => _validateScheduleDraft(
-                    targetText: targetController.text,
-                    startTimeText: startTimeController.text,
-                    endTimeText: endTimeController.text,
-                    breakText: breakController.text,
-                  ),
-                ),
+              _QuickScheduleValue(
+                label: 'Ore',
+                value: targetText.isEmpty ? '--' : targetText,
+                valueKey: ValueKey('settings-schedule-$title-target'),
+                onTap: onPickTarget,
               ),
-              SizedBox(
-                width: 100,
-                child: TextFormField(
-                  controller: startTimeController,
-                  keyboardType: TextInputType.datetime,
-                  decoration: const InputDecoration(labelText: 'Inizio'),
-                  validator: (_) => _validateScheduleDraft(
-                    targetText: targetController.text,
-                    startTimeText: startTimeController.text,
-                    endTimeText: endTimeController.text,
-                    breakText: breakController.text,
-                  ),
-                ),
+              _QuickScheduleValue(
+                label: 'Entrata',
+                value: startTimeText.isEmpty ? '--:--' : startTimeText,
+                valueKey: ValueKey('settings-schedule-$title-start'),
+                onTap: onPickStartTime,
               ),
-              SizedBox(
-                width: 100,
-                child: TextFormField(
-                  controller: endTimeController,
-                  keyboardType: TextInputType.datetime,
-                  decoration: const InputDecoration(labelText: 'Fine'),
-                  validator: (_) => _validateScheduleDraft(
-                    targetText: targetController.text,
-                    startTimeText: startTimeController.text,
-                    endTimeText: endTimeController.text,
-                    breakText: breakController.text,
-                  ),
-                ),
+              _QuickScheduleValue(
+                label: 'Uscita',
+                value: endTimeText.isEmpty ? '--:--' : endTimeText,
+                valueKey: ValueKey('settings-schedule-$title-end'),
+                onTap: onPickEndTime,
               ),
-              SizedBox(
-                width: 100,
-                child: TextFormField(
-                  controller: breakController,
-                  keyboardType: const TextInputType.numberWithOptions(
-                    decimal: true,
-                  ),
-                  decoration: const InputDecoration(labelText: 'Pausa'),
-                  validator: (_) => _validateScheduleDraft(
-                    targetText: targetController.text,
-                    startTimeText: startTimeController.text,
-                    endTimeText: endTimeController.text,
-                    breakText: breakController.text,
-                  ),
-                ),
+              _QuickScheduleValue(
+                label: 'Pausa',
+                value: breakText.isEmpty ? '0:00' : breakText,
+                valueKey: ValueKey('settings-schedule-$title-break'),
+                onTap: onPickBreak,
               ),
             ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            validationMessage ?? 'Tocca un valore per modificarlo.',
+            style: theme.textTheme.bodyMedium?.copyWith(color: helperColor),
           ),
         ],
       ),
