@@ -2702,7 +2702,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           onClearWorkdaySession: _clearWorkdaySession,
           onPickOverrideTime: _pickScheduleOverrideTime,
           onPickOverrideBreakMinutes: _pickScheduleOverrideBreakMinutes,
-          onSetOverrideBreakMinutes: _setScheduleOverrideBreakMinutes,
           onAgendaScheduleChanged: _updateScheduleOverrideFromAgenda,
           onResetOverrideEditor: _resetScheduleOverrideEditorToBase,
           onMarkDayAsOff: _markSelectedDayAsDayOff,
@@ -2991,7 +2990,6 @@ class _CalendarCard extends StatelessWidget {
     required this.onClearWorkdaySession,
     required this.onPickOverrideTime,
     required this.onPickOverrideBreakMinutes,
-    required this.onSetOverrideBreakMinutes,
     required this.onAgendaScheduleChanged,
     required this.onResetOverrideEditor,
     required this.onMarkDayAsOff,
@@ -3035,7 +3033,6 @@ class _CalendarCard extends StatelessWidget {
   final Future<void> Function() onClearWorkdaySession;
   final Future<void> Function(_CalendarTimeField field) onPickOverrideTime;
   final Future<void> Function() onPickOverrideBreakMinutes;
-  final void Function(int minutes) onSetOverrideBreakMinutes;
   final void Function({
     required int startMinutes,
     required int endMinutes,
@@ -3050,12 +3047,6 @@ class _CalendarCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final selectedDateLabel = _formatLongDate(selectedDate);
-    final draftValidationMessage = _validateScheduleDraft(
-      targetText: overrideTargetController.text,
-      startTimeText: overrideStartTimeController.text,
-      endTimeText: overrideEndTimeController.text,
-      breakText: overrideBreakController.text,
-    );
     final draftBreakMinutes = parseBreakDurationInput(
       overrideBreakController.text,
     );
@@ -3125,6 +3116,19 @@ class _CalendarCard extends StatelessWidget {
               },
             ),
           ),
+          if (isSelectedDateToday) ...[
+            const SizedBox(height: 18),
+            _WorkdaySessionCard(
+              session: workdaySession,
+              schedule: effectiveDaySchedule,
+              isBusy: isSavingWorkdaySession,
+              onRecordNow: onRecordWorkdayStartNow,
+              onStartBreak: onStartWorkdayBreakNow,
+              onResume: onResumeWorkdayNow,
+              onFinish: onFinishWorkdayNow,
+              onClear: workdaySession == null ? null : onClearWorkdaySession,
+            ),
+          ],
           const SizedBox(height: 18),
           _CalendarPeriodSummary(
             calendarView: calendarView,
@@ -3170,19 +3174,6 @@ class _CalendarCard extends StatelessWidget {
               style: Theme.of(context).textTheme.bodyMedium,
             ),
           ],
-          if (isSelectedDateToday) ...[
-            const SizedBox(height: 16),
-            _WorkdaySessionCard(
-              session: workdaySession,
-              schedule: effectiveDaySchedule,
-              isBusy: isSavingWorkdaySession,
-              onRecordNow: onRecordWorkdayStartNow,
-              onStartBreak: onStartWorkdayBreakNow,
-              onResume: onResumeWorkdayNow,
-              onFinish: onFinishWorkdayNow,
-              onClear: workdaySession == null ? null : onClearWorkdaySession,
-            ),
-          ],
           const SizedBox(height: 16),
           Form(
             key: overrideFormKey,
@@ -3196,13 +3187,11 @@ class _CalendarCard extends StatelessWidget {
                   endTimeText:
                       draftDaySchedule.endTime ?? overrideEndTimeController.text,
                   breakMinutes: draftBreakMinutes ?? 0,
-                  validationMessage: draftValidationMessage,
                   onPickStartTime: () =>
                       onPickOverrideTime(_CalendarTimeField.start),
                   onPickEndTime: () =>
                       onPickOverrideTime(_CalendarTimeField.end),
                   onPickBreakMinutes: onPickOverrideBreakMinutes,
-                  onSetBreakMinutes: onSetOverrideBreakMinutes,
                   onResetToBase: onResetOverrideEditor,
                   onMarkDayAsOff: onMarkDayAsOff,
                 ),
@@ -3276,11 +3265,9 @@ class _CalendarQuickScheduleEditor extends StatelessWidget {
     required this.startTimeText,
     required this.endTimeText,
     required this.breakMinutes,
-    required this.validationMessage,
     required this.onPickStartTime,
     required this.onPickEndTime,
     required this.onPickBreakMinutes,
-    required this.onSetBreakMinutes,
     required this.onResetToBase,
     required this.onMarkDayAsOff,
   });
@@ -3288,21 +3275,15 @@ class _CalendarQuickScheduleEditor extends StatelessWidget {
   final String startTimeText;
   final String endTimeText;
   final int breakMinutes;
-  final String? validationMessage;
   final Future<void> Function() onPickStartTime;
   final Future<void> Function() onPickEndTime;
   final Future<void> Function() onPickBreakMinutes;
-  final ValueChanged<int> onSetBreakMinutes;
   final VoidCallback onResetToBase;
   final VoidCallback onMarkDayAsOff;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final helperColor = validationMessage == null
-        ? theme.colorScheme.onSurfaceVariant
-        : theme.colorScheme.error;
-    final helperText = validationMessage ?? 'Tocca un valore per modificarlo.';
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -3345,23 +3326,6 @@ class _CalendarQuickScheduleEditor extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 10),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            for (final preset in const [0, 15, 30, 45, 60])
-              ChoiceChip(
-                selected: breakMinutes == preset,
-                label: Text(preset == 0 ? 'Nessuna pausa' : '$preset min'),
-                onSelected: (_) => onSetBreakMinutes(preset),
-              ),
-          ],
-        ),
-        const SizedBox(height: 10),
-        Text(
-          helperText,
-          style: theme.textTheme.bodyMedium?.copyWith(color: helperColor),
-        ),
         const SizedBox(height: 12),
         Wrap(
           spacing: 10,
@@ -3496,14 +3460,14 @@ class _WorkdaySessionCard extends StatelessWidget {
                   key: const ValueKey('calendar-start-break-button'),
                   onPressed: isBusy ? null : onStartBreak,
                   icon: const Icon(Icons.coffee_outlined),
-                  label: const Text('Pausa'),
+                  label: const Text('Inizio pausa'),
                 ),
               if (session?.isOnBreak == true)
                 FilledButton.tonalIcon(
                   key: const ValueKey('calendar-resume-workday-button'),
                   onPressed: isBusy ? null : onResume,
                   icon: const Icon(Icons.play_circle_outline_rounded),
-                  label: const Text('Riprendi'),
+                  label: const Text('Fine pausa'),
                 ),
               if (session != null && !session!.isCompleted)
                 FilledButton.icon(
