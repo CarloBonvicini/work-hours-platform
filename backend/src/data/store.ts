@@ -5,6 +5,40 @@ import type {
   WorkEntry
 } from "../domain/types.js";
 
+export interface AppearanceSettingsRecord {
+  themeMode: "light" | "dark" | "system";
+  primaryColor: number;
+  secondaryColor: number;
+  textColor?: number;
+  fontFamily: string;
+  textScale: number;
+}
+
+export interface CloudBackupRecord {
+  profile: Profile;
+  appearanceSettings: AppearanceSettingsRecord;
+  workEntries: WorkEntry[];
+  leaveEntries: LeaveEntry[];
+  scheduleOverrides: ScheduleOverride[];
+  updatedAt: string;
+}
+
+export interface StoredAuthUser {
+  id: string;
+  email: string;
+  passwordHash: string;
+  passwordSalt: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AuthUser {
+  id: string;
+  email: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface AppStore {
   getProfile(): Promise<Profile> | Profile;
   saveProfile(profile: Profile): Promise<Profile> | Profile;
@@ -17,5 +51,24 @@ export interface AppStore {
   ): Promise<ScheduleOverride> | ScheduleOverride;
   listScheduleOverrides(month?: string): Promise<ScheduleOverride[]> | ScheduleOverride[];
   removeScheduleOverride(date: string): Promise<boolean> | boolean;
+  findAuthUserByEmail(email: string): Promise<StoredAuthUser | null> | StoredAuthUser | null;
+  createAuthUser(user: StoredAuthUser): Promise<AuthUser> | AuthUser;
+  findAuthUserByTokenHash(
+    tokenHash: string
+  ): Promise<AuthUser | null> | AuthUser | null;
+  saveAuthSession(options: {
+    tokenHash: string;
+    userId: string;
+    createdAt: string;
+    updatedAt: string;
+  }): Promise<void> | void;
+  deleteAuthSession(tokenHash: string): Promise<void> | void;
+  loadCloudBackup(
+    userId: string
+  ): Promise<CloudBackupRecord | null> | CloudBackupRecord | null;
+  saveCloudBackup(
+    userId: string,
+    record: CloudBackupRecord
+  ): Promise<CloudBackupRecord> | CloudBackupRecord;
   close?(): Promise<void>;
 }

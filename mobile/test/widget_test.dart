@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:work_hours_mobile/application/services/app_update_service.dart';
 import 'package:work_hours_mobile/application/services/dashboard_service.dart';
 import 'package:work_hours_mobile/application/services/onboarding_preference_store.dart';
+import 'package:work_hours_mobile/application/services/support_ticket_store.dart';
 import 'package:work_hours_mobile/application/services/theme_preference_store.dart';
 import 'package:work_hours_mobile/application/services/update_launcher.dart';
 import 'package:work_hours_mobile/application/services/update_reminder_store.dart';
@@ -40,6 +41,7 @@ void main() {
         ),
         themePreferenceStore: _FakeThemePreferenceStore(),
         workdayStartStore: _FakeWorkdayStartStore(),
+        supportTicketStore: _FakeSupportTicketStore(),
         hasCompletedInitialSetup: true,
       ),
     );
@@ -142,6 +144,7 @@ void main() {
         ),
         themePreferenceStore: _FakeThemePreferenceStore(),
         workdayStartStore: _FakeWorkdayStartStore(),
+        supportTicketStore: _FakeSupportTicketStore(),
         hasCompletedInitialSetup: true,
       ),
     );
@@ -170,6 +173,7 @@ void main() {
         ),
         themePreferenceStore: _FakeThemePreferenceStore(),
         workdayStartStore: _FakeWorkdayStartStore(),
+        supportTicketStore: _FakeSupportTicketStore(),
         hasCompletedInitialSetup: true,
       ),
     );
@@ -197,6 +201,7 @@ void main() {
         ),
         themePreferenceStore: themePreferenceStore,
         workdayStartStore: _FakeWorkdayStartStore(),
+        supportTicketStore: _FakeSupportTicketStore(),
         hasCompletedInitialSetup: true,
       ),
     );
@@ -236,6 +241,7 @@ void main() {
         ),
         themePreferenceStore: _FakeThemePreferenceStore(),
         workdayStartStore: _FakeWorkdayStartStore(),
+        supportTicketStore: _FakeSupportTicketStore(),
         hasCompletedInitialSetup: true,
       ),
     );
@@ -279,6 +285,7 @@ void main() {
         onboardingPreferenceStore: onboardingStore,
         themePreferenceStore: themePreferenceStore,
         workdayStartStore: _FakeWorkdayStartStore(),
+        supportTicketStore: _FakeSupportTicketStore(),
         hasCompletedInitialSetup: false,
       ),
     );
@@ -350,6 +357,7 @@ void main() {
         ),
         themePreferenceStore: _FakeThemePreferenceStore(),
         workdayStartStore: _FakeWorkdayStartStore(),
+        supportTicketStore: _FakeSupportTicketStore(),
         hasCompletedInitialSetup: true,
       ),
     );
@@ -371,7 +379,8 @@ void main() {
       'Vorrei una vista del calendario piu leggibile.',
     );
     await tester.tap(find.byKey(const ValueKey('ticket-submit-button')));
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
 
     expect(repository.submittedTicketCategory, SupportTicketCategory.feature);
     expect(repository.submittedTicketSubject, 'Vista mensile migliore');
@@ -574,7 +583,45 @@ class _FakeOnboardingPreferenceStore implements OnboardingPreferenceStore {
   }
 }
 
+class _FakeSupportTicketStore implements SupportTicketStore {
+  final List<TrackedSupportTicket> _tickets = [];
+
+  @override
+  Future<List<TrackedSupportTicket>> loadTrackedTickets() async {
+    return List<TrackedSupportTicket>.from(_tickets);
+  }
+
+  @override
+  Future<void> saveTrackedTickets(List<TrackedSupportTicket> tickets) async {
+    _tickets
+      ..clear()
+      ..addAll(tickets);
+  }
+
+  @override
+  Future<void> upsertTrackedTicket(TrackedSupportTicket ticket) async {
+    _tickets.removeWhere((entry) => entry.id == ticket.id);
+    _tickets.insert(0, ticket);
+  }
+
+  @override
+  Future<void> markAdminRepliesSeen({
+    required String ticketId,
+    required int adminReplyCount,
+  }) async {
+    final index = _tickets.indexWhere((entry) => entry.id == ticketId);
+    if (index < 0) {
+      return;
+    }
+
+    _tickets[index] = _tickets[index].copyWith(
+      lastSeenAdminReplyCount: adminReplyCount,
+    );
+  }
+}
+
 class _FakeDashboardRepository implements DashboardRepository {
+  final Map<String, SupportTicketThread> _ticketThreadsById = {};
   String? savedFullName;
   int? savedDailyTargetMinutes;
   WeekdayTargetMinutes? savedWeekdayTargetMinutes;
@@ -736,7 +783,7 @@ class _FakeDashboardRepository implements DashboardRepository {
   }
 
   @override
-  Future<void> submitSupportTicket({
+  Future<SupportTicketThread> submitSupportTicket({
     required SupportTicketCategory category,
     String? name,
     String? email,
@@ -750,5 +797,66 @@ class _FakeDashboardRepository implements DashboardRepository {
     submittedTicketSubject = subject;
     submittedTicketMessage = message;
     submittedTicketAppVersion = appVersion;
+    final thread = SupportTicketThread(
+      id: 'ticket-1',
+      category: category,
+      status: SupportTicketStatus.newTicket,
+      subject: subject,
+      message: message,
+      createdAt: DateTime(2026, 3, 20, 9, 0),
+      updatedAt: DateTime(2026, 3, 20, 9, 0),
+      replies: const [],
+      name: name,
+      email: email,
+      appVersion: appVersion,
+    );
+    _ticketThreadsById[thread.id] = thread;
+    return thread;
+  }
+
+  @override
+  Future<SupportTicketThread> fetchSupportTicket({required String ticketId}) async {
+    return _ticketThreadsById[ticketId] ??
+        SupportTicketThread(
+          id: 'ticket-1',
+          category: SupportTicketCategory.support,
+          status: SupportTicketStatus.newTicket,
+          subject: 'Supporto',
+          message: 'Messaggio',
+          createdAt: DateTime(2026, 3, 20, 9),
+          updatedAt: DateTime(2026, 3, 20, 9),
+          replies: [],
+        );
+  }
+
+  @override
+  Future<SupportTicketThread> replyToSupportTicket({
+    required String ticketId,
+    required String message,
+  }) async {
+    final currentThread = await fetchSupportTicket(ticketId: ticketId);
+    final updatedThread = SupportTicketThread(
+      id: currentThread.id,
+      category: currentThread.category,
+      status: SupportTicketStatus.inProgress,
+      subject: currentThread.subject,
+      message: currentThread.message,
+      createdAt: currentThread.createdAt,
+      updatedAt: DateTime(2026, 3, 20, 9, 30),
+      replies: [
+        ...currentThread.replies,
+        SupportTicketReply(
+          id: 'reply-1',
+          author: 'user',
+          message: 'Grazie',
+          createdAt: DateTime(2026, 3, 20, 9, 30),
+        ),
+      ],
+      name: currentThread.name,
+      email: currentThread.email,
+      appVersion: currentThread.appVersion,
+    );
+    _ticketThreadsById[ticketId] = updatedThread;
+    return updatedThread;
   }
 }

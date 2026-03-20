@@ -4,7 +4,12 @@ import type {
   ScheduleOverride,
   WorkEntry
 } from "../domain/types.js";
-import type { AppStore } from "./store.js";
+import type {
+  AppStore,
+  AuthUser,
+  CloudBackupRecord,
+  StoredAuthUser
+} from "./store.js";
 import {
   buildUniformWeekdaySchedule,
   buildUniformWeekdayTargetMinutes
@@ -24,6 +29,9 @@ export class InMemoryStore implements AppStore {
   private workEntries: WorkEntry[] = [];
   private leaveEntries: LeaveEntry[] = [];
   private scheduleOverrides: ScheduleOverride[] = [];
+  private authUsers: StoredAuthUser[] = [];
+  private sessionsByTokenHash = new Map<string, string>();
+  private cloudBackupsByUserId = new Map<string, CloudBackupRecord>();
 
   getProfile(): Profile {
     return {
@@ -99,5 +107,64 @@ export class InMemoryStore implements AppStore {
       (entry) => entry.date !== date
     );
     return this.scheduleOverrides.length < previousLength;
+  }
+
+  findAuthUserByEmail(email: string): StoredAuthUser | null {
+    const normalizedEmail = email.trim().toLowerCase();
+    const user = this.authUsers.find((entry) => entry.email === normalizedEmail);
+    return user ? { ...user } : null;
+  }
+
+  createAuthUser(user: StoredAuthUser): AuthUser {
+    this.authUsers.push({ ...user });
+    return {
+      id: user.id,
+      email: user.email,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt
+    };
+  }
+
+  findAuthUserByTokenHash(tokenHash: string): AuthUser | null {
+    const userId = this.sessionsByTokenHash.get(tokenHash);
+    if (!userId) {
+      return null;
+    }
+
+    const user = this.authUsers.find((entry) => entry.id === userId);
+    if (!user) {
+      return null;
+    }
+
+    return {
+      id: user.id,
+      email: user.email,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt
+    };
+  }
+
+  saveAuthSession(options: {
+    tokenHash: string;
+    userId: string;
+    createdAt: string;
+    updatedAt: string;
+  }): void {
+    this.sessionsByTokenHash.set(options.tokenHash, options.userId);
+  }
+
+  deleteAuthSession(tokenHash: string): void {
+    this.sessionsByTokenHash.delete(tokenHash);
+  }
+
+  loadCloudBackup(userId: string): CloudBackupRecord | null {
+    const record = this.cloudBackupsByUserId.get(userId);
+    return record ? structuredClone(record) : null;
+  }
+
+  saveCloudBackup(userId: string, record: CloudBackupRecord): CloudBackupRecord {
+    const nextRecord = structuredClone(record);
+    this.cloudBackupsByUserId.set(userId, nextRecord);
+    return structuredClone(nextRecord);
   }
 }

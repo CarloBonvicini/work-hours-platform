@@ -89,7 +89,7 @@ class DashboardService {
     );
   }
 
-  Future<void> submitSupportTicket({
+  Future<SupportTicketThread> submitSupportTicket({
     required SupportTicketCategory category,
     String? name,
     String? email,
@@ -104,6 +104,20 @@ class DashboardService {
       subject: subject,
       message: message,
       appVersion: appVersion,
+    );
+  }
+
+  Future<SupportTicketThread> fetchSupportTicket({required String ticketId}) {
+    return _repository.fetchSupportTicket(ticketId: ticketId);
+  }
+
+  Future<SupportTicketThread> replyToSupportTicket({
+    required String ticketId,
+    required String message,
+  }) {
+    return _repository.replyToSupportTicket(
+      ticketId: ticketId,
+      message: message,
     );
   }
 

@@ -46,12 +46,19 @@ abstract class DashboardRepository {
     required String month,
   });
 
-  Future<void> submitSupportTicket({
+  Future<SupportTicketThread> submitSupportTicket({
     required SupportTicketCategory category,
     String? name,
     String? email,
     required String subject,
     required String message,
     String? appVersion,
+  });
+
+  Future<SupportTicketThread> fetchSupportTicket({required String ticketId});
+
+  Future<SupportTicketThread> replyToSupportTicket({
+    required String ticketId,
+    required String message,
   });
 }

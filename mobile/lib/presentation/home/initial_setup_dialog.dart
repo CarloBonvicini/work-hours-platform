@@ -345,6 +345,23 @@ class _InitialSetupDialogState extends State<InitialSetupDialog> {
             Text(_stepTitle),
             const SizedBox(height: 16),
             Flexible(child: SingleChildScrollView(child: _buildStepContent())),
+            if (_stepIndex == 2) ...[
+              const SizedBox(height: 14),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surfaceContainerLow,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: Theme.of(context).colorScheme.outlineVariant,
+                  ),
+                ),
+                child: Text(
+                  'Puoi usare l app anche senza registrarti. Se piu avanti vorrai ritrovare profilo e impostazioni dopo una disinstallazione o su un altro dispositivo, attiva il backup cloud dalle Impostazioni.',
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+              ),
+            ],
             if (_errorMessage != null) ...[
               const SizedBox(height: 12),
               Text(

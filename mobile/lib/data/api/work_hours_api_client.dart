@@ -1,6 +1,8 @@
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
+import 'package:work_hours_mobile/domain/models/account_session.dart';
+import 'package:work_hours_mobile/domain/models/cloud_backup_bundle.dart';
 import 'package:work_hours_mobile/domain/models/leave_entry.dart';
 import 'package:work_hours_mobile/domain/models/monthly_summary.dart';
 import 'package:work_hours_mobile/domain/models/profile.dart';
@@ -23,7 +25,11 @@ class ApiException implements Exception {
 }
 
 class WorkHoursApiClient {
-  WorkHoursApiClient({required String baseUrl, http.Client? httpClient})
+  WorkHoursApiClient({
+    required String baseUrl,
+    http.Client? httpClient,
+    this.authToken,
+  })
     : _httpClient = httpClient ?? http.Client(),
       _baseUri = _normalizeBaseUri(baseUrl),
       baseUrl = _normalizeBaseUri(baseUrl).toString();
@@ -31,9 +37,13 @@ class WorkHoursApiClient {
   final http.Client _httpClient;
   final Uri _baseUri;
   final String baseUrl;
+  final String? authToken;
 
   Future<UserProfile> fetchProfile() async {
-    final response = await _httpClient.get(_buildUri('profile'));
+    final response = await _httpClient.get(
+      _buildUri('profile'),
+      headers: _headers(),
+    );
     return UserProfile.fromJson(_decodeObject(response));
   }
 
@@ -46,7 +56,7 @@ class WorkHoursApiClient {
   }) async {
     final response = await _httpClient.put(
       _buildUri('profile'),
-      headers: _jsonHeaders,
+      headers: _headers(json: true),
       body: jsonEncode({
         'fullName': fullName,
         'useUniformDailyTarget': useUniformDailyTarget,
@@ -59,9 +69,13 @@ class WorkHoursApiClient {
     return UserProfile.fromJson(_decodeObject(response));
   }
 
-  Future<List<WorkEntry>> fetchWorkEntries({required String month}) async {
+  Future<List<WorkEntry>> fetchWorkEntries({String? month}) async {
     final response = await _httpClient.get(
-      _buildUri('work-entries', queryParameters: {'month': month}),
+      _buildUri(
+        'work-entries',
+        queryParameters: month == null ? null : {'month': month},
+      ),
+      headers: _headers(),
     );
 
     final body = _decodeObject(response);
@@ -82,7 +96,7 @@ class WorkHoursApiClient {
   }) async {
     final response = await _httpClient.post(
       _buildUri('work-entries'),
-      headers: _jsonHeaders,
+      headers: _headers(json: true),
       body: jsonEncode({
         'date': date,
         'minutes': minutes,
@@ -93,9 +107,13 @@ class WorkHoursApiClient {
     return WorkEntry.fromJson(_decodeObject(response));
   }
 
-  Future<List<LeaveEntry>> fetchLeaveEntries({required String month}) async {
+  Future<List<LeaveEntry>> fetchLeaveEntries({String? month}) async {
     final response = await _httpClient.get(
-      _buildUri('leave-entries', queryParameters: {'month': month}),
+      _buildUri(
+        'leave-entries',
+        queryParameters: month == null ? null : {'month': month},
+      ),
+      headers: _headers(),
     );
 
     final body = _decodeObject(response);
@@ -117,7 +135,7 @@ class WorkHoursApiClient {
   }) async {
     final response = await _httpClient.post(
       _buildUri('leave-entries'),
-      headers: _jsonHeaders,
+      headers: _headers(json: true),
       body: jsonEncode({
         'date': date,
         'minutes': minutes,
@@ -130,15 +148,20 @@ class WorkHoursApiClient {
   }
 
   Future<MonthlySummary> fetchMonthlySummary({required String month}) async {
-    final response = await _httpClient.get(_buildUri('monthly-summary/$month'));
+    final response = await _httpClient.get(
+      _buildUri('monthly-summary/$month'),
+      headers: _headers(),
+    );
     return MonthlySummary.fromJson(_decodeObject(response));
   }
 
-  Future<List<ScheduleOverride>> fetchScheduleOverrides({
-    required String month,
-  }) async {
+  Future<List<ScheduleOverride>> fetchScheduleOverrides({String? month}) async {
     final response = await _httpClient.get(
-      _buildUri('schedule-overrides', queryParameters: {'month': month}),
+      _buildUri(
+        'schedule-overrides',
+        queryParameters: month == null ? null : {'month': month},
+      ),
+      headers: _headers(),
     );
 
     final body = _decodeObject(response);
@@ -162,7 +185,7 @@ class WorkHoursApiClient {
   }) async {
     final response = await _httpClient.post(
       _buildUri('schedule-overrides'),
-      headers: _jsonHeaders,
+      headers: _headers(json: true),
       body: jsonEncode({
         'date': date,
         'targetMinutes': targetMinutes,
@@ -177,11 +200,14 @@ class WorkHoursApiClient {
   }
 
   Future<void> deleteScheduleOverride({required String date}) async {
-    final response = await _httpClient.delete(_buildUri('schedule-overrides/$date'));
+    final response = await _httpClient.delete(
+      _buildUri('schedule-overrides/$date'),
+      headers: _headers(),
+    );
     _decodeResponse(response);
   }
 
-  Future<void> createSupportTicket({
+  Future<SupportTicketThread> createSupportTicket({
     required SupportTicketCategory category,
     String? name,
     String? email,
@@ -191,7 +217,7 @@ class WorkHoursApiClient {
   }) async {
     final response = await _httpClient.post(
       _buildUri('tickets'),
-      headers: _jsonHeaders,
+      headers: _headers(json: true),
       body: jsonEncode({
         'category': category.apiValue,
         if (name != null && name.isNotEmpty) 'name': name,
@@ -202,11 +228,107 @@ class WorkHoursApiClient {
       }),
     );
 
+    return SupportTicketThread.fromJson(_decodeObject(response));
+  }
+
+  Future<SupportTicketThread> fetchSupportTicket({
+    required String ticketId,
+  }) async {
+    final response = await _httpClient.get(
+      _buildUri('tickets/$ticketId'),
+      headers: _headers(),
+    );
+    return SupportTicketThread.fromJson(_decodeObject(response));
+  }
+
+  Future<SupportTicketThread> replyToSupportTicket({
+    required String ticketId,
+    required String message,
+  }) async {
+    final response = await _httpClient.post(
+      _buildUri('tickets/$ticketId/replies'),
+      headers: _headers(json: true),
+      body: jsonEncode({'message': message}),
+    );
+
+    return SupportTicketThread.fromJson(_decodeObject(response));
+  }
+
+  Future<AccountSession> register({
+    required String email,
+    required String password,
+  }) async {
+    final response = await _httpClient.post(
+      _buildUri('auth/register'),
+      headers: _headers(json: true),
+      body: jsonEncode({'email': email, 'password': password}),
+    );
+
+    return AccountSession.fromJson(_decodeObject(response));
+  }
+
+  Future<AccountSession> login({
+    required String email,
+    required String password,
+  }) async {
+    final response = await _httpClient.post(
+      _buildUri('auth/login'),
+      headers: _headers(json: true),
+      body: jsonEncode({'email': email, 'password': password}),
+    );
+
+    return AccountSession.fromJson(_decodeObject(response));
+  }
+
+  Future<void> logout() async {
+    final response = await _httpClient.delete(
+      _buildUri('auth/session'),
+      headers: _headers(),
+    );
     _decodeResponse(response);
+  }
+
+  Future<CloudBackupBundle?> fetchCloudBackup() async {
+    final response = await _httpClient.get(
+      _buildUri('me/backup'),
+      headers: _headers(),
+    );
+
+    final body = _decodeObject(response);
+    final hasBackup = body['hasBackup'] as bool? ?? false;
+    if (!hasBackup || body['bundle'] == null) {
+      return null;
+    }
+
+    return CloudBackupBundle.fromJson(body['bundle'] as Map<String, dynamic>);
+  }
+
+  Future<CloudBackupBundle> saveCloudBackup(CloudBackupBundle bundle) async {
+    final response = await _httpClient.put(
+      _buildUri('me/backup'),
+      headers: _headers(json: true),
+      body: jsonEncode(bundle.toJson()),
+    );
+
+    final body = _decodeObject(response);
+    return CloudBackupBundle.fromJson(body['bundle'] as Map<String, dynamic>);
   }
 
   Uri _buildUri(String path, {Map<String, String>? queryParameters}) {
     return _baseUri.resolve(path).replace(queryParameters: queryParameters);
+  }
+
+  Map<String, String> _headers({bool json = false}) {
+    final headers = <String, String>{
+      'Accept': 'application/json',
+    };
+    if (json) {
+      headers['Content-Type'] = 'application/json';
+    }
+    if (authToken != null && authToken!.trim().isNotEmpty) {
+      headers['Authorization'] = 'Bearer ${authToken!.trim()}';
+    }
+    return headers;
   }
 
   Map<String, dynamic> _decodeObject(http.Response response) {
@@ -246,8 +368,4 @@ class WorkHoursApiClient {
     return Uri.parse(normalizedBaseUrl);
   }
 
-  static const _jsonHeaders = {
-    'Content-Type': 'application/json',
-    'Accept': 'application/json',
-  };
 }

@@ -53,6 +53,50 @@ class AppAppearanceSettings {
       textScale: textScale ?? this.textScale,
     );
   }
+
+  factory AppAppearanceSettings.fromJson(Map<String, dynamic> json) {
+    final rawThemeMode = json['themeMode'] as String?;
+    return AppAppearanceSettings(
+      themeMode: switch (rawThemeMode) {
+        'dark' => ThemeMode.dark,
+        'system' => ThemeMode.system,
+        _ => ThemeMode.light,
+      },
+      primaryColor: Color(
+        (json['primaryColor'] as int?) ??
+            AppAppearanceSettings.defaults.primaryColor.toARGB32(),
+      ),
+      secondaryColor: Color(
+        (json['secondaryColor'] as int?) ??
+            AppAppearanceSettings.defaults.secondaryColor.toARGB32(),
+      ),
+      textColor: json['textColor'] is int ? Color(json['textColor'] as int) : null,
+      fontFamily: switch (json['fontFamily'] as String?) {
+        'sansSerif' => AppFontFamily.sansSerif,
+        'serif' => AppFontFamily.serif,
+        'monospace' => AppFontFamily.monospace,
+        'rounded' => AppFontFamily.rounded,
+        'condensed' => AppFontFamily.condensed,
+        _ => AppFontFamily.system,
+      },
+      textScale: ((json['textScale'] as num?)?.toDouble() ?? 1).clamp(0.8, 1.5),
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'themeMode': switch (themeMode) {
+        ThemeMode.dark => 'dark',
+        ThemeMode.system => 'system',
+        _ => 'light',
+      },
+      'primaryColor': primaryColor.toARGB32(),
+      'secondaryColor': secondaryColor.toARGB32(),
+      if (textColor != null) 'textColor': textColor!.toARGB32(),
+      'fontFamily': fontFamily.name,
+      'textScale': textScale,
+    };
+  }
 }
 
 abstract class ThemePreferenceStore {

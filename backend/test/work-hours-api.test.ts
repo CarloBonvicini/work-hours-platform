@@ -84,6 +84,122 @@ describe("Profile API", () => {
   });
 });
 
+describe("Auth and cloud backup API", () => {
+  it("registers, logs in and saves a cloud backup bundle", async () => {
+    const registerResponse = await app.inject({
+      method: "POST",
+      url: "/auth/register",
+      payload: {
+        email: "carlo@example.com",
+        password: "super-segreta"
+      }
+    });
+
+    expect(registerResponse.statusCode).toBe(201);
+    const registerBody = registerResponse.json();
+    expect(registerBody.user).toMatchObject({
+      email: "carlo@example.com"
+    });
+    expect(registerBody.token).toEqual(expect.any(String));
+
+    const backupResponse = await app.inject({
+      method: "PUT",
+      url: "/me/backup",
+      headers: {
+        authorization: `Bearer ${registerBody.token}`
+      },
+      payload: {
+        profile: {
+          id: "local-profile",
+          fullName: "Carlo",
+          useUniformDailyTarget: true,
+          dailyTargetMinutes: 480,
+          weekdayTargetMinutes: buildUniformWeekdayTargetMinutes(480),
+          weekdaySchedule: buildUniformWeekdaySchedule(480)
+        },
+        appearanceSettings: {
+          themeMode: "dark",
+          primaryColor: 123,
+          secondaryColor: 456,
+          textColor: 789,
+          fontFamily: "system",
+          textScale: 1
+        },
+        workEntries: [
+          {
+            id: "work-1",
+            date: "2026-03-20",
+            minutes: 300
+          }
+        ],
+        leaveEntries: [
+          {
+            id: "leave-1",
+            date: "2026-03-20",
+            minutes: 60,
+            type: "permit"
+          }
+        ],
+        scheduleOverrides: [
+          {
+            id: "override-1",
+            date: "2026-03-20",
+            targetMinutes: 420,
+            startTime: "08:30",
+            endTime: "16:30",
+            breakMinutes: 60
+          }
+        ]
+      }
+    });
+
+    expect(backupResponse.statusCode).toBe(200);
+    expect(backupResponse.json().bundle.profile.fullName).toBe("Carlo");
+
+    const loginResponse = await app.inject({
+      method: "POST",
+      url: "/auth/login",
+      payload: {
+        email: "carlo@example.com",
+        password: "super-segreta"
+      }
+    });
+    expect(loginResponse.statusCode).toBe(200);
+
+    const meResponse = await app.inject({
+      method: "GET",
+      url: "/auth/me",
+      headers: {
+        authorization: `Bearer ${loginResponse.json().token}`
+      }
+    });
+    expect(meResponse.statusCode).toBe(200);
+    expect(meResponse.json()).toMatchObject({
+      email: "carlo@example.com"
+    });
+
+    const restoreResponse = await app.inject({
+      method: "GET",
+      url: "/me/backup",
+      headers: {
+        authorization: `Bearer ${loginResponse.json().token}`
+      }
+    });
+    expect(restoreResponse.statusCode).toBe(200);
+    expect(restoreResponse.json()).toMatchObject({
+      hasBackup: true,
+      bundle: {
+        profile: {
+          fullName: "Carlo"
+        },
+        appearanceSettings: {
+          themeMode: "dark"
+        }
+      }
+    });
+  });
+});
+
 describe("Work and leave entries API", () => {
   it("creates entries, stores schedule overrides and computes monthly summary", async () => {
     const profile = {

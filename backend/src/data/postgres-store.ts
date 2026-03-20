@@ -1,5 +1,11 @@
 import { Pool } from "pg";
 import type {
+  AppearanceSettingsRecord,
+  AuthUser,
+  CloudBackupRecord,
+  StoredAuthUser,
+} from "./store.js";
+import type {
   DaySchedule,
   LeaveEntry,
   LeaveType,
@@ -52,6 +58,28 @@ type ScheduleOverrideRow = {
   end_time: string | null;
   break_minutes: number | null;
   note: string | null;
+};
+
+type AuthUserRow = {
+  id: string;
+  email: string;
+  password_hash: string;
+  password_salt: string;
+  created_at: string;
+  updated_at: string;
+};
+
+type AuthSessionUserRow = {
+  id: string;
+  email: string;
+  created_at: string;
+  updated_at: string;
+};
+
+type CloudBackupRow = {
+  user_id: string;
+  payload: CloudBackupRecord;
+  updated_at: string;
 };
 
 const DEFAULT_PROFILE: Profile = {
@@ -119,6 +147,60 @@ function sanitizeWeekdaySchedule(
   }
 
   return sanitized;
+}
+
+function toAuthUser(row: {
+  id: string;
+  email: string;
+  created_at: string;
+  updated_at: string;
+}): AuthUser {
+  return {
+    id: row.id,
+    email: row.email,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+
+function sanitizeAppearanceSettings(
+  value: AppearanceSettingsRecord
+): AppearanceSettingsRecord {
+  return {
+    themeMode:
+      value.themeMode === "dark" || value.themeMode === "system"
+        ? value.themeMode
+        : "light",
+    primaryColor: value.primaryColor,
+    secondaryColor: value.secondaryColor,
+    textColor: value.textColor,
+    fontFamily: value.fontFamily,
+    textScale: value.textScale
+  };
+}
+
+function sanitizeCloudBackupRecord(value: CloudBackupRecord): CloudBackupRecord {
+  const weekdayTargetMinutes = sanitizeWeekdayTargetMinutes(
+    value.profile.weekdayTargetMinutes,
+    value.profile.dailyTargetMinutes
+  );
+  const weekdaySchedule = sanitizeWeekdaySchedule(
+    value.profile.weekdaySchedule,
+    weekdayTargetMinutes
+  );
+
+  return {
+    profile: {
+      ...value.profile,
+      weekdayTargetMinutes,
+      weekdaySchedule
+    },
+    appearanceSettings: sanitizeAppearanceSettings(value.appearanceSettings),
+    workEntries: value.workEntries.map((entry) => ({ ...entry })),
+    leaveEntries: value.leaveEntries.map((entry) => ({ ...entry })),
+    scheduleOverrides: value.scheduleOverrides.map((entry) => ({ ...entry })),
+    updatedAt: value.updatedAt
+  };
 }
 
 function monthRange(month: string): { start: string; end: string } {
@@ -201,6 +283,30 @@ export class PostgresStore implements AppStore {
         ADD COLUMN IF NOT EXISTS break_minutes INTEGER NOT NULL DEFAULT 0;
 
       CREATE INDEX IF NOT EXISTS idx_schedule_overrides_date ON schedule_overrides(date);
+
+      CREATE TABLE IF NOT EXISTS auth_users (
+        id TEXT PRIMARY KEY,
+        email TEXT NOT NULL UNIQUE,
+        password_hash TEXT NOT NULL,
+        password_salt TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS auth_sessions (
+        token_hash TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES auth_users(id) ON DELETE CASCADE,
+        created_at TIMESTAMPTZ NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_auth_sessions_user_id ON auth_sessions(user_id);
+
+      CREATE TABLE IF NOT EXISTS cloud_backups (
+        user_id TEXT PRIMARY KEY REFERENCES auth_users(id) ON DELETE CASCADE,
+        payload JSONB NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL
+      );
     `);
   }
 
@@ -500,6 +606,172 @@ export class PostgresStore implements AppStore {
     );
 
     return (result.rowCount ?? 0) > 0;
+  }
+
+  async findAuthUserByEmail(email: string): Promise<StoredAuthUser | null> {
+    const result = await this.pool.query<AuthUserRow>(
+      `
+        SELECT
+          id,
+          email,
+          password_hash,
+          password_salt,
+          TO_CHAR(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS created_at,
+          TO_CHAR(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS updated_at
+        FROM auth_users
+        WHERE email = $1
+        LIMIT 1
+      `,
+      [email.trim().toLowerCase()]
+    );
+
+    if (result.rowCount === 0) {
+      return null;
+    }
+
+    const row = result.rows[0];
+    return {
+      id: row.id,
+      email: row.email,
+      passwordHash: row.password_hash,
+      passwordSalt: row.password_salt,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at
+    };
+  }
+
+  async createAuthUser(user: StoredAuthUser): Promise<AuthUser> {
+    const result = await this.pool.query<AuthSessionUserRow>(
+      `
+        INSERT INTO auth_users (
+          id,
+          email,
+          password_hash,
+          password_salt,
+          created_at,
+          updated_at
+        )
+        VALUES ($1, $2, $3, $4, $5::timestamptz, $6::timestamptz)
+        RETURNING
+          id,
+          email,
+          TO_CHAR(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS created_at,
+          TO_CHAR(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS updated_at
+      `,
+      [
+        user.id,
+        user.email.trim().toLowerCase(),
+        user.passwordHash,
+        user.passwordSalt,
+        user.createdAt,
+        user.updatedAt
+      ]
+    );
+
+    return toAuthUser(result.rows[0]);
+  }
+
+  async findAuthUserByTokenHash(tokenHash: string): Promise<AuthUser | null> {
+    const result = await this.pool.query<AuthSessionUserRow>(
+      `
+        SELECT
+          auth_users.id,
+          auth_users.email,
+          TO_CHAR(auth_users.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS created_at,
+          TO_CHAR(auth_users.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS updated_at
+        FROM auth_sessions
+        INNER JOIN auth_users ON auth_users.id = auth_sessions.user_id
+        WHERE auth_sessions.token_hash = $1
+        LIMIT 1
+      `,
+      [tokenHash]
+    );
+
+    if (result.rowCount === 0) {
+      return null;
+    }
+
+    return toAuthUser(result.rows[0]);
+  }
+
+  async saveAuthSession(options: {
+    tokenHash: string;
+    userId: string;
+    createdAt: string;
+    updatedAt: string;
+  }): Promise<void> {
+    await this.pool.query(
+      `
+        INSERT INTO auth_sessions (token_hash, user_id, created_at, updated_at)
+        VALUES ($1, $2, $3::timestamptz, $4::timestamptz)
+        ON CONFLICT (token_hash)
+        DO UPDATE SET
+          user_id = EXCLUDED.user_id,
+          updated_at = EXCLUDED.updated_at
+      `,
+      [options.tokenHash, options.userId, options.createdAt, options.updatedAt]
+    );
+  }
+
+  async deleteAuthSession(tokenHash: string): Promise<void> {
+    await this.pool.query(
+      `
+        DELETE FROM auth_sessions
+        WHERE token_hash = $1
+      `,
+      [tokenHash]
+    );
+  }
+
+  async loadCloudBackup(userId: string): Promise<CloudBackupRecord | null> {
+    const result = await this.pool.query<CloudBackupRow>(
+      `
+        SELECT
+          user_id,
+          payload,
+          TO_CHAR(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS updated_at
+        FROM cloud_backups
+        WHERE user_id = $1
+        LIMIT 1
+      `,
+      [userId]
+    );
+
+    if (result.rowCount === 0) {
+      return null;
+    }
+
+    return sanitizeCloudBackupRecord({
+      ...result.rows[0].payload,
+      updatedAt: result.rows[0].updated_at
+    } as CloudBackupRecord);
+  }
+
+  async saveCloudBackup(
+    userId: string,
+    record: CloudBackupRecord
+  ): Promise<CloudBackupRecord> {
+    const sanitized = sanitizeCloudBackupRecord(record);
+    const result = await this.pool.query<CloudBackupRow>(
+      `
+        INSERT INTO cloud_backups (user_id, payload, updated_at)
+        VALUES ($1, $2::jsonb, $3::timestamptz)
+        ON CONFLICT (user_id)
+        DO UPDATE SET
+          payload = EXCLUDED.payload,
+          updated_at = EXCLUDED.updated_at
+        RETURNING
+          user_id,
+          payload,
+          TO_CHAR(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS updated_at
+      `,
+      [userId, JSON.stringify(sanitized), sanitized.updatedAt]
+    );
+
+    return sanitizeCloudBackupRecord({
+      ...result.rows[0].payload,
+      updatedAt: result.rows[0].updated_at
+    } as CloudBackupRecord);
   }
 
   async close(): Promise<void> {

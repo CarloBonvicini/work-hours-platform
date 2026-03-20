@@ -1,12 +1,15 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:work_hours_mobile/application/services/account_service.dart';
 import 'package:work_hours_mobile/application/services/app_update_service.dart';
 import 'package:work_hours_mobile/application/services/dashboard_service.dart';
 import 'package:work_hours_mobile/application/services/dashboard_snapshot_store.dart';
 import 'package:work_hours_mobile/application/services/onboarding_preference_store.dart';
+import 'package:work_hours_mobile/application/services/support_ticket_store.dart';
 import 'package:work_hours_mobile/application/services/theme_preference_store.dart';
 import 'package:work_hours_mobile/application/services/update_reminder_store.dart';
 import 'package:work_hours_mobile/application/services/workday_start_store.dart';
+import 'package:work_hours_mobile/domain/models/account_session.dart';
 import 'package:work_hours_mobile/presentation/home/home_screen.dart';
 
 class WorkHoursApp extends StatefulWidget {
@@ -19,6 +22,9 @@ class WorkHoursApp extends StatefulWidget {
     required this.themePreferenceStore,
     required this.onboardingPreferenceStore,
     required this.workdayStartStore,
+    this.supportTicketStore = const SharedPreferencesSupportTicketStore(),
+    this.accountService,
+    this.initialAccountSession,
     this.initialAppearanceSettings = AppAppearanceSettings.defaults,
     this.hasCompletedInitialSetup = false,
   });
@@ -30,6 +36,9 @@ class WorkHoursApp extends StatefulWidget {
   final ThemePreferenceStore themePreferenceStore;
   final OnboardingPreferenceStore onboardingPreferenceStore;
   final WorkdayStartStore workdayStartStore;
+  final SupportTicketStore supportTicketStore;
+  final AccountService? accountService;
+  final AccountSession? initialAccountSession;
   final AppAppearanceSettings initialAppearanceSettings;
   final bool hasCompletedInitialSetup;
 
@@ -96,6 +105,9 @@ class _WorkHoursAppState extends State<WorkHoursApp> {
         dashboardSnapshotStore: widget.dashboardSnapshotStore,
         onboardingPreferenceStore: widget.onboardingPreferenceStore,
         workdayStartStore: widget.workdayStartStore,
+        supportTicketStore: widget.supportTicketStore,
+        accountService: widget.accountService,
+        initialAccountSession: widget.initialAccountSession,
         hasCompletedInitialSetup: widget.hasCompletedInitialSetup,
         isDarkTheme: _appearanceSettings.themeMode == ThemeMode.dark,
         appearanceSettings: _appearanceSettings,

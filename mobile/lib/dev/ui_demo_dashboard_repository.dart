@@ -118,6 +118,11 @@ class UiDemoDashboardRepository implements DashboardRepository {
   final Map<String, List<LeaveEntry>> _leaveEntriesByMonth = {};
   final Map<String, List<ScheduleOverride>> _scheduleOverridesByMonth = {};
   final List<Map<String, Object?>> submittedTickets = [];
+  final Map<String, SupportTicketThread> _ticketThreadsById = {};
+
+  String _nextTicketId() {
+    return 'ticket-${DateTime.now().microsecondsSinceEpoch}';
+  }
 
   @override
   Future<DashboardSnapshot> loadSnapshot({required String month}) async {
@@ -221,7 +226,7 @@ class UiDemoDashboardRepository implements DashboardRepository {
   }
 
   @override
-  Future<void> submitSupportTicket({
+  Future<SupportTicketThread> submitSupportTicket({
     required SupportTicketCategory category,
     String? name,
     String? email,
@@ -229,7 +234,23 @@ class UiDemoDashboardRepository implements DashboardRepository {
     required String message,
     String? appVersion,
   }) async {
+    final now = DateTime.now();
+    final thread = SupportTicketThread(
+      id: _nextTicketId(),
+      category: category,
+      status: SupportTicketStatus.newTicket,
+      subject: subject,
+      message: message,
+      createdAt: now,
+      updatedAt: now,
+      replies: const [],
+      name: name,
+      email: email,
+      appVersion: appVersion,
+    );
+    _ticketThreadsById[thread.id] = thread;
     submittedTickets.add({
+      'id': thread.id,
       'category': category.apiValue,
       'name': name,
       'email': email,
@@ -237,6 +258,51 @@ class UiDemoDashboardRepository implements DashboardRepository {
       'message': message,
       'appVersion': appVersion,
     });
+    return thread;
+  }
+
+  @override
+  Future<SupportTicketThread> fetchSupportTicket({required String ticketId}) async {
+    final thread = _ticketThreadsById[ticketId];
+    if (thread == null) {
+      throw Exception('Ticket non trovato');
+    }
+    return thread;
+  }
+
+  @override
+  Future<SupportTicketThread> replyToSupportTicket({
+    required String ticketId,
+    required String message,
+  }) async {
+    final thread = _ticketThreadsById[ticketId];
+    if (thread == null) {
+      throw Exception('Ticket non trovato');
+    }
+
+    final updatedThread = SupportTicketThread(
+      id: thread.id,
+      category: thread.category,
+      status: SupportTicketStatus.inProgress,
+      subject: thread.subject,
+      message: thread.message,
+      createdAt: thread.createdAt,
+      updatedAt: DateTime.now(),
+      replies: [
+        ...thread.replies,
+        SupportTicketReply(
+          id: _nextTicketId(),
+          author: 'user',
+          message: message,
+          createdAt: DateTime.now(),
+        ),
+      ],
+      name: thread.name,
+      email: thread.email,
+      appVersion: thread.appVersion,
+    );
+    _ticketThreadsById[ticketId] = updatedThread;
+    return updatedThread;
   }
 
   DashboardSnapshot _buildSnapshot(String month) {

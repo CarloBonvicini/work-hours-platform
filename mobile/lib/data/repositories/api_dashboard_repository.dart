@@ -96,7 +96,7 @@ class ApiDashboardRepository implements DashboardRepository {
   }
 
   @override
-  Future<void> submitSupportTicket({
+  Future<SupportTicketThread> submitSupportTicket({
     required SupportTicketCategory category,
     String? name,
     String? email,
@@ -112,6 +112,19 @@ class ApiDashboardRepository implements DashboardRepository {
       message: message,
       appVersion: appVersion,
     );
+  }
+
+  @override
+  Future<SupportTicketThread> fetchSupportTicket({required String ticketId}) {
+    return _apiClient.fetchSupportTicket(ticketId: ticketId);
+  }
+
+  @override
+  Future<SupportTicketThread> replyToSupportTicket({
+    required String ticketId,
+    required String message,
+  }) {
+    return _apiClient.replyToSupportTicket(ticketId: ticketId, message: message);
   }
 
   Future<DashboardSnapshot> _buildSnapshot({required String month}) async {

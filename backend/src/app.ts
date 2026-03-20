@@ -1,11 +1,17 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID, scryptSync } from "node:crypto";
 import { createReadStream, promises as fs } from "node:fs";
 import path from "node:path";
 import cors from "@fastify/cors";
 import Fastify from "fastify";
 import type { FastifyRequest } from "fastify";
 import { InMemoryStore } from "./data/in-memory-store.js";
-import type { AppStore } from "./data/store.js";
+import type {
+  AppStore,
+  AppearanceSettingsRecord,
+  AuthUser,
+  CloudBackupRecord,
+  StoredAuthUser
+} from "./data/store.js";
 import {
   buildUniformWeekdayTargetMinutes,
   buildMonthlySummary,
@@ -15,11 +21,13 @@ import {
 } from "./domain/monthly-summary.js";
 import type {
   DaySchedule,
+  LeaveEntry,
   LeaveType,
   Profile,
   ScheduleOverride,
   WeekdaySchedule,
-  WeekdayTargetMinutes
+  WeekdayTargetMinutes,
+  WorkEntry
 } from "./domain/types.js";
 
 interface BuildAppOptions {
@@ -45,6 +53,7 @@ interface MobileReleaseStatus {
 
 type SupportTicketCategory = "bug" | "feature" | "support";
 type SupportTicketStatus = "new" | "in_progress" | "answered" | "closed";
+type SupportTicketReplyAuthor = "admin" | "user";
 
 interface SupportTicketInput {
   category: SupportTicketCategory;
@@ -66,9 +75,14 @@ interface SupportTicket extends SupportTicketInput {
 
 interface SupportTicketReply {
   id: string;
-  author: "admin";
+  author: SupportTicketReplyAuthor;
   message: string;
   createdAt: string;
+}
+
+interface AuthResponse {
+  token: string;
+  user: AuthUser;
 }
 
 function parseMonthQuery(query: unknown): string | null | undefined {
@@ -364,6 +378,12 @@ function isSupportTicketStatus(value: unknown): value is SupportTicketStatus {
   );
 }
 
+function isSupportTicketReplyAuthor(
+  value: unknown
+): value is SupportTicketReplyAuthor {
+  return value === "admin" || value === "user";
+}
+
 function normalizeOptionalText(value: unknown, maxLength: number) {
   if (typeof value !== "string") {
     return undefined;
@@ -392,6 +412,388 @@ function normalizeRequiredText(value: unknown, maxLength: number) {
 
 function isValidEmail(value: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+
+function normalizeEmail(value: string) {
+  return value.trim().toLowerCase();
+}
+
+function createPasswordDigest(password: string) {
+  const salt = randomBytes(16).toString("hex");
+  const hash = scryptSync(password, salt, 64).toString("hex");
+  return { salt, hash };
+}
+
+function verifyPasswordDigest(password: string, user: StoredAuthUser) {
+  const hash = scryptSync(password, user.passwordSalt, 64).toString("hex");
+  return hash === user.passwordHash;
+}
+
+function createSessionToken() {
+  return randomBytes(32).toString("hex");
+}
+
+function hashSessionToken(token: string) {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+function parseAuthCredentials(payload: unknown) {
+  if (!payload || typeof payload !== "object") {
+    return { value: null, error: "Invalid body" as const };
+  }
+
+  const body = payload as Record<string, unknown>;
+  const email =
+    typeof body.email === "string" ? normalizeEmail(body.email) : null;
+  if (!email || !isValidEmail(email)) {
+    return { value: null, error: "email must be valid" as const };
+  }
+
+  const password = typeof body.password === "string" ? body.password : null;
+  if (!password || password.trim().length < 8) {
+    return {
+      value: null,
+      error: "password must be at least 8 characters" as const
+    };
+  }
+
+  return {
+    value: {
+      email,
+      password
+    }
+  };
+}
+
+function parseProfilePayload(
+  payload: unknown,
+  fallbackId: string
+): { value: Profile | null; error?: string } {
+  if (!payload || typeof payload !== "object") {
+    return { value: null, error: "Invalid profile payload" };
+  }
+
+  const body = payload as Record<string, unknown>;
+  if (typeof body.fullName !== "string" || body.fullName.trim().length === 0) {
+    return { value: null, error: "fullName is required" };
+  }
+
+  const useUniformDailyTarget =
+    body.useUniformDailyTarget === undefined
+      ? true
+      : body.useUniformDailyTarget === true;
+  if (
+    body.useUniformDailyTarget !== undefined &&
+    typeof body.useUniformDailyTarget !== "boolean"
+  ) {
+    return {
+      value: null,
+      error: "useUniformDailyTarget must be a boolean"
+    };
+  }
+
+  const parsedWeekdayTargetMinutes = parseWeekdayTargetMinutes(
+    body.weekdayTargetMinutes
+  );
+  if (
+    body.weekdayTargetMinutes !== undefined &&
+    parsedWeekdayTargetMinutes === null
+  ) {
+    return {
+      value: null,
+      error:
+        "weekdayTargetMinutes must include monday-sunday non-negative integers"
+    };
+  }
+
+  const parsedWeekdaySchedule = parseWeekdaySchedule(body.weekdaySchedule);
+  if (body.weekdaySchedule !== undefined && parsedWeekdaySchedule === null) {
+    return {
+      value: null,
+      error:
+        "weekdaySchedule must include monday-sunday targetMinutes, optional startTime/endTime in HH:MM and non-negative breakMinutes"
+    };
+  }
+
+  if (
+    useUniformDailyTarget &&
+    parsedWeekdaySchedule === null &&
+    !isPositiveInteger(body.dailyTargetMinutes)
+  ) {
+    return {
+      value: null,
+      error: "dailyTargetMinutes must be a positive integer"
+    };
+  }
+
+  const weekdayTargetMinutes = parsedWeekdaySchedule
+    ? deriveWeekdayTargetMinutesFromSchedule(parsedWeekdaySchedule)
+    : useUniformDailyTarget
+      ? buildUniformWeekdayTargetMinutes(body.dailyTargetMinutes as number)
+      : parsedWeekdayTargetMinutes;
+
+  if (!weekdayTargetMinutes) {
+    return {
+      value: null,
+      error:
+        "weekdayTargetMinutes or weekdaySchedule is required when useUniformDailyTarget is false"
+    };
+  }
+
+  const weekdaySchedule =
+    parsedWeekdaySchedule ??
+    buildWeekdayScheduleFromTargetMinutes(weekdayTargetMinutes);
+
+  const dailyTargetMinutes = deriveDailyTargetMinutes(
+    useUniformDailyTarget,
+    isPositiveInteger(body.dailyTargetMinutes) && parsedWeekdaySchedule === null
+      ? body.dailyTargetMinutes
+      : undefined,
+    weekdayTargetMinutes
+  );
+
+  return {
+    value: {
+      id:
+        typeof body.id === "string" && body.id.trim().length > 0
+          ? body.id.trim()
+          : fallbackId,
+      fullName: body.fullName.trim(),
+      useUniformDailyTarget,
+      dailyTargetMinutes,
+      weekdayTargetMinutes,
+      weekdaySchedule
+    }
+  };
+}
+
+function parseWorkEntryRecord(payload: unknown): WorkEntry | null {
+  if (!payload || typeof payload !== "object") {
+    return null;
+  }
+
+  const body = payload as Record<string, unknown>;
+  if (
+    typeof body.id !== "string" ||
+    typeof body.date !== "string" ||
+    !isIsoDate(body.date) ||
+    !isPositiveInteger(body.minutes)
+  ) {
+    return null;
+  }
+
+  if (body.note !== undefined && typeof body.note !== "string") {
+    return null;
+  }
+
+  return {
+    id: body.id,
+    date: body.date,
+    minutes: body.minutes,
+    note: typeof body.note === "string" ? body.note : undefined
+  };
+}
+
+function parseLeaveEntryRecord(payload: unknown): LeaveEntry | null {
+  if (!payload || typeof payload !== "object") {
+    return null;
+  }
+
+  const body = payload as Record<string, unknown>;
+  if (
+    typeof body.id !== "string" ||
+    typeof body.date !== "string" ||
+    !isIsoDate(body.date) ||
+    !isPositiveInteger(body.minutes) ||
+    !isLeaveType(body.type)
+  ) {
+    return null;
+  }
+
+  if (body.note !== undefined && typeof body.note !== "string") {
+    return null;
+  }
+
+  return {
+    id: body.id,
+    date: body.date,
+    minutes: body.minutes,
+    type: body.type,
+    note: typeof body.note === "string" ? body.note : undefined
+  };
+}
+
+function parseScheduleOverrideRecord(payload: unknown): ScheduleOverride | null {
+  if (!payload || typeof payload !== "object") {
+    return null;
+  }
+
+  const body = payload as Record<string, unknown>;
+  if (
+    typeof body.id !== "string" ||
+    typeof body.date !== "string" ||
+    !isIsoDate(body.date) ||
+    !isNonNegativeInteger(body.targetMinutes)
+  ) {
+    return null;
+  }
+
+  const breakMinutes = body.breakMinutes === undefined ? 0 : body.breakMinutes;
+  if (!isNonNegativeInteger(breakMinutes)) {
+    return null;
+  }
+
+  if (
+    (body.startTime !== undefined && !isTimeString(body.startTime)) ||
+    (body.endTime !== undefined && !isTimeString(body.endTime))
+  ) {
+    return null;
+  }
+
+  if (body.note !== undefined && typeof body.note !== "string") {
+    return null;
+  }
+
+  const value: ScheduleOverride = {
+    id: body.id,
+    date: body.date,
+    targetMinutes: body.targetMinutes,
+    startTime: body.startTime,
+    endTime: body.endTime,
+    breakMinutes,
+    note: typeof body.note === "string" ? body.note : undefined
+  };
+
+  return isScheduleTimingConsistent(value) ? value : null;
+}
+
+function parseAppearanceSettingsRecord(
+  payload: unknown
+): AppearanceSettingsRecord | null {
+  if (!payload || typeof payload !== "object") {
+    return null;
+  }
+
+  const body = payload as Record<string, unknown>;
+  if (
+    body.themeMode !== "light" &&
+    body.themeMode !== "dark" &&
+    body.themeMode !== "system"
+  ) {
+    return null;
+  }
+
+  if (
+    !Number.isInteger(body.primaryColor) ||
+    !Number.isInteger(body.secondaryColor) ||
+    typeof body.fontFamily !== "string" ||
+    typeof body.textScale !== "number"
+  ) {
+    return null;
+  }
+
+  if (body.textColor !== undefined && !Number.isInteger(body.textColor)) {
+    return null;
+  }
+
+  if (body.textScale < 0.8 || body.textScale > 1.5) {
+    return null;
+  }
+
+  return {
+    themeMode: body.themeMode,
+    primaryColor: body.primaryColor as number,
+    secondaryColor: body.secondaryColor as number,
+    textColor: body.textColor as number | undefined,
+    fontFamily: body.fontFamily,
+    textScale: body.textScale
+  };
+}
+
+function parseCloudBackupPayload(
+  payload: unknown,
+  fallbackProfileId: string
+): { value: CloudBackupRecord | null; error?: string } {
+  if (!payload || typeof payload !== "object") {
+    return { value: null, error: "Invalid body" };
+  }
+
+  const body = payload as Record<string, unknown>;
+  const parsedProfile = parseProfilePayload(body.profile, fallbackProfileId);
+  if (!parsedProfile.value) {
+    return { value: null, error: parsedProfile.error ?? "Invalid profile" };
+  }
+
+  const appearanceSettings = parseAppearanceSettingsRecord(
+    body.appearanceSettings
+  );
+  if (!appearanceSettings) {
+    return {
+      value: null,
+      error:
+        "appearanceSettings must include themeMode, colors, fontFamily and textScale"
+    };
+  }
+
+  const workEntries = Array.isArray(body.workEntries)
+    ? body.workEntries.map(parseWorkEntryRecord)
+    : null;
+  const leaveEntries = Array.isArray(body.leaveEntries)
+    ? body.leaveEntries.map(parseLeaveEntryRecord)
+    : null;
+  const scheduleOverrides = Array.isArray(body.scheduleOverrides)
+    ? body.scheduleOverrides.map(parseScheduleOverrideRecord)
+    : null;
+
+  if (
+    !workEntries ||
+    workEntries.some((entry) => entry === null) ||
+    !leaveEntries ||
+    leaveEntries.some((entry) => entry === null) ||
+    !scheduleOverrides ||
+    scheduleOverrides.some((entry) => entry === null)
+  ) {
+    return {
+      value: null,
+      error:
+        "workEntries, leaveEntries and scheduleOverrides must contain valid items"
+    };
+  }
+
+  return {
+    value: {
+      profile: parsedProfile.value,
+      appearanceSettings,
+      workEntries: workEntries as WorkEntry[],
+      leaveEntries: leaveEntries as LeaveEntry[],
+      scheduleOverrides: scheduleOverrides as ScheduleOverride[],
+      updatedAt: new Date().toISOString()
+    }
+  };
+}
+
+async function readAuthenticatedUser(
+  request: FastifyRequest,
+  store: AppStore
+): Promise<{ user: AuthUser | null; tokenHash: string | null }> {
+  const authorization = request.headers.authorization;
+  if (typeof authorization !== "string") {
+    return { user: null, tokenHash: null };
+  }
+
+  const bearerMatch = authorization.match(/^Bearer\s+(.+)$/i);
+  if (!bearerMatch) {
+    return { user: null, tokenHash: null };
+  }
+
+  const token = bearerMatch[1]?.trim();
+  if (!token) {
+    return { user: null, tokenHash: null };
+  }
+
+  const tokenHash = hashSessionToken(token);
+  const user = await store.findAuthUserByTokenHash(tokenHash);
+  return { user, tokenHash };
 }
 
 function parseSupportTicketInput(
@@ -498,7 +900,7 @@ function normalizeSupportTicketRecord(value: unknown): SupportTicket | null {
         const reply = replyValue as Record<string, unknown>;
         if (
           typeof reply.id !== "string" ||
-          reply.author !== "admin" ||
+          !isSupportTicketReplyAuthor(reply.author) ||
           typeof reply.message !== "string" ||
           typeof reply.createdAt !== "string"
         ) {
@@ -508,7 +910,7 @@ function normalizeSupportTicketRecord(value: unknown): SupportTicket | null {
         return [
           {
             id: reply.id,
-            author: "admin" as const,
+            author: reply.author,
             message: reply.message,
             createdAt: reply.createdAt
           }
@@ -588,6 +990,7 @@ async function listSupportTickets(): Promise<SupportTicket[]> {
 
 async function appendSupportTicketReply(options: {
   ticketId: string;
+  author: SupportTicketReplyAuthor;
   message: string;
   status?: SupportTicketStatus;
 }) {
@@ -599,7 +1002,7 @@ async function appendSupportTicketReply(options: {
   const now = new Date().toISOString();
   ticket.replies.push({
     id: randomUUID(),
-    author: "admin",
+    author: options.author,
     message: options.message,
     createdAt: now
   });
@@ -1302,7 +1705,7 @@ function renderAdminPage(options: { baseUrl: string; authRequired: boolean }) {
         if (!ticket) { ticketDetail.innerHTML = '<div class="empty-state">Seleziona un ticket per vedere il dettaglio.</div>'; return; }
         state.selectedTicketId = ticket.id;
         const replies = Array.isArray(ticket.replies) ? ticket.replies : [];
-        ticketDetail.innerHTML = '<div class="toolbar"><div><h3 style="margin-bottom:6px;">' + escapeHtml(ticket.subject) + '</h3><div class="reply-meta">' + categoryBadge(ticket.category) + statusBadge(ticket.status) + '</div></div></div><div class="detail-grid" style="margin-top:14px;"><div class="field"><div class="field-label">Creato</div><div>' + formatDateTime(ticket.createdAt) + '</div></div><div class="field"><div class="field-label">Aggiornato</div><div>' + formatDateTime(ticket.updatedAt) + '</div></div><div class="field"><div class="field-label">Contatto</div><div>' + escapeHtml(ticket.name || "—") + (ticket.email ? " (" + escapeHtml(ticket.email) + ")" : "") + '</div></div><div class="field"><div class="field-label">Versione app</div><div>' + escapeHtml(ticket.appVersion || "—") + '</div></div></div><section class="thread"><article class="message-card"><div class="field-label">Messaggio utente</div><div style="margin-top:8px; white-space:pre-wrap;">' + escapeHtml(ticket.message) + '</div></article>' + (replies.map((reply) => '<article class="message-card reply"><div class="field-label">Risposta admin · ' + formatDateTime(reply.createdAt) + '</div><div style="margin-top:8px; white-space:pre-wrap;">' + escapeHtml(reply.message) + '</div></article>').join("") || '<div class="empty-state">Ancora nessuna risposta admin.</div>') + '</section><form id="admin-reply-form" class="reply-form"><label class="field"><span class="field-label">Nuova risposta</span><textarea name="message" required placeholder="Scrivi la risposta che vuoi salvare nel thread del ticket"></textarea></label><label class="field"><span class="field-label">Nuovo stato</span><select name="status"><option value="answered">Risposto</option><option value="in_progress">In lavorazione</option><option value="closed">Chiuso</option></select></label><div class="reply-actions"><button type="submit" class="primary">Salva risposta</button></div></form>';
+        ticketDetail.innerHTML = '<div class="toolbar"><div><h3 style="margin-bottom:6px;">' + escapeHtml(ticket.subject) + '</h3><div class="reply-meta">' + categoryBadge(ticket.category) + statusBadge(ticket.status) + '</div></div></div><div class="detail-grid" style="margin-top:14px;"><div class="field"><div class="field-label">Creato</div><div>' + formatDateTime(ticket.createdAt) + '</div></div><div class="field"><div class="field-label">Aggiornato</div><div>' + formatDateTime(ticket.updatedAt) + '</div></div><div class="field"><div class="field-label">Contatto</div><div>' + escapeHtml(ticket.name || "—") + (ticket.email ? " (" + escapeHtml(ticket.email) + ")" : "") + '</div></div><div class="field"><div class="field-label">Versione app</div><div>' + escapeHtml(ticket.appVersion || "—") + '</div></div></div><section class="thread"><article class="message-card"><div class="field-label">Messaggio utente</div><div style="margin-top:8px; white-space:pre-wrap;">' + escapeHtml(ticket.message) + '</div></article>' + (replies.map((reply) => '<article class="message-card reply"><div class="field-label">' + (reply.author === "admin" ? "Risposta admin" : "Replica utente") + ' · ' + formatDateTime(reply.createdAt) + '</div><div style="margin-top:8px; white-space:pre-wrap;">' + escapeHtml(reply.message) + '</div></article>').join("") || '<div class="empty-state">Ancora nessuna risposta nel thread.</div>') + '</section><form id="admin-reply-form" class="reply-form"><label class="field"><span class="field-label">Nuova risposta</span><textarea name="message" required placeholder="Scrivi la risposta che vuoi salvare nel thread del ticket"></textarea></label><label class="field"><span class="field-label">Nuovo stato</span><select name="status"><option value="answered">Risposto</option><option value="in_progress">In lavorazione</option><option value="closed">Chiuso</option></select></label><div class="reply-actions"><button type="submit" class="primary">Salva risposta</button></div></form>';
         const form = document.getElementById("admin-reply-form");
         form?.addEventListener("submit", async (event) => {
           event.preventDefault();
@@ -1669,11 +2072,53 @@ export function buildApp(options: BuildAppOptions = {}) {
     }
 
     const savedTicket = await saveSupportTicket(value);
-    return reply.code(201).send({
-      id: savedTicket.id,
-      status: savedTicket.status,
-      createdAt: savedTicket.createdAt
+    return reply.code(201).send(savedTicket);
+  });
+
+  app.get("/tickets/:ticketId", async (request, reply) => {
+    const params = request.params as { ticketId?: unknown };
+    if (typeof params.ticketId !== "string" || params.ticketId.length === 0) {
+      return reply.code(400).send({ error: "ticketId is required" });
+    }
+
+    const ticket = await readSupportTicket(params.ticketId);
+    if (!ticket) {
+      return reply.code(404).send({ error: "Ticket not found" });
+    }
+
+    return ticket;
+  });
+
+  app.post("/tickets/:ticketId/replies", async (request, reply) => {
+    const params = request.params as { ticketId?: unknown };
+    if (typeof params.ticketId !== "string" || params.ticketId.length === 0) {
+      return reply.code(400).send({ error: "ticketId is required" });
+    }
+
+    const body =
+      request.body && typeof request.body === "object"
+        ? (request.body as Record<string, unknown>)
+        : null;
+    if (!body) {
+      return reply.code(400).send({ error: "Invalid body" });
+    }
+
+    const message = normalizeRequiredText(body.message, 4000);
+    if (!message) {
+      return reply.code(400).send({ error: "message is required" });
+    }
+
+    const updatedTicket = await appendSupportTicketReply({
+      ticketId: params.ticketId,
+      author: "user",
+      message,
+      status: "in_progress"
     });
+    if (!updatedTicket) {
+      return reply.code(404).send({ error: "Ticket not found" });
+    }
+
+    return updatedTicket;
   });
 
   app.get("/admin", async (request, reply) => {
@@ -1754,6 +2199,7 @@ export function buildApp(options: BuildAppOptions = {}) {
 
     const updatedTicket = await appendSupportTicketReply({
       ticketId: params.ticketId,
+      author: "admin",
       message,
       status: nextStatus ?? undefined
     });
@@ -1762,6 +2208,138 @@ export function buildApp(options: BuildAppOptions = {}) {
     }
 
     return updatedTicket;
+  });
+
+  app.post("/auth/register", async (request, reply) => {
+    const parsedCredentials = parseAuthCredentials(request.body);
+    if (!parsedCredentials.value) {
+      return reply.code(400).send({
+        error: parsedCredentials.error ?? "Invalid credentials"
+      });
+    }
+
+    const existingUser = await store.findAuthUserByEmail(
+      parsedCredentials.value.email
+    );
+    if (existingUser) {
+      return reply.code(409).send({ error: "email already registered" });
+    }
+
+    const now = new Date().toISOString();
+    const passwordDigest = createPasswordDigest(parsedCredentials.value.password);
+    const createdUser = await store.createAuthUser({
+      id: randomUUID(),
+      email: parsedCredentials.value.email,
+      passwordHash: passwordDigest.hash,
+      passwordSalt: passwordDigest.salt,
+      createdAt: now,
+      updatedAt: now
+    });
+
+    const token = createSessionToken();
+    await store.saveAuthSession({
+      tokenHash: hashSessionToken(token),
+      userId: createdUser.id,
+      createdAt: now,
+      updatedAt: now
+    });
+
+    const response: AuthResponse = {
+      token,
+      user: createdUser
+    };
+
+    return reply.code(201).send(response);
+  });
+
+  app.post("/auth/login", async (request, reply) => {
+    const parsedCredentials = parseAuthCredentials(request.body);
+    if (!parsedCredentials.value) {
+      return reply.code(400).send({
+        error: parsedCredentials.error ?? "Invalid credentials"
+      });
+    }
+
+    const user = await store.findAuthUserByEmail(parsedCredentials.value.email);
+    if (!user || !verifyPasswordDigest(parsedCredentials.value.password, user)) {
+      return reply.code(401).send({ error: "invalid email or password" });
+    }
+
+    const token = createSessionToken();
+    const now = new Date().toISOString();
+    await store.saveAuthSession({
+      tokenHash: hashSessionToken(token),
+      userId: user.id,
+      createdAt: now,
+      updatedAt: now
+    });
+
+    const response: AuthResponse = {
+      token,
+      user: {
+        id: user.id,
+        email: user.email,
+        createdAt: user.createdAt,
+        updatedAt: user.updatedAt
+      }
+    };
+
+    return response;
+  });
+
+  app.get("/auth/me", async (request, reply) => {
+    const { user } = await readAuthenticatedUser(request, store);
+    if (!user) {
+      return reply.code(401).send({ error: "Unauthorized" });
+    }
+
+    return user;
+  });
+
+  app.delete("/auth/session", async (request, reply) => {
+    const { user, tokenHash } = await readAuthenticatedUser(request, store);
+    if (!user || !tokenHash) {
+      return reply.code(401).send({ error: "Unauthorized" });
+    }
+
+    await store.deleteAuthSession(tokenHash);
+    return reply.code(204).send();
+  });
+
+  app.get("/me/backup", async (request, reply) => {
+    const { user } = await readAuthenticatedUser(request, store);
+    if (!user) {
+      return reply.code(401).send({ error: "Unauthorized" });
+    }
+
+    const bundle = await store.loadCloudBackup(user.id);
+    return {
+      hasBackup: bundle !== null,
+      bundle
+    };
+  });
+
+  app.put("/me/backup", async (request, reply) => {
+    const { user } = await readAuthenticatedUser(request, store);
+    if (!user) {
+      return reply.code(401).send({ error: "Unauthorized" });
+    }
+
+    const parsedBundle = parseCloudBackupPayload(
+      request.body,
+      `${user.id}-profile`
+    );
+    if (!parsedBundle.value) {
+      return reply.code(400).send({
+        error: parsedBundle.error ?? "Invalid backup payload"
+      });
+    }
+
+    const savedBundle = await store.saveCloudBackup(user.id, parsedBundle.value);
+    return {
+      savedAt: savedBundle.updatedAt,
+      bundle: savedBundle
+    };
   });
 
   app.get("/health", async () => {
@@ -1777,94 +2355,14 @@ export function buildApp(options: BuildAppOptions = {}) {
   });
 
   app.put("/profile", async (request, reply) => {
-    const payload = request.body;
-    if (!payload || typeof payload !== "object") {
-      return reply.code(400).send({ error: "Invalid body" });
-    }
-
-    const body = payload as Record<string, unknown>;
-    if (typeof body.fullName !== "string" || body.fullName.trim().length === 0) {
-      return reply.code(400).send({ error: "fullName is required" });
-    }
-
-    const useUniformDailyTarget =
-      body.useUniformDailyTarget === undefined
-        ? true
-        : body.useUniformDailyTarget === true;
-    if (
-      body.useUniformDailyTarget !== undefined &&
-      typeof body.useUniformDailyTarget !== "boolean"
-    ) {
+    const parsedProfile = parseProfilePayload(request.body, "default-profile");
+    if (!parsedProfile.value) {
       return reply.code(400).send({
-        error: "useUniformDailyTarget must be a boolean"
+        error: parsedProfile.error ?? "Invalid profile payload"
       });
     }
 
-    const parsedWeekdayTargetMinutes = parseWeekdayTargetMinutes(
-      body.weekdayTargetMinutes
-    );
-    if (
-      body.weekdayTargetMinutes !== undefined &&
-      parsedWeekdayTargetMinutes === null
-    ) {
-      return reply.code(400).send({
-        error: "weekdayTargetMinutes must include monday-sunday non-negative integers"
-      });
-    }
-
-    const parsedWeekdaySchedule = parseWeekdaySchedule(body.weekdaySchedule);
-    if (body.weekdaySchedule !== undefined && parsedWeekdaySchedule === null) {
-      return reply.code(400).send({
-        error:
-          "weekdaySchedule must include monday-sunday targetMinutes, optional startTime/endTime in HH:MM and non-negative breakMinutes"
-      });
-    }
-
-    if (
-      useUniformDailyTarget &&
-      parsedWeekdaySchedule === null &&
-      !isPositiveInteger(body.dailyTargetMinutes)
-    ) {
-      return reply.code(400).send({
-        error: "dailyTargetMinutes must be a positive integer"
-      });
-    }
-
-    const weekdayTargetMinutes = parsedWeekdaySchedule
-      ? deriveWeekdayTargetMinutesFromSchedule(parsedWeekdaySchedule)
-      : useUniformDailyTarget
-        ? buildUniformWeekdayTargetMinutes(body.dailyTargetMinutes as number)
-        : parsedWeekdayTargetMinutes;
-
-    if (!weekdayTargetMinutes) {
-      return reply.code(400).send({
-        error:
-          "weekdayTargetMinutes or weekdaySchedule is required when useUniformDailyTarget is false"
-      });
-    }
-
-    const weekdaySchedule =
-      parsedWeekdaySchedule ??
-      buildWeekdayScheduleFromTargetMinutes(weekdayTargetMinutes);
-
-    const dailyTargetMinutes = deriveDailyTargetMinutes(
-      useUniformDailyTarget,
-      isPositiveInteger(body.dailyTargetMinutes) && parsedWeekdaySchedule === null
-        ? body.dailyTargetMinutes
-        : undefined,
-      weekdayTargetMinutes
-    );
-
-    const profile: Profile = {
-      id: "default-profile",
-      fullName: body.fullName.trim(),
-      useUniformDailyTarget,
-      dailyTargetMinutes,
-      weekdayTargetMinutes,
-      weekdaySchedule
-    };
-
-    return await store.saveProfile(profile);
+    return await store.saveProfile(parsedProfile.value);
   });
 
   app.get("/work-entries", async (request, reply) => {

@@ -69,6 +69,7 @@ describe("Support tickets", () => {
     expect(body.status).toBe("new");
     expect(body.id).toBeTruthy();
     expect(body.createdAt).toBeTruthy();
+    expect(Array.isArray(body.replies)).toBe(true);
 
     const files = await readdir(tempDirectory);
     expect(files).toHaveLength(1);
@@ -84,6 +85,65 @@ describe("Support tickets", () => {
     expect(ticket.message).toContain("vista piu leggibile");
     expect(ticket.appVersion).toBe("0.1.13");
     expect(ticket.userAgent).toBe("Vitest");
+  });
+
+  it("returns a public ticket thread and persists user replies", async () => {
+    tempDirectory = await mkdtemp(path.join(os.tmpdir(), "work-hours-tickets-"));
+    process.env.TICKETS_DIR = tempDirectory;
+    app = buildApp();
+
+    const createResponse = await app.inject({
+      method: "POST",
+      url: "/tickets",
+      headers: {
+        "content-type": "application/json",
+        "user-agent": "Vitest"
+      },
+      payload: {
+        category: "support",
+        name: "Carlo",
+        subject: "Serve aiuto",
+        message: "Vorrei controllare il thread ticket."
+      }
+    });
+
+    expect(createResponse.statusCode).toBe(201);
+    const createdTicket = createResponse.json();
+
+    const fetchResponse = await app.inject({
+      method: "GET",
+      url: `/tickets/${createdTicket.id}`
+    });
+
+    expect(fetchResponse.statusCode).toBe(200);
+    expect(fetchResponse.json()).toMatchObject({
+      id: createdTicket.id,
+      status: "new",
+      subject: "Serve aiuto",
+      replies: []
+    });
+
+    const replyResponse = await app.inject({
+      method: "POST",
+      url: `/tickets/${createdTicket.id}/replies`,
+      headers: {
+        "content-type": "application/json"
+      },
+      payload: {
+        message: "Aggiungo un dettaglio in piu."
+      }
+    });
+
+    expect(replyResponse.statusCode).toBe(200);
+    expect(replyResponse.json()).toMatchObject({
+      id: createdTicket.id,
+      status: "in_progress"
+    });
+    expect(replyResponse.json().replies).toHaveLength(1);
+    expect(replyResponse.json().replies[0]).toMatchObject({
+      author: "user",
+      message: "Aggiungo un dettaglio in piu."
+    });
   });
 
   it("rejects invalid tickets", async () => {
