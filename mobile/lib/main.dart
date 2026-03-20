@@ -11,25 +11,33 @@ import 'package:work_hours_mobile/data/api/release_feed_config.dart';
 import 'package:work_hours_mobile/data/api/work_hours_api_client.dart';
 import 'package:work_hours_mobile/data/api/work_hours_api_config.dart';
 import 'package:work_hours_mobile/data/repositories/api_dashboard_repository.dart';
+import 'package:work_hours_mobile/dev/ui_demo_dashboard_repository.dart';
+import 'package:work_hours_mobile/dev/ui_demo_update_service.dart';
 import 'package:work_hours_mobile/presentation/app/work_hours_app.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  const appMode = String.fromEnvironment('APP_MODE', defaultValue: 'api');
+  const isUiDemoMode = appMode == 'ui_demo';
   final apiConfig = WorkHoursApiConfig.fromEnvironment();
   final releaseFeedConfig = ReleaseFeedConfig.fromEnvironment();
   final dashboardService = DashboardService(
-    repository: ApiDashboardRepository(
-      apiClient: WorkHoursApiClient(baseUrl: apiConfig.baseUrl),
-    ),
+    repository: isUiDemoMode
+        ? UiDemoDashboardRepository()
+        : ApiDashboardRepository(
+            apiClient: WorkHoursApiClient(baseUrl: apiConfig.baseUrl),
+          ),
   );
-  final appUpdateService = ReleaseAppUpdateService(
-    releaseClient: GitHubReleaseClient(
-      latestReleaseApiUrl: releaseFeedConfig.latestReleaseApiUrl,
-      fallbackReleasePageUrl: releaseFeedConfig.releasePageUrl,
-    ),
-    updateLauncher: const PlatformUpdateLauncher(),
-  );
+  final appUpdateService = isUiDemoMode
+      ? const UiDemoAppUpdateService()
+      : ReleaseAppUpdateService(
+          releaseClient: GitHubReleaseClient(
+            latestReleaseApiUrl: releaseFeedConfig.latestReleaseApiUrl,
+            fallbackReleasePageUrl: releaseFeedConfig.releasePageUrl,
+          ),
+          updateLauncher: const PlatformUpdateLauncher(),
+        );
   const updateReminderStore = SharedPreferencesUpdateReminderStore();
   const themePreferenceStore = SharedPreferencesThemePreferenceStore();
   const onboardingPreferenceStore =
@@ -37,8 +45,9 @@ Future<void> main() async {
   const workdayStartStore = SharedPreferencesWorkdayStartStore();
   final initialAppearanceSettings = await themePreferenceStore
       .loadAppearanceSettings();
-  final hasCompletedInitialSetup = await onboardingPreferenceStore
-      .hasCompletedInitialSetup();
+  final hasCompletedInitialSetup = isUiDemoMode
+      ? true
+      : await onboardingPreferenceStore.hasCompletedInitialSetup();
 
   runApp(
     WorkHoursApp(

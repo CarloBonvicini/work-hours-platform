@@ -28,6 +28,18 @@
         "--dart-define=UPDATE_FEED_URL=https://workhours.developerdomain.org/mobile-updates/latest.json",
         "--dart-define=UPDATE_PAGE_URL=https://workhours.developerdomain.org/mobile-updates/releases/latest"
       ]
+    },
+    {
+      "name": "Mobile: Chrome UI Demo",
+      "request": "launch",
+      "type": "dart",
+      "flutterMode": "debug",
+      "cwd": "${workspaceFolder}/mobile",
+      "program": "${workspaceFolder}/mobile/lib/main.dart",
+      "deviceId": "chrome",
+      "toolArgs": [
+        "--dart-define=APP_MODE=ui_demo"
+      ]
     }
   ]
 }
