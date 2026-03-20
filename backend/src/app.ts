@@ -44,6 +44,7 @@ interface MobileReleaseStatus {
 }
 
 type SupportTicketCategory = "bug" | "feature" | "support";
+type SupportTicketStatus = "new" | "in_progress" | "answered" | "closed";
 
 interface SupportTicketInput {
   category: SupportTicketCategory;
@@ -57,7 +58,16 @@ interface SupportTicketInput {
 
 interface SupportTicket extends SupportTicketInput {
   id: string;
-  status: "new";
+  status: SupportTicketStatus;
+  createdAt: string;
+  updatedAt: string;
+  replies: SupportTicketReply[];
+}
+
+interface SupportTicketReply {
+  id: string;
+  author: "admin";
+  message: string;
   createdAt: string;
 }
 
@@ -345,6 +355,15 @@ function isSupportTicketCategory(value: unknown): value is SupportTicketCategory
   return value === "bug" || value === "feature" || value === "support";
 }
 
+function isSupportTicketStatus(value: unknown): value is SupportTicketStatus {
+  return (
+    value === "new" ||
+    value === "in_progress" ||
+    value === "answered" ||
+    value === "closed"
+  );
+}
+
 function normalizeOptionalText(value: unknown, maxLength: number) {
   if (typeof value !== "string") {
     return undefined;
@@ -420,10 +439,13 @@ function parseSupportTicketInput(
 }
 
 async function saveSupportTicket(input: SupportTicketInput): Promise<SupportTicket> {
+  const now = new Date().toISOString();
   const ticket: SupportTicket = {
     id: randomUUID(),
     status: "new",
-    createdAt: new Date().toISOString(),
+    createdAt: now,
+    updatedAt: now,
+    replies: [],
     ...input
   };
 
@@ -435,6 +457,230 @@ async function saveSupportTicket(input: SupportTicketInput): Promise<SupportTick
   );
 
   return ticket;
+}
+
+function getSupportTicketPath(ticketId: string) {
+  if (!/^[a-zA-Z0-9-]+$/.test(ticketId)) {
+    return null;
+  }
+
+  const ticketsDirectory = path.resolve(getTicketsDirectory());
+  const ticketPath = path.resolve(ticketsDirectory, `${ticketId}.json`);
+  if (!ticketPath.startsWith(`${ticketsDirectory}${path.sep}`)) {
+    return null;
+  }
+
+  return ticketPath;
+}
+
+function normalizeSupportTicketRecord(value: unknown): SupportTicket | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const rawValue = value as Record<string, unknown>;
+  if (
+    typeof rawValue.id !== "string" ||
+    !isSupportTicketCategory(rawValue.category) ||
+    typeof rawValue.subject !== "string" ||
+    typeof rawValue.message !== "string" ||
+    typeof rawValue.createdAt !== "string"
+  ) {
+    return null;
+  }
+
+  const replies = Array.isArray(rawValue.replies)
+    ? rawValue.replies.flatMap((replyValue) => {
+        if (!replyValue || typeof replyValue !== "object") {
+          return [];
+        }
+
+        const reply = replyValue as Record<string, unknown>;
+        if (
+          typeof reply.id !== "string" ||
+          reply.author !== "admin" ||
+          typeof reply.message !== "string" ||
+          typeof reply.createdAt !== "string"
+        ) {
+          return [];
+        }
+
+        return [
+          {
+            id: reply.id,
+            author: "admin" as const,
+            message: reply.message,
+            createdAt: reply.createdAt
+          }
+        ];
+      })
+    : [];
+
+  return {
+    id: rawValue.id,
+    category: rawValue.category,
+    name: normalizeOptionalText(rawValue.name, 120),
+    email: normalizeOptionalText(rawValue.email, 160),
+    subject: rawValue.subject.trim(),
+    message: rawValue.message.trim(),
+    appVersion: normalizeOptionalText(rawValue.appVersion, 40),
+    userAgent: normalizeOptionalText(rawValue.userAgent, 400),
+    createdAt: rawValue.createdAt,
+    updatedAt:
+      typeof rawValue.updatedAt === "string"
+        ? rawValue.updatedAt
+        : rawValue.createdAt,
+    status: isSupportTicketStatus(rawValue.status) ? rawValue.status : "new",
+    replies
+  };
+}
+
+async function readSupportTicket(ticketId: string): Promise<SupportTicket | null> {
+  const ticketPath = getSupportTicketPath(ticketId);
+  if (!ticketPath) {
+    return null;
+  }
+
+  try {
+    const rawValue = await fs.readFile(ticketPath, "utf8");
+    return normalizeSupportTicketRecord(JSON.parse(rawValue));
+  } catch {
+    return null;
+  }
+}
+
+async function writeSupportTicket(ticket: SupportTicket) {
+  await fs.mkdir(getTicketsDirectory(), { recursive: true });
+  const ticketPath = getSupportTicketPath(ticket.id);
+  if (!ticketPath) {
+    throw new Error("Invalid ticket id");
+  }
+
+  await fs.writeFile(ticketPath, JSON.stringify(ticket, null, 2), "utf8");
+}
+
+async function listSupportTickets(): Promise<SupportTicket[]> {
+  await fs.mkdir(getTicketsDirectory(), { recursive: true });
+  const entries = await fs.readdir(getTicketsDirectory(), { withFileTypes: true });
+  const tickets = await Promise.all(
+    entries
+      .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
+      .map(async (entry) => {
+        try {
+          const rawValue = await fs.readFile(
+            path.join(getTicketsDirectory(), entry.name),
+            "utf8"
+          );
+          return normalizeSupportTicketRecord(JSON.parse(rawValue));
+        } catch {
+          return null;
+        }
+      })
+  );
+
+  return tickets
+    .filter((ticket): ticket is SupportTicket => ticket !== null)
+    .sort((left, right) =>
+      right.updatedAt.localeCompare(left.updatedAt) ||
+      right.createdAt.localeCompare(left.createdAt)
+    );
+}
+
+async function appendSupportTicketReply(options: {
+  ticketId: string;
+  message: string;
+  status?: SupportTicketStatus;
+}) {
+  const ticket = await readSupportTicket(options.ticketId);
+  if (!ticket) {
+    return null;
+  }
+
+  const now = new Date().toISOString();
+  ticket.replies.push({
+    id: randomUUID(),
+    author: "admin",
+    message: options.message,
+    createdAt: now
+  });
+  ticket.status = options.status ?? "answered";
+  ticket.updatedAt = now;
+  await writeSupportTicket(ticket);
+
+  return ticket;
+}
+
+function getAdminDashboardToken() {
+  const token = process.env.ADMIN_DASHBOARD_TOKEN?.trim();
+  return token && token.length > 0 ? token : null;
+}
+
+function isAdminDashboardAuthorized(request: FastifyRequest) {
+  const configuredToken = getAdminDashboardToken();
+  if (!configuredToken) {
+    return true;
+  }
+
+  const authorization = request.headers.authorization;
+  if (typeof authorization === "string") {
+    const bearerMatch = authorization.match(/^Bearer\s+(.+)$/i);
+    if (bearerMatch && bearerMatch[1] === configuredToken) {
+      return true;
+    }
+  }
+
+  const headerToken = request.headers["x-admin-token"];
+  return typeof headerToken === "string" && headerToken === configuredToken;
+}
+
+function buildAdminOverview(options: {
+  baseUrl: string;
+  latestRelease: MobileReleaseMetadata | null;
+  releaseStatus: MobileReleaseStatus | null;
+  tickets: SupportTicket[];
+}) {
+  const { baseUrl, latestRelease, releaseStatus, tickets } = options;
+
+  return {
+    generatedAt: new Date().toISOString(),
+    service: "work-hours-backend",
+    dataProvider: process.env.DATA_PROVIDER ?? "memory",
+    links: {
+      landing: `${baseUrl}/`,
+      publicTickets: `${baseUrl}/tickets`,
+      health: `${baseUrl}/health`,
+      releaseFeed: `${baseUrl}/mobile-updates/latest.json`
+    },
+    release: {
+      current: latestRelease
+        ? {
+            version: latestRelease.version,
+            tag: latestRelease.tag,
+            publishedAt: latestRelease.publishedAt ?? null,
+            fileName: latestRelease.fileName
+          }
+        : null,
+      publishing: releaseStatus
+        ? {
+            version: releaseStatus.version,
+            tag: releaseStatus.tag,
+            startedAt: releaseStatus.startedAt ?? null
+          }
+        : null
+    },
+    tickets: {
+      total: tickets.length,
+      waiting: tickets.filter((ticket) => ticket.status === "new").length,
+      inProgress: tickets.filter((ticket) => ticket.status === "in_progress").length,
+      answered: tickets.filter((ticket) => ticket.status === "answered").length,
+      closed: tickets.filter((ticket) => ticket.status === "closed").length,
+      bug: tickets.filter((ticket) => ticket.category === "bug").length,
+      feature: tickets.filter((ticket) => ticket.category === "feature").length,
+      support: tickets.filter((ticket) => ticket.category === "support").length,
+      latestCreatedAt: tickets[0]?.createdAt ?? null,
+      latestUpdatedAt: tickets[0]?.updatedAt ?? null
+    }
+  };
 }
 
 function escapeHtml(value: string) {
@@ -817,6 +1063,309 @@ function renderTicketPage(options: { baseUrl: string }) {
 </html>`;
 }
 
+function renderAdminPage(options: { baseUrl: string; authRequired: boolean }) {
+  const { baseUrl, authRequired } = options;
+
+  return `<!DOCTYPE html>
+<html lang="it">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Admin Dashboard - Work Hours Platform</title>
+    <style>
+      :root {
+        --bg: #1b1d22;
+        --bg-card: rgba(37, 37, 38, 0.96);
+        --bg-soft: rgba(32, 35, 44, 0.92);
+        --line: #3f3f46;
+        --line-strong: #4c4c52;
+        --ink: #eceff4;
+        --muted: #98a2b3;
+        --accent: #0e639c;
+        --accent-soft: rgba(14, 99, 156, 0.16);
+        --success: #73c991;
+        --success-soft: rgba(115, 201, 145, 0.14);
+        --warning: #f2cc60;
+        --warning-soft: rgba(242, 204, 96, 0.14);
+        --danger: #f48771;
+        --danger-soft: rgba(244, 135, 113, 0.14);
+        --info: #75beff;
+        --shadow: 0 18px 40px rgba(0, 0, 0, 0.28);
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        color: var(--ink);
+        font-family: "Segoe UI", "IBM Plex Sans", sans-serif;
+        background:
+          linear-gradient(180deg, rgba(14, 99, 156, 0.12), transparent 220px),
+          radial-gradient(circle at top right, rgba(14, 99, 156, 0.14), transparent 32%),
+          linear-gradient(180deg, #181818 0%, var(--bg) 100%);
+      }
+      .shell { max-width: 1440px; margin: 0 auto; padding: 28px 20px 56px; }
+      .hero { text-align: center; margin-bottom: 22px; }
+      .hero-actions { display: flex; justify-content: flex-end; gap: 10px; margin-bottom: 12px; }
+      .ghost-link, button, input, textarea, select {
+        font: inherit;
+      }
+      .ghost-link {
+        display: inline-flex; align-items: center; padding: 8px 12px; border-radius: 8px;
+        border: 1px solid var(--line); background: rgba(22, 26, 35, 0.56); color: #c4e0f7; text-decoration: none; font-size: 12px; font-weight: 600;
+      }
+      .eyebrow { margin: 0 0 10px; color: var(--info); text-transform: uppercase; letter-spacing: 0.18em; font-size: 12px; }
+      h1,h2,h3,h4 { margin: 0 0 12px; color: #fff; }
+      h1 { font-size: clamp(2.2rem, 4vw, 3rem); }
+      p { margin: 0; }
+      .lede, .muted { color: var(--muted); line-height: 1.5; }
+      .panel, .card, .stat { background: var(--bg-card); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); }
+      .panel { padding: 20px; margin-bottom: 18px; }
+      .hidden { display: none !important; }
+      .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+      .toolbar-actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+      button {
+        border: 1px solid var(--line); border-radius: 10px; background: rgba(26, 30, 38, 0.9);
+        color: var(--ink); min-height: 38px; padding: 0 14px; cursor: pointer;
+      }
+      button.primary { background: var(--accent); border-color: rgba(117, 190, 255, 0.42); color: white; }
+      button:hover, .ghost-link:hover { border-color: var(--line-strong); }
+      input, textarea, select {
+        width: 100%; border-radius: 10px; border: 1px solid var(--line); background: #1f1f1f; color: var(--ink); padding: 12px 13px;
+      }
+      textarea { min-height: 140px; resize: vertical; }
+      .status { border-radius: 10px; padding: 12px 14px; border: 1px solid transparent; font-weight: 600; }
+      .status.info { background: rgba(117, 190, 255, 0.1); color: var(--info); }
+      .status.error { background: var(--danger-soft); color: var(--danger); }
+      .status.success { background: var(--success-soft); color: var(--success); }
+      .stats { display: grid; gap: 12px; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+      .stat { padding: 18px; background: linear-gradient(180deg, rgba(37, 37, 38, 0.96), rgba(28, 28, 31, 0.96)); }
+      .stat-label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; }
+      .stat-value { margin-top: 10px; font-size: 30px; font-weight: 700; }
+      .stat-note { margin-top: 8px; color: var(--muted); font-size: 13px; line-height: 1.45; }
+      .dashboard-grid { display: grid; gap: 16px; grid-template-columns: 340px minmax(0, 1fr); margin-top: 18px; }
+      .ticket-list { display: grid; gap: 10px; max-height: 70vh; overflow: auto; }
+      .ticket-card { border-radius: 12px; border: 1px solid var(--line); background: var(--bg-soft); padding: 14px; cursor: pointer; }
+      .ticket-card.is-active { border-color: rgba(117, 190, 255, 0.72); box-shadow: inset 0 0 0 1px rgba(117, 190, 255, 0.24); }
+      .ticket-card-head, .ticket-badges, .reply-meta, .reply-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+      .ticket-card-head, .toolbar { align-items: flex-start; }
+      .ticket-card-head { justify-content: space-between; }
+      .badge { display: inline-flex; align-items: center; border-radius: 999px; padding: 4px 10px; font-size: 12px; font-weight: 700; }
+      .badge.status-new { background: var(--warning-soft); color: var(--warning); }
+      .badge.status-in_progress { background: rgba(117, 190, 255, 0.12); color: var(--info); }
+      .badge.status-answered { background: var(--success-soft); color: var(--success); }
+      .badge.status-closed { background: rgba(255,255,255,0.08); color: var(--muted); }
+      .badge.category-bug { background: var(--danger-soft); color: var(--danger); }
+      .badge.category-feature { background: rgba(117, 190, 255, 0.12); color: var(--info); }
+      .badge.category-support { background: rgba(255,255,255,0.08); color: #d9e2ec; }
+      .ticket-title { margin: 6px 0 4px; font-size: 16px; font-weight: 700; }
+      .ticket-meta, .field-label { color: var(--muted); font-size: 12px; }
+      .field-label { text-transform: uppercase; letter-spacing: 0.08em; }
+      .thread { display: grid; gap: 12px; margin-top: 18px; }
+      .message-card { border-radius: 12px; border: 1px solid var(--line); padding: 14px; background: rgba(255,255,255,0.02); }
+      .message-card.reply { background: rgba(117, 190, 255, 0.06); border-color: rgba(117, 190, 255, 0.22); }
+      .detail-grid { display: grid; gap: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .field { display: grid; gap: 6px; }
+      .reply-form { display: grid; gap: 12px; margin-top: 20px; }
+      .reply-actions { justify-content: flex-end; }
+      .empty-state { border-radius: 12px; border: 1px dashed var(--line); padding: 18px; color: var(--muted); text-align: center; }
+      @media (max-width: 1024px) { .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } .dashboard-grid { grid-template-columns: 1fr; } }
+      @media (max-width: 720px) { .shell { padding: 20px 14px 40px; } .stats, .detail-grid { grid-template-columns: 1fr; } }
+    </style>
+  </head>
+  <body data-base-url="${escapeHtml(baseUrl)}" data-auth-required="${authRequired ? "true" : "false"}">
+    <main class="shell">
+      <section class="hero">
+        <div class="hero-actions">
+          <a class="ghost-link" href="${escapeHtml(baseUrl)}/">Home</a>
+          <a class="ghost-link" href="${escapeHtml(baseUrl)}/tickets">Ticket pubblici</a>
+        </div>
+        <p class="eyebrow">Work Hours Platform</p>
+        <h1>Admin Dashboard</h1>
+        <p class="lede">Panoramica rapida per manutenzione, release e ticket.</p>
+      </section>
+
+      <section class="panel" id="admin-auth-panel">
+        <h2>Accesso admin</h2>
+        <p class="lede">Inserisci il token admin per aprire la dashboard.</p>
+        <div style="display:grid; gap:12px; margin-top:16px; max-width:420px;">
+          <input id="admin-token-input" type="password" placeholder="Token admin" />
+          <div class="toolbar-actions" style="justify-content:flex-start;">
+            <button class="primary" id="admin-login-btn" type="button">Entra</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel hidden" id="admin-dashboard-panel">
+        <div class="toolbar">
+          <div>
+            <h2 style="margin-bottom:6px;">Console</h2>
+            <p class="lede">Dati utili, stato release e thread ticket.</p>
+          </div>
+          <div class="toolbar-actions">
+            <button type="button" id="admin-refresh-btn">Refresh</button>
+            <button type="button" id="admin-logout-btn">Esci</button>
+          </div>
+        </div>
+        <div id="admin-status" class="status info">Caricamento dashboard...</div>
+        <section style="margin-top:18px;">
+          <div class="stats" id="admin-stats"></div>
+        </section>
+        <section class="dashboard-grid">
+          <aside class="card" style="padding:16px;">
+            <div class="toolbar">
+              <h3 style="margin-bottom:0;">Ticket</h3>
+              <button type="button" id="admin-refresh-tickets-btn">Aggiorna</button>
+            </div>
+            <div class="ticket-list" id="admin-ticket-list" style="margin-top:14px;"></div>
+          </aside>
+          <section class="card" style="padding:18px;" id="admin-ticket-detail"></section>
+        </section>
+      </section>
+    </main>
+    <script>
+      const ADMIN_TOKEN_KEY = "work_hours_admin_token";
+      const baseUrl = document.body.dataset.baseUrl || "";
+      const authRequired = document.body.dataset.authRequired === "true";
+      const authPanel = document.getElementById("admin-auth-panel");
+      const dashboardPanel = document.getElementById("admin-dashboard-panel");
+      const tokenInput = document.getElementById("admin-token-input");
+      const statusBox = document.getElementById("admin-status");
+      const statsContainer = document.getElementById("admin-stats");
+      const ticketList = document.getElementById("admin-ticket-list");
+      const ticketDetail = document.getElementById("admin-ticket-detail");
+      const state = { token: "", overview: null, tickets: [], selectedTicketId: null };
+
+      function readToken() { try { return sessionStorage.getItem(ADMIN_TOKEN_KEY) || ""; } catch (_) { return ""; } }
+      function writeToken(value) { try { value ? sessionStorage.setItem(ADMIN_TOKEN_KEY, value) : sessionStorage.removeItem(ADMIN_TOKEN_KEY); } catch (_) {} }
+      function escapeHtml(value) {
+        return String(value ?? "").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#39;");
+      }
+      function formatDateTime(value) {
+        if (!value) return "—";
+        try { return new Date(value).toLocaleString("it-IT", { dateStyle: "medium", timeStyle: "short" }); }
+        catch (_) { return value; }
+      }
+      function setStatus(message, tone = "info") {
+        statusBox.textContent = message;
+        statusBox.className = "status " + tone;
+      }
+      async function api(path, options = {}) {
+        const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
+        if (state.token) headers.Authorization = "Bearer " + state.token;
+        const response = await fetch(path, { ...options, headers });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(payload.error || "Request failed");
+        return payload;
+      }
+      function statusBadge(status) {
+        const labels = { new: "Nuovo", in_progress: "In lavorazione", answered: "Risposto", closed: "Chiuso" };
+        return '<span class="badge status-' + escapeHtml(status) + '">' + (labels[status] || status) + '</span>';
+      }
+      function categoryBadge(category) {
+        const labels = { bug: "Bug", feature: "Feature", support: "Supporto" };
+        return '<span class="badge category-' + escapeHtml(category) + '">' + (labels[category] || category) + '</span>';
+      }
+      function renderStats() {
+        if (!state.overview) { statsContainer.innerHTML = ""; return; }
+        const cards = [
+          {
+            label: "Release corrente",
+            value: state.overview.release.current ? escapeHtml(state.overview.release.current.version) : "Nessuna",
+            note: state.overview.release.current ? "Tag " + escapeHtml(state.overview.release.current.tag) : "Ancora nessuna release pubblicata",
+          },
+          {
+            label: "Release in corso",
+            value: state.overview.release.publishing ? escapeHtml(state.overview.release.publishing.version) : "No",
+            note: state.overview.release.publishing ? "Da " + formatDateTime(state.overview.release.publishing.startedAt) : "Nessun rilascio in pubblicazione",
+          },
+          {
+            label: "Ticket aperti",
+            value: String(state.overview.tickets.waiting + state.overview.tickets.inProgress),
+            note: state.overview.tickets.total + " ticket totali",
+          },
+          {
+            label: "Provider dati",
+            value: escapeHtml(state.overview.dataProvider),
+            note: "Health e release feed disponibili dalla dashboard",
+          },
+        ];
+        statsContainer.innerHTML = cards.map((card) => '<article class="stat"><div class="stat-label">' + card.label + '</div><div class="stat-value">' + card.value + '</div><div class="stat-note">' + card.note + '</div></article>').join("");
+      }
+      function selectTicket(ticketId) { state.selectedTicketId = ticketId; renderTicketList(); renderTicketDetail(); }
+      function renderTicketList() {
+        if (!state.tickets.length) { ticketList.innerHTML = '<div class="empty-state">Nessun ticket trovato.</div>'; return; }
+        ticketList.innerHTML = state.tickets.map((ticket) => '<article class="ticket-card ' + (ticket.id === state.selectedTicketId ? "is-active" : "") + '" data-ticket-id="' + escapeHtml(ticket.id) + '"><div class="ticket-card-head"><div class="ticket-badges">' + categoryBadge(ticket.category) + statusBadge(ticket.status) + '</div><span class="muted">' + formatDateTime(ticket.updatedAt) + '</span></div><div class="ticket-title">' + escapeHtml(ticket.subject) + '</div><div class="ticket-meta">' + escapeHtml(ticket.name || ticket.email || "Ticket anonimo") + '</div><div class="ticket-meta" style="margin-top:6px;">' + escapeHtml(ticket.message.slice(0, 120)) + (ticket.message.length > 120 ? "..." : "") + '</div></article>').join("");
+        ticketList.querySelectorAll("[data-ticket-id]").forEach((node) => node.addEventListener("click", () => selectTicket(node.getAttribute("data-ticket-id"))));
+      }
+      function renderTicketDetail() {
+        const ticket = state.tickets.find((entry) => entry.id === state.selectedTicketId) || state.tickets[0];
+        if (!ticket) { ticketDetail.innerHTML = '<div class="empty-state">Seleziona un ticket per vedere il dettaglio.</div>'; return; }
+        state.selectedTicketId = ticket.id;
+        const replies = Array.isArray(ticket.replies) ? ticket.replies : [];
+        ticketDetail.innerHTML = '<div class="toolbar"><div><h3 style="margin-bottom:6px;">' + escapeHtml(ticket.subject) + '</h3><div class="reply-meta">' + categoryBadge(ticket.category) + statusBadge(ticket.status) + '</div></div></div><div class="detail-grid" style="margin-top:14px;"><div class="field"><div class="field-label">Creato</div><div>' + formatDateTime(ticket.createdAt) + '</div></div><div class="field"><div class="field-label">Aggiornato</div><div>' + formatDateTime(ticket.updatedAt) + '</div></div><div class="field"><div class="field-label">Contatto</div><div>' + escapeHtml(ticket.name || "—") + (ticket.email ? " (" + escapeHtml(ticket.email) + ")" : "") + '</div></div><div class="field"><div class="field-label">Versione app</div><div>' + escapeHtml(ticket.appVersion || "—") + '</div></div></div><section class="thread"><article class="message-card"><div class="field-label">Messaggio utente</div><div style="margin-top:8px; white-space:pre-wrap;">' + escapeHtml(ticket.message) + '</div></article>' + (replies.map((reply) => '<article class="message-card reply"><div class="field-label">Risposta admin · ' + formatDateTime(reply.createdAt) + '</div><div style="margin-top:8px; white-space:pre-wrap;">' + escapeHtml(reply.message) + '</div></article>').join("") || '<div class="empty-state">Ancora nessuna risposta admin.</div>') + '</section><form id="admin-reply-form" class="reply-form"><label class="field"><span class="field-label">Nuova risposta</span><textarea name="message" required placeholder="Scrivi la risposta che vuoi salvare nel thread del ticket"></textarea></label><label class="field"><span class="field-label">Nuovo stato</span><select name="status"><option value="answered">Risposto</option><option value="in_progress">In lavorazione</option><option value="closed">Chiuso</option></select></label><div class="reply-actions"><button type="submit" class="primary">Salva risposta</button></div></form>';
+        const form = document.getElementById("admin-reply-form");
+        form?.addEventListener("submit", async (event) => {
+          event.preventDefault();
+          const formData = new FormData(form);
+          const message = String(formData.get("message") || "").trim();
+          const status = String(formData.get("status") || "").trim();
+          if (!message) { setStatus("Scrivi una risposta prima di salvare.", "error"); return; }
+          try {
+            setStatus("Salvataggio risposta...", "info");
+            await api(baseUrl + "/admin/api/tickets/" + encodeURIComponent(ticket.id) + "/replies", { method: "POST", body: JSON.stringify({ message, status }) });
+            form.reset();
+            await loadDashboard();
+            setStatus("Risposta ticket salvata.", "success");
+          } catch (error) {
+            setStatus(error.message || "Errore durante il salvataggio della risposta.", "error");
+          }
+        });
+      }
+      async function loadDashboard() {
+        state.overview = await api(baseUrl + "/admin/api/overview");
+        state.tickets = (await api(baseUrl + "/admin/api/tickets")).items || [];
+        if (!state.selectedTicketId && state.tickets[0]) state.selectedTicketId = state.tickets[0].id;
+        renderStats();
+        renderTicketList();
+        renderTicketDetail();
+      }
+      async function bootstrapDashboard() {
+        try {
+          setStatus("Caricamento dashboard...", "info");
+          await loadDashboard();
+          authPanel.classList.add("hidden");
+          dashboardPanel.classList.remove("hidden");
+          setStatus("Dashboard aggiornata.", "success");
+        } catch (error) {
+          if (authRequired) {
+            authPanel.classList.remove("hidden");
+            dashboardPanel.classList.add("hidden");
+          }
+          setStatus(error.message || "Impossibile caricare la dashboard.", "error");
+        }
+      }
+      document.getElementById("admin-login-btn")?.addEventListener("click", () => {
+        state.token = String(tokenInput.value || "").trim();
+        writeToken(state.token);
+        bootstrapDashboard();
+      });
+      document.getElementById("admin-logout-btn")?.addEventListener("click", () => {
+        state.token = ""; writeToken(""); tokenInput.value = "";
+        dashboardPanel.classList.add("hidden");
+        if (authRequired) { authPanel.classList.remove("hidden"); setStatus("Token rimosso.", "info"); }
+        else { bootstrapDashboard(); }
+      });
+      document.getElementById("admin-refresh-btn")?.addEventListener("click", bootstrapDashboard);
+      document.getElementById("admin-refresh-tickets-btn")?.addEventListener("click", bootstrapDashboard);
+      state.token = readToken();
+      if (state.token) tokenInput.value = state.token;
+      if (!authRequired) authPanel.classList.add("hidden");
+      bootstrapDashboard();
+    </script>
+  </body>
+</html>`;
+}
+
 function renderLandingPage(options: {
   baseUrl: string;
   latestRelease: MobileReleaseMetadata | null;
@@ -1125,6 +1674,94 @@ export function buildApp(options: BuildAppOptions = {}) {
       status: savedTicket.status,
       createdAt: savedTicket.createdAt
     });
+  });
+
+  app.get("/admin", async (request, reply) => {
+    const baseUrl = getPublicBaseUrl(request);
+
+    return reply
+      .type("text/html; charset=utf-8")
+      .send(
+        renderAdminPage({
+          baseUrl,
+          authRequired: getAdminDashboardToken() !== null
+        })
+      );
+  });
+
+  app.get("/admin/api/overview", async (request, reply) => {
+    if (!isAdminDashboardAuthorized(request)) {
+      return reply.code(401).send({ error: "Unauthorized" });
+    }
+
+    const baseUrl = getPublicBaseUrl(request);
+    const latestRelease = await loadReleaseMetadata();
+    const releaseStatus = await loadReleaseStatus();
+    const tickets = await listSupportTickets();
+
+    return buildAdminOverview({
+      baseUrl,
+      latestRelease,
+      releaseStatus,
+      tickets
+    });
+  });
+
+  app.get("/admin/api/tickets", async (request, reply) => {
+    if (!isAdminDashboardAuthorized(request)) {
+      return reply.code(401).send({ error: "Unauthorized" });
+    }
+
+    return {
+      items: await listSupportTickets()
+    };
+  });
+
+  app.post("/admin/api/tickets/:ticketId/replies", async (request, reply) => {
+    if (!isAdminDashboardAuthorized(request)) {
+      return reply.code(401).send({ error: "Unauthorized" });
+    }
+
+    const params = request.params as { ticketId?: unknown };
+    if (typeof params.ticketId !== "string" || params.ticketId.length === 0) {
+      return reply.code(400).send({ error: "ticketId is required" });
+    }
+
+    const body =
+      request.body && typeof request.body === "object"
+        ? (request.body as Record<string, unknown>)
+        : null;
+    if (!body) {
+      return reply.code(400).send({ error: "Invalid body" });
+    }
+
+    const message = normalizeRequiredText(body.message, 4000);
+    if (!message) {
+      return reply.code(400).send({ error: "message is required" });
+    }
+
+    const nextStatus =
+      body.status === undefined
+        ? undefined
+        : isSupportTicketStatus(body.status)
+          ? body.status
+          : null;
+    if (nextStatus === null) {
+      return reply.code(400).send({
+        error: "status must be one of: new, in_progress, answered, closed"
+      });
+    }
+
+    const updatedTicket = await appendSupportTicketReply({
+      ticketId: params.ticketId,
+      message,
+      status: nextStatus ?? undefined
+    });
+    if (!updatedTicket) {
+      return reply.code(404).send({ error: "Ticket not found" });
+    }
+
+    return updatedTicket;
   });
 
   app.get("/health", async () => {
