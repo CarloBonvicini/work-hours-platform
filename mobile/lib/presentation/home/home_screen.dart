@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:work_hours_mobile/application/services/account_service.dart';
 import 'package:work_hours_mobile/application/services/app_update_service.dart';
@@ -166,6 +167,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _isLoadingCalendarData = false;
   bool _isUpdatingThemeMode = false;
   bool _isSavingWorkdaySession = false;
+  bool _isAgendaInteracting = false;
   bool _isLoadingTicketThreads = false;
   bool _isSubmittingTicketReply = false;
   bool _isAuthenticatingAccount = false;
@@ -3926,6 +3928,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           onAgendaSchedulePreviewChanged: _previewScheduleOverrideFromAgenda,
           onAgendaSchedulePreviewCleared: _clearScheduleOverrideAgendaPreview,
           onAgendaScheduleChanged: _updateScheduleOverrideFromAgenda,
+          onAgendaInteractionChanged: _setAgendaInteracting,
           onResetOverrideEditor: _resetScheduleOverrideEditorToBase,
           onMarkDayAsOff: _markSelectedDayAsDayOff,
           onRemoveOverride: _removeScheduleOverride,
@@ -4031,6 +4034,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 1080),
             child: ListView(
+              physics: _isAgendaInteracting
+                  ? const NeverScrollableScrollPhysics()
+                  : null,
               padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
               children: [
                 _Header(
@@ -4060,6 +4066,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         ),
       ),
     );
+  }
+
+  void _setAgendaInteracting(bool isInteracting) {
+    if (!mounted || _isAgendaInteracting == isInteracting) {
+      return;
+    }
+    setState(() {
+      _isAgendaInteracting = isInteracting;
+    });
   }
 }
 
@@ -4239,6 +4254,7 @@ class _CalendarCard extends StatelessWidget {
     required this.onAgendaSchedulePreviewChanged,
     required this.onAgendaSchedulePreviewCleared,
     required this.onAgendaScheduleChanged,
+    required this.onAgendaInteractionChanged,
     required this.onResetOverrideEditor,
     required this.onMarkDayAsOff,
     required this.onRemoveOverride,
@@ -4298,6 +4314,7 @@ class _CalendarCard extends StatelessWidget {
     int? pauseEndMinutes,
   })
   onAgendaScheduleChanged;
+  final ValueChanged<bool> onAgendaInteractionChanged;
   final VoidCallback onResetOverrideEditor;
   final VoidCallback onMarkDayAsOff;
   final Future<void> Function() onRemoveOverride;
@@ -4413,32 +4430,8 @@ class _CalendarCard extends StatelessWidget {
               onClear: workdaySession == null ? null : onClearWorkdaySession,
             ),
           ],
-          const SizedBox(height: 18),
-            _CalendarPeriodSummary(
-              calendarView: calendarView,
-              days: days,
-              dayMetrics: dayMetrics,
-              daySchedule: draftDaySchedule,
-              dayPauseWindow: selectedDayPauseWindow,
-              isDayScheduleProvisional:
-                  isSelectedDateToday &&
-                  workdaySession != null &&
-                  !workdaySession!.isCompleted,
-              workdaySession: isSelectedDateToday ? workdaySession : null,
-              weekMetrics: weekMetrics,
-              monthMetrics: monthMetrics,
-              yearMetrics: yearMetrics,
-              selectedDate: selectedDate,
-              onSelectDate: onSelectDate,
-              onCalendarViewChanged: onCalendarViewChanged,
-              onDaySchedulePreviewChanged: onAgendaSchedulePreviewChanged,
-              onDaySchedulePreviewCleared: onAgendaSchedulePreviewCleared,
-              onDayScheduleChanged: onAgendaScheduleChanged,
-            ),
           if (calendarView == _CalendarView.day) ...[
-            const SizedBox(height: 20),
-            const Divider(),
-            const SizedBox(height: 16),
+            const SizedBox(height: 18),
             Form(
               key: overrideFormKey,
               child: Column(
@@ -4479,7 +4472,7 @@ class _CalendarCard extends StatelessWidget {
                               ? null
                               : () => onRemoveOverride(),
                           icon: const Icon(Icons.delete_outline),
-                          label: const Text('Ripristina giorno'),
+                          label: const Text('Rimuovi modifica'),
                         ),
                     ],
                   ),
@@ -4487,6 +4480,29 @@ class _CalendarCard extends StatelessWidget {
               ),
             ),
           ],
+          const SizedBox(height: 18),
+          _CalendarPeriodSummary(
+            calendarView: calendarView,
+            days: days,
+            dayMetrics: dayMetrics,
+            daySchedule: draftDaySchedule,
+            dayPauseWindow: selectedDayPauseWindow,
+            isDayScheduleProvisional:
+                isSelectedDateToday &&
+                workdaySession != null &&
+                !workdaySession!.isCompleted,
+            workdaySession: isSelectedDateToday ? workdaySession : null,
+            weekMetrics: weekMetrics,
+            monthMetrics: monthMetrics,
+            yearMetrics: yearMetrics,
+            selectedDate: selectedDate,
+            onSelectDate: onSelectDate,
+            onCalendarViewChanged: onCalendarViewChanged,
+            onDaySchedulePreviewChanged: onAgendaSchedulePreviewChanged,
+            onDaySchedulePreviewCleared: onAgendaSchedulePreviewCleared,
+            onDayScheduleChanged: onAgendaScheduleChanged,
+            onAgendaInteractionChanged: onAgendaInteractionChanged,
+          ),
         ],
       ),
     );
@@ -4567,7 +4583,7 @@ class _CalendarQuickScheduleEditor extends StatelessWidget {
             OutlinedButton.icon(
               onPressed: onResetToBase,
               icon: const Icon(Icons.restart_alt_rounded),
-              label: const Text('Ripristina base'),
+              label: const Text('Usa orario standard'),
             ),
             OutlinedButton.icon(
               onPressed: onMarkDayAsOff,
@@ -4948,6 +4964,7 @@ class _CalendarPeriodSummary extends StatelessWidget {
     required this.onDaySchedulePreviewChanged,
     required this.onDaySchedulePreviewCleared,
     required this.onDayScheduleChanged,
+    required this.onAgendaInteractionChanged,
   });
 
   final _CalendarView calendarView;
@@ -4980,6 +4997,7 @@ class _CalendarPeriodSummary extends StatelessWidget {
     int? pauseEndMinutes,
   })
   onDayScheduleChanged;
+  final ValueChanged<bool> onAgendaInteractionChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -4993,6 +5011,7 @@ class _CalendarPeriodSummary extends StatelessWidget {
         onSchedulePreviewChanged: onDaySchedulePreviewChanged,
         onSchedulePreviewCleared: onDaySchedulePreviewCleared,
         onScheduleChanged: onDayScheduleChanged,
+        onAgendaInteractionChanged: onAgendaInteractionChanged,
       ),
       _CalendarView.week => _CalendarWeekSummary(
         metrics: weekMetrics,
@@ -5028,6 +5047,7 @@ class _CalendarDaySummary extends StatelessWidget {
     required this.onSchedulePreviewChanged,
     required this.onSchedulePreviewCleared,
     required this.onScheduleChanged,
+    required this.onAgendaInteractionChanged,
   });
 
   final _DayMetrics metrics;
@@ -5052,6 +5072,7 @@ class _CalendarDaySummary extends StatelessWidget {
     int? pauseEndMinutes,
   })
   onScheduleChanged;
+  final ValueChanged<bool> onAgendaInteractionChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -5087,6 +5108,7 @@ class _CalendarDaySummary extends StatelessWidget {
           onPreviewChanged: onSchedulePreviewChanged,
           onPreviewCleared: onSchedulePreviewCleared,
           onScheduleChanged: onScheduleChanged,
+          onInteractionChanged: onAgendaInteractionChanged,
         ),
         if (workedSummary != null) ...[
           const SizedBox(height: 12),
@@ -5148,6 +5170,7 @@ class _AgendaDayTimeline extends StatefulWidget {
     required this.onPreviewChanged,
     required this.onPreviewCleared,
     required this.onScheduleChanged,
+    required this.onInteractionChanged,
   });
 
   final _DayMetrics metrics;
@@ -5172,6 +5195,7 @@ class _AgendaDayTimeline extends StatefulWidget {
     int? pauseEndMinutes,
   })
   onScheduleChanged;
+  final ValueChanged<bool> onInteractionChanged;
 
   @override
   State<_AgendaDayTimeline> createState() => _AgendaDayTimelineState();
@@ -5243,6 +5267,7 @@ class _AgendaDayTimelineState extends State<_AgendaDayTimeline> {
                 widget.onPreviewCleared();
               },
               onScheduleChanged: widget.onScheduleChanged,
+              onInteractionChanged: widget.onInteractionChanged,
             ),
           ),
         ],
@@ -5450,6 +5475,7 @@ class _AgendaDaySurface extends StatefulWidget {
     this.onPreviewChanged,
     this.onPreviewCleared,
     this.onScheduleChanged,
+    this.onInteractionChanged,
   });
 
   final _DayMetrics metrics;
@@ -5478,6 +5504,7 @@ class _AgendaDaySurface extends StatefulWidget {
     int? pauseEndMinutes,
   })?
   onScheduleChanged;
+  final ValueChanged<bool>? onInteractionChanged;
 
   @override
   State<_AgendaDaySurface> createState() => _AgendaDaySurfaceState();
@@ -5613,6 +5640,7 @@ class _AgendaDaySurfaceState extends State<_AgendaDaySurface> {
                   widget.onPreviewCleared?.call();
                 },
                 onScheduleChanged: widget.onScheduleChanged,
+                onInteractionChanged: widget.onInteractionChanged,
               ),
             ),
           if (!hasStructuredSchedule &&
@@ -5661,6 +5689,7 @@ class _AgendaScheduleBlock extends StatefulWidget {
     this.onPreviewChanged,
     this.onPreviewCleared,
     this.onScheduleChanged,
+    this.onInteractionChanged,
   });
 
   final _DayMetrics metrics;
@@ -5689,6 +5718,7 @@ class _AgendaScheduleBlock extends StatefulWidget {
     int? pauseEndMinutes,
   })?
   onScheduleChanged;
+  final ValueChanged<bool>? onInteractionChanged;
 
   @override
   State<_AgendaScheduleBlock> createState() => _AgendaScheduleBlockState();
@@ -5716,6 +5746,12 @@ class _AgendaScheduleBlockState extends State<_AgendaScheduleBlock> {
   int? _previewBreakMinutes;
   int? _previewPauseStartMinutes;
   int? _previewPauseEndMinutes;
+
+  @override
+  void dispose() {
+    widget.onInteractionChanged?.call(false);
+    super.dispose();
+  }
 
   int get _displayStartMinutes => _previewStartMinutes ?? widget.startMinutes;
 
@@ -5837,6 +5873,7 @@ class _AgendaScheduleBlockState extends State<_AgendaScheduleBlock> {
       _previewPauseStartMinutes = pauseSegment?.startMinutes;
       _previewPauseEndMinutes = pauseSegment?.endMinutes;
     });
+    widget.onInteractionChanged?.call(true);
     assert(() {
       debugPrint(
         '[agenda-drag-start] mode=$mode start=${formatTimeInput(_dragStartMinutes)} end=${formatTimeInput(_dragEndMinutes)} '
@@ -6025,6 +6062,7 @@ class _AgendaScheduleBlockState extends State<_AgendaScheduleBlock> {
         _previewPauseStartMinutes = null;
         _previewPauseEndMinutes = null;
       });
+      widget.onInteractionChanged?.call(false);
       widget.onPreviewCleared?.call();
       return;
     }
@@ -6033,6 +6071,7 @@ class _AgendaScheduleBlockState extends State<_AgendaScheduleBlock> {
       _dragMode = null;
       _dragOffset = 0;
     });
+    widget.onInteractionChanged?.call(false);
 
     widget.onScheduleChanged!(
       startMinutes: committedStartMinutes,
@@ -6048,12 +6087,16 @@ class _AgendaScheduleBlockState extends State<_AgendaScheduleBlock> {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final isDark = theme.brightness == Brightness.dark;
+    final isDayMode = widget.displayMode == _AgendaSurfaceDisplayMode.day;
     final backgroundColor = widget.metrics.hasOverride
         ? Color.lerp(colorScheme.surface, colorScheme.secondary, 0.28)!
         : Color.lerp(colorScheme.surface, colorScheme.primary, 0.22)!;
-    final surfaceFillColor = widget.displayMode == _AgendaSurfaceDisplayMode.day
-        ? colorScheme.surfaceContainerHigh.withValues(alpha: isDark ? 0.72 : 0.94)
+    final surfaceFillColor = isDayMode
+        ? Colors.transparent
         : backgroundColor;
+    final segmentCanvasColor = isDayMode
+        ? colorScheme.surfaceContainerHigh.withValues(alpha: isDark ? 0.72 : 0.94)
+        : surfaceFillColor;
     final borderColor = widget.metrics.hasOverride
         ? colorScheme.secondary
         : colorScheme.primary;
@@ -6098,14 +6141,20 @@ class _AgendaScheduleBlockState extends State<_AgendaScheduleBlock> {
           decoration: BoxDecoration(
             color: surfaceFillColor,
             borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: borderColor, width: 1.2),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: isDark ? 0.18 : 0.08),
-                blurRadius: 12,
-                offset: const Offset(0, 6),
-              ),
-            ],
+            border: isDayMode
+                ? null
+                : Border.all(color: borderColor, width: 1.2),
+            boxShadow: isDayMode
+                ? null
+                : [
+                    BoxShadow(
+                      color: Colors.black.withValues(
+                        alpha: isDark ? 0.18 : 0.08,
+                      ),
+                      blurRadius: 12,
+                      offset: const Offset(0, 6),
+                    ),
+                  ],
           ),
           child: Stack(
             children: [
@@ -6133,6 +6182,7 @@ class _AgendaScheduleBlockState extends State<_AgendaScheduleBlock> {
                       Align(
                         alignment: Alignment.topCenter,
                         child: GestureDetector(
+                          dragStartBehavior: DragStartBehavior.down,
                           behavior: HitTestBehavior.opaque,
                           onVerticalDragStart: (_) =>
                               _handleDragStart(_AgendaDragMode.resizeStart),
@@ -6146,6 +6196,7 @@ class _AgendaScheduleBlockState extends State<_AgendaScheduleBlock> {
                         builder: (context, bodyConstraints) {
                           final interactiveHeight = bodyConstraints.maxHeight;
                           return GestureDetector(
+                            dragStartBehavior: DragStartBehavior.down,
                             behavior: HitTestBehavior.opaque,
                             onVerticalDragStart: widget.onScheduleChanged == null
                                 ? null
@@ -6166,21 +6217,33 @@ class _AgendaScheduleBlockState extends State<_AgendaScheduleBlock> {
                                     child: IgnorePointer(
                                       child: ClipRRect(
                                         borderRadius: BorderRadius.circular(14),
-                                        child: _AgendaSegmentFillOverlay(
-                                          startMinutes: displayStartMinutes,
-                                          endMinutes: displayEndMinutes,
-                                          segments: effectiveSegments,
-                                          workColor: colorScheme.primary.withValues(
-                                            alpha: widget.displayMode ==
-                                                    _AgendaSurfaceDisplayMode.day
-                                                ? 0.3
-                                                : 0.26,
+                                        child: DecoratedBox(
+                                          decoration: BoxDecoration(
+                                            color: segmentCanvasColor,
+                                            borderRadius: BorderRadius.circular(
+                                              14,
+                                            ),
                                           ),
-                                          pauseColor: colorScheme.secondary.withValues(
-                                            alpha: widget.displayMode ==
-                                                    _AgendaSurfaceDisplayMode.day
-                                                ? 0.68
-                                                : 0.62,
+                                          child: _AgendaSegmentFillOverlay(
+                                            startMinutes: displayStartMinutes,
+                                            endMinutes: displayEndMinutes,
+                                            segments: effectiveSegments,
+                                            workColor: colorScheme.primary
+                                                .withValues(
+                                                  alpha: widget.displayMode ==
+                                                          _AgendaSurfaceDisplayMode
+                                                              .day
+                                                      ? 0.3
+                                                      : 0.26,
+                                                ),
+                                            pauseColor: colorScheme.secondary
+                                                .withValues(
+                                                  alpha: widget.displayMode ==
+                                                          _AgendaSurfaceDisplayMode
+                                                              .day
+                                                      ? 0.68
+                                                      : 0.62,
+                                                ),
                                           ),
                                         ),
                                       ),
@@ -6227,6 +6290,7 @@ class _AgendaScheduleBlockState extends State<_AgendaScheduleBlock> {
                       Align(
                         alignment: Alignment.bottomCenter,
                         child: GestureDetector(
+                          dragStartBehavior: DragStartBehavior.down,
                           behavior: HitTestBehavior.opaque,
                           onVerticalDragStart: (_) =>
                               _handleDragStart(_AgendaDragMode.resizeEnd),
@@ -6436,6 +6500,7 @@ class _AgendaPauseEditOverlay extends StatelessWidget {
         children: [
           Positioned.fill(
             child: GestureDetector(
+              dragStartBehavior: DragStartBehavior.down,
               behavior: HitTestBehavior.translucent,
               onVerticalDragStart: onMovePauseStart == null
                   ? null
@@ -6461,6 +6526,7 @@ class _AgendaPauseEditOverlay extends StatelessWidget {
             child: Align(
               alignment: Alignment.topCenter,
               child: GestureDetector(
+                dragStartBehavior: DragStartBehavior.down,
                 behavior: HitTestBehavior.opaque,
                 onVerticalDragStart: onResizePauseStart == null
                     ? null
@@ -6478,6 +6544,7 @@ class _AgendaPauseEditOverlay extends StatelessWidget {
             child: Align(
               alignment: Alignment.bottomCenter,
               child: GestureDetector(
+                dragStartBehavior: DragStartBehavior.down,
                 behavior: HitTestBehavior.opaque,
                 onVerticalDragStart: onResizePauseEnd == null
                     ? null
@@ -6512,31 +6579,63 @@ class _AgendaSegmentFillOverlay extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final totalMinutes = math.max(1, endMinutes - startMinutes);
+    final theme = Theme.of(context);
 
     return LayoutBuilder(
       builder: (context, constraints) {
         return Stack(
           children: [
             for (final segment in segments)
-              Positioned(
-                top:
-                    ((segment.startMinutes - startMinutes) / totalMinutes) *
-                    constraints.maxHeight,
-                left: 0,
-                right: 0,
-                height: math.max(
+              () {
+                final segmentHeight = math.max(
                   10,
                   ((segment.endMinutes - segment.startMinutes) / totalMinutes) *
                       constraints.maxHeight,
-                ),
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    color: segment.kind == _AgendaMeasurementSegmentKind.pause
-                        ? pauseColor
-                        : workColor,
+                ).toDouble();
+                final segmentColor =
+                    segment.kind == _AgendaMeasurementSegmentKind.pause
+                    ? pauseColor
+                    : workColor;
+                final segmentMinutes = segment.endMinutes - segment.startMinutes;
+                final showLabel =
+                    segmentHeight >= 34 && constraints.maxWidth >= 72;
+                return Positioned(
+                  top:
+                      ((segment.startMinutes - startMinutes) / totalMinutes) *
+                      constraints.maxHeight,
+                  left: 0,
+                  right: 0,
+                  height: segmentHeight,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: segmentColor,
+                    ),
+                    child: showLabel
+                        ? Center(
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                              ),
+                              child: Text(
+                                _formatHoursInput(segmentMinutes),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.textTheme.labelLarge?.copyWith(
+                                  fontWeight: FontWeight.w800,
+                                  color: ThemeData.estimateBrightnessForColor(
+                                            segmentColor,
+                                          ) ==
+                                          Brightness.dark
+                                      ? Colors.white
+                                      : Colors.black.withValues(alpha: 0.78),
+                                ),
+                              ),
+                            ),
+                          )
+                        : null,
                   ),
-                ),
-              ),
+                );
+              }(),
           ],
         );
       },
@@ -6788,15 +6887,15 @@ class _CalendarDayCell extends StatelessWidget {
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final isUltraCompactCell = constraints.maxWidth < 62;
+        final isUltraCompactCell = constraints.maxWidth < 68;
         final isMicroCell =
-            constraints.maxWidth < 48 || constraints.maxHeight < 28;
+            constraints.maxWidth < 56 || constraints.maxHeight < 40;
         final isTinySummaryCell =
             isUltraCompactCell ||
-            constraints.maxWidth < 74 ||
-            constraints.maxHeight < 58;
+            constraints.maxWidth < 86 ||
+            constraints.maxHeight < 80;
         final isTooShortForSummary =
-            constraints.maxHeight < 34 || constraints.maxWidth < 42;
+            constraints.maxHeight < 64 || constraints.maxWidth < 56;
         final cellPadding = isMicroCell ? 3.0 : (isUltraCompactCell ? 5.0 : (isCompact ? 7.0 : 9.0));
         return Material(
           color: Colors.transparent,
