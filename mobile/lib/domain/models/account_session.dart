@@ -34,15 +34,18 @@ class AccountSession {
   const AccountSession({
     required this.token,
     required this.user,
+    this.recoveryCode,
   });
 
   final String token;
   final AccountUser user;
+  final String? recoveryCode;
 
   factory AccountSession.fromJson(Map<String, dynamic> json) {
     return AccountSession(
       token: json['token'] as String,
       user: AccountUser.fromJson(json['user'] as Map<String, dynamic>),
+      recoveryCode: json['recoveryCode'] as String?,
     );
   }
 
@@ -50,6 +53,8 @@ class AccountSession {
     return {
       'token': token,
       'user': user.toJson(),
+      if (recoveryCode != null && recoveryCode!.trim().isNotEmpty)
+        'recoveryCode': recoveryCode,
     };
   }
 }

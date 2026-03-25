@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/cupertino.dart';
-import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:work_hours_mobile/application/services/account_service.dart';
@@ -29,13 +28,14 @@ import 'package:work_hours_mobile/domain/models/support_ticket.dart';
 import 'package:work_hours_mobile/domain/models/user_work_rules.dart';
 import 'package:work_hours_mobile/domain/models/weekday_schedule.dart';
 import 'package:work_hours_mobile/domain/models/weekday_target_minutes.dart';
-import 'package:work_hours_mobile/presentation/home/initial_setup_dialog.dart';
 
 enum _QuickEntryMode { work, leave }
 
 enum _CalendarView { day, week, month, year }
 
 enum _AppearanceTab { theme, colors, typography }
+
+enum _AccountAuthMode { login, register }
 
 const int _maxTicketAttachments = 3;
 const int _maxTicketAttachmentBytes = 4 * 1024 * 1024;
@@ -196,7 +196,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _isSubmittingTicket = false;
   bool _isOpeningUpdate = false;
   bool _isShowingUpdateDialog = false;
-  bool _isShowingOnboardingDialog = false;
   bool _isLoadingCalendarData = false;
   bool _isUpdatingThemeMode = false;
   bool _isSavingWorkdaySession = false;
@@ -204,6 +203,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _isLoadingTicketThreads = false;
   bool _isSubmittingTicketReply = false;
   bool _isAuthenticatingAccount = false;
+  bool _isRecoveringAccountPassword = false;
   bool _isRestoringCloudBackup = false;
   bool _isSyncingCloudBackup = false;
   bool _cloudBackupQueued = false;
@@ -228,6 +228,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   int? _agendaPreviewPauseStartMinutes;
   int? _agendaPreviewPauseEndMinutes;
   AccountSession? _accountSession;
+  _AccountAuthMode _accountAuthMode = _AccountAuthMode.login;
   Timer? _ticketNotificationTimer;
   final _accountEmailController = TextEditingController();
   final _accountPasswordController = TextEditingController();
@@ -248,19 +249,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     unawaited(_loadWorkdaySessionForDate(_selectedDate));
     unawaited(_refreshTrackedSupportTickets());
     _startTicketNotificationPolling();
-    if (_hasCompletedInitialSetup) {
-      unawaited(_checkForUpdate());
-    } else {
-      _isCheckingForUpdate = false;
-    }
+    unawaited(_checkForUpdate());
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
-    if (state == AppLifecycleState.resumed &&
-        !_isCheckingForUpdate &&
-        _hasCompletedInitialSetup) {
+    if (state == AppLifecycleState.resumed && !_isCheckingForUpdate) {
       unawaited(_checkForUpdate());
     }
     if (state == AppLifecycleState.resumed) {
@@ -396,53 +391,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _maybeShowInitialSetup(DashboardSnapshot snapshot) async {
-    if (_hasCompletedInitialSetup || _isShowingOnboardingDialog || !mounted) {
+  Future<void> _maybeShowInitialSetup(DashboardSnapshot _) async {
+    if (_hasCompletedInitialSetup) {
       return;
     }
 
-    _isShowingOnboardingDialog = true;
-    final wasCompleted = await showDialog<bool>(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => InitialSetupDialog(
-        initialProfile: snapshot.profile,
-        initialIsDarkTheme: widget.isDarkTheme,
-        onCompleteInitialSetup: () async {
-          await widget.onboardingPreferenceStore.markInitialSetupCompleted();
-          _hasCompletedInitialSetup = true;
-        },
-        onThemeModeChanged: widget.onThemeModeChanged,
-        onSaveProfile: (configuration) async {
-          final savedSnapshot = await widget.dashboardService.saveProfile(
-            fullName: configuration.fullName,
-            useUniformDailyTarget: configuration.useUniformDailyTarget,
-            dailyTargetMinutes: configuration.dailyTargetMinutes,
-            weekdayTargetMinutes: configuration.weekdayTargetMinutes,
-            weekdaySchedule: configuration.weekdaySchedule,
-            workRules: UserProfile.defaultWorkRules(
-              dailyTargetMinutes: configuration.dailyTargetMinutes,
-              weekdaySchedule: configuration.weekdaySchedule,
-            ),
-            month: _snapshot?.summary.month,
-          );
-          await _cacheSnapshot(savedSnapshot);
-          _hydrateControllers(savedSnapshot, _selectedDate);
-          if (!mounted) {
-            return;
-          }
-          setState(() {
-            _snapshot = savedSnapshot;
-          });
-          await _queueCloudBackup();
-        },
-      ),
-    );
-    _isShowingOnboardingDialog = false;
-
-    if (wasCompleted == true && mounted) {
-      unawaited(_checkForUpdate());
-    }
+    _hasCompletedInitialSetup = true;
+    await widget.onboardingPreferenceStore.markInitialSetupCompleted();
   }
 
   Future<void> _checkForUpdate() async {
@@ -657,6 +612,236 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
+  void _openAccountRegistrationFlow() {
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _selectedSection = _HomeSection.profile;
+      _accountAuthMode = _AccountAuthMode.register;
+    });
+  }
+
+  Future<void> _showRecoveryCodeDialog({
+    required String recoveryCode,
+    required String title,
+    required String description,
+  }) async {
+    if (!mounted || recoveryCode.trim().isEmpty) {
+      return;
+    }
+
+    final theme = Theme.of(context);
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: Text(title),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(description),
+              const SizedBox(height: 14),
+              SelectableText(
+                recoveryCode,
+                style: theme.textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                'Conservalo: serve per recuperare la password.',
+                style: theme.textTheme.bodySmall,
+              ),
+            ],
+          ),
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Ho salvato il codice'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _openPasswordRecoveryFlow() async {
+    if (widget.accountService == null || _isRecoveringAccountPassword) {
+      return;
+    }
+
+    final emailController = TextEditingController(
+      text: _accountEmailController.text.trim(),
+    );
+    final recoveryCodeController = TextEditingController();
+    final newPasswordController = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+    var obscurePassword = true;
+
+    final payload =
+        await showDialog<
+          ({String email, String recoveryCode, String newPassword})
+        >(
+          context: context,
+          builder: (dialogContext) {
+            return StatefulBuilder(
+              builder: (dialogContext, setDialogState) {
+                return AlertDialog(
+                  title: const Text('Recupera password'),
+                  content: Form(
+                    key: formKey,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Inserisci email, codice recupero e nuova password.',
+                        ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          controller: emailController,
+                          keyboardType: TextInputType.emailAddress,
+                          decoration: const InputDecoration(labelText: 'Email'),
+                          validator: (value) {
+                            final email = value?.trim() ?? '';
+                            final isValidEmail = RegExp(
+                              r'^[^\s@]+@[^\s@]+\.[^\s@]+$',
+                            ).hasMatch(email);
+                            return isValidEmail
+                                ? null
+                                : 'Inserisci un email valida.';
+                          },
+                        ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          controller: recoveryCodeController,
+                          textCapitalization: TextCapitalization.characters,
+                          decoration: const InputDecoration(
+                            labelText: 'Codice recupero',
+                            hintText: 'Es. ABCDE-FGHIJ',
+                          ),
+                          validator: (value) {
+                            final code = value?.trim() ?? '';
+                            return code.isEmpty
+                                ? 'Inserisci il codice recupero.'
+                                : null;
+                          },
+                        ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          controller: newPasswordController,
+                          obscureText: obscurePassword,
+                          decoration: InputDecoration(
+                            labelText: 'Nuova password',
+                            helperText: 'Almeno 8 caratteri',
+                            suffixIcon: IconButton(
+                              tooltip: obscurePassword
+                                  ? 'Mostra password'
+                                  : 'Nascondi password',
+                              onPressed: () => setDialogState(() {
+                                obscurePassword = !obscurePassword;
+                              }),
+                              icon: Icon(
+                                obscurePassword
+                                    ? Icons.visibility_outlined
+                                    : Icons.visibility_off_outlined,
+                              ),
+                            ),
+                          ),
+                          validator: (value) {
+                            final password = value ?? '';
+                            return password.trim().length >= 8
+                                ? null
+                                : 'Minimo 8 caratteri.';
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.of(dialogContext).pop(),
+                      child: const Text('Annulla'),
+                    ),
+                    FilledButton(
+                      onPressed: () {
+                        final isValid = formKey.currentState?.validate() ?? false;
+                        if (!isValid) {
+                          return;
+                        }
+
+                        Navigator.of(dialogContext).pop((
+                          email: emailController.text.trim(),
+                          recoveryCode: recoveryCodeController.text.trim(),
+                          newPassword: newPasswordController.text,
+                        ));
+                      },
+                      child: const Text('Aggiorna password'),
+                    ),
+                  ],
+                );
+              },
+            );
+          },
+        );
+
+    emailController.dispose();
+    recoveryCodeController.dispose();
+    newPasswordController.dispose();
+
+    if (payload == null) {
+      return;
+    }
+
+    setState(() {
+      _isRecoveringAccountPassword = true;
+    });
+
+    try {
+      final nextRecoveryCode = await widget.accountService!.recoverPassword(
+        email: payload.email,
+        recoveryCode: payload.recoveryCode,
+        newPassword: payload.newPassword,
+      );
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _isRecoveringAccountPassword = false;
+      });
+      _accountEmailController.text = payload.email;
+      _accountPasswordController.clear();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Password aggiornata. Ora puoi accedere con la nuova password.',
+          ),
+        ),
+      );
+      await _showRecoveryCodeDialog(
+        recoveryCode: nextRecoveryCode,
+        title: 'Nuovo codice recupero',
+        description:
+            'Per sicurezza il codice recupero e stato rigenerato dopo il reset password.',
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _isRecoveringAccountPassword = false;
+      });
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(_humanizeError(error))));
+    }
+  }
+
   Future<void> _registerAccount() async {
     if (widget.accountService == null) {
       return;
@@ -689,6 +874,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       setState(() {
         _accountSession = session;
         _isAuthenticatingAccount = false;
+        _accountAuthMode = _AccountAuthMode.login;
       });
       _accountPasswordController.clear();
       ScaffoldMessenger.of(context).showSnackBar(
@@ -698,6 +884,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           ),
         ),
       );
+      if (session.recoveryCode != null && session.recoveryCode!.isNotEmpty) {
+        await _showRecoveryCodeDialog(
+          recoveryCode: session.recoveryCode!,
+          title: 'Codice recupero account',
+          description:
+              'Tieni questo codice al sicuro. Ti serve per recuperare la password in futuro.',
+        );
+      }
     } catch (error) {
       if (!mounted) {
         return;
@@ -745,6 +939,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       setState(() {
         _accountSession = session;
         _isAuthenticatingAccount = false;
+        _accountAuthMode = _AccountAuthMode.login;
       });
       _accountPasswordController.clear();
 
@@ -768,6 +963,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           ),
         ),
       );
+      if (session?.recoveryCode != null && session!.recoveryCode!.isNotEmpty) {
+        await _showRecoveryCodeDialog(
+          recoveryCode: session.recoveryCode!,
+          title: 'Codice recupero generato',
+          description:
+              'Il tuo account non aveva ancora un codice recupero: ora e stato creato.',
+        );
+      }
     } catch (error) {
       if (!mounted) {
         return;
@@ -854,6 +1057,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       setState(() {
         _accountSession = null;
         _isAuthenticatingAccount = false;
+        _accountAuthMode = _AccountAuthMode.login;
       });
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -5494,9 +5698,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           isOpeningUpdate: _isOpeningUpdate,
           isUpdatingThemeMode: _isUpdatingThemeMode,
           accountSession: _accountSession,
+          selectedAuthMode: _accountAuthMode,
           accountEmailController: _accountEmailController,
           accountPasswordController: _accountPasswordController,
           isAuthenticatingAccount: _isAuthenticatingAccount,
+          isRecoveringPassword: _isRecoveringAccountPassword,
           isRestoringCloudBackup: _isRestoringCloudBackup,
           isSyncingCloudBackup: _isSyncingCloudBackup,
           onDarkThemeChanged: _toggleThemeMode,
@@ -5504,6 +5710,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           onAppearanceSettingsChanged: _updateAppearanceSettings,
           onRegisterAccount: _registerAccount,
           onLoginAccount: _loginAccount,
+          onAuthModeChanged: (mode) {
+            setState(() {
+              _accountAuthMode = mode;
+            });
+          },
+          onOpenPasswordRecovery: _openPasswordRecoveryFlow,
           onBackupNow: _queueCloudBackup,
           onRestoreCloudBackup: _restoreCloudBackup,
           onLogoutAccount: _logoutAccount,
@@ -5566,8 +5778,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               children: [
                 _Header(
                   profileName: snapshot?.profile.fullName,
+                  selectedSection: _selectedSection,
+                  hasCloudAccount: _accountSession != null,
                   navigationMenuButtonKey: _navigationMenuButtonKey,
                   onOpenNavigationMenu: _openNavigationMenu,
+                  onOpenRegistration: _openAccountRegistrationFlow,
                 ),
                 const SizedBox(height: 16),
                 if (_errorMessage != null) ...[
@@ -10286,9 +10501,11 @@ class _ProfileCard extends StatelessWidget {
     required this.isOpeningUpdate,
     required this.isUpdatingThemeMode,
     required this.accountSession,
+    required this.selectedAuthMode,
     required this.accountEmailController,
     required this.accountPasswordController,
     required this.isAuthenticatingAccount,
+    required this.isRecoveringPassword,
     required this.isRestoringCloudBackup,
     required this.isSyncingCloudBackup,
     required this.onDarkThemeChanged,
@@ -10296,6 +10513,8 @@ class _ProfileCard extends StatelessWidget {
     required this.onAppearanceSettingsChanged,
     required this.onRegisterAccount,
     required this.onLoginAccount,
+    required this.onAuthModeChanged,
+    required this.onOpenPasswordRecovery,
     required this.onBackupNow,
     required this.onRestoreCloudBackup,
     required this.onLogoutAccount,
@@ -10314,9 +10533,11 @@ class _ProfileCard extends StatelessWidget {
   final bool isOpeningUpdate;
   final bool isUpdatingThemeMode;
   final AccountSession? accountSession;
+  final _AccountAuthMode selectedAuthMode;
   final TextEditingController accountEmailController;
   final TextEditingController accountPasswordController;
   final bool isAuthenticatingAccount;
+  final bool isRecoveringPassword;
   final bool isRestoringCloudBackup;
   final bool isSyncingCloudBackup;
   final Future<void> Function(bool) onDarkThemeChanged;
@@ -10325,6 +10546,8 @@ class _ProfileCard extends StatelessWidget {
   onAppearanceSettingsChanged;
   final Future<void> Function() onRegisterAccount;
   final Future<void> Function() onLoginAccount;
+  final ValueChanged<_AccountAuthMode> onAuthModeChanged;
+  final Future<void> Function() onOpenPasswordRecovery;
   final Future<void> Function() onBackupNow;
   final Future<void> Function() onRestoreCloudBackup;
   final Future<void> Function() onLogoutAccount;
@@ -10374,13 +10597,17 @@ class _ProfileCard extends StatelessWidget {
             const SizedBox(height: 12),
             _CloudBackupAccountCard(
               accountSession: accountSession,
+              selectedAuthMode: selectedAuthMode,
               emailController: accountEmailController,
               passwordController: accountPasswordController,
               isAuthenticating: isAuthenticatingAccount,
+              isRecoveringPassword: isRecoveringPassword,
               isRestoring: isRestoringCloudBackup,
               isSyncing: isSyncingCloudBackup,
               onRegister: onRegisterAccount,
               onLogin: onLoginAccount,
+              onAuthModeChanged: onAuthModeChanged,
+              onOpenPasswordRecovery: onOpenPasswordRecovery,
               onBackupNow: onBackupNow,
               onRestoreFromCloud: onRestoreCloudBackup,
               onLogout: onLogoutAccount,
@@ -11884,26 +12111,34 @@ class _AppearanceSettingsPanelState extends State<_AppearanceSettingsPanel> {
 class _CloudBackupAccountCard extends StatelessWidget {
   const _CloudBackupAccountCard({
     required this.accountSession,
+    required this.selectedAuthMode,
     required this.emailController,
     required this.passwordController,
     required this.isAuthenticating,
+    required this.isRecoveringPassword,
     required this.isRestoring,
     required this.isSyncing,
     required this.onRegister,
     required this.onLogin,
+    required this.onAuthModeChanged,
+    required this.onOpenPasswordRecovery,
     required this.onBackupNow,
     required this.onRestoreFromCloud,
     required this.onLogout,
   });
 
   final AccountSession? accountSession;
+  final _AccountAuthMode selectedAuthMode;
   final TextEditingController emailController;
   final TextEditingController passwordController;
   final bool isAuthenticating;
+  final bool isRecoveringPassword;
   final bool isRestoring;
   final bool isSyncing;
   final Future<void> Function() onRegister;
   final Future<void> Function() onLogin;
+  final ValueChanged<_AccountAuthMode> onAuthModeChanged;
+  final Future<void> Function() onOpenPasswordRecovery;
   final Future<void> Function() onBackupNow;
   final Future<void> Function() onRestoreFromCloud;
   final Future<void> Function() onLogout;
@@ -11912,6 +12147,7 @@ class _CloudBackupAccountCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isLoggedIn = accountSession != null;
+    final isBusy = isAuthenticating || isRecoveringPassword;
 
     return Container(
       padding: const EdgeInsets.all(18),
@@ -11938,6 +12174,33 @@ class _CloudBackupAccountCard extends StatelessWidget {
           ),
           const SizedBox(height: 14),
           if (!isLoggedIn) ...[
+            SegmentedButton<_AccountAuthMode>(
+              showSelectedIcon: false,
+              segments: const [
+                ButtonSegment(
+                  value: _AccountAuthMode.login,
+                  icon: Icon(Icons.login_rounded),
+                  label: Text('Login'),
+                ),
+                ButtonSegment(
+                  value: _AccountAuthMode.register,
+                  icon: Icon(Icons.person_add_alt_1_rounded),
+                  label: Text('Registrati'),
+                ),
+              ],
+              selected: {selectedAuthMode},
+              onSelectionChanged: isBusy
+                  ? null
+                  : (selection) => onAuthModeChanged(selection.first),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              selectedAuthMode == _AccountAuthMode.register
+                  ? 'Dopo la registrazione ricevi un codice recupero da conservare.'
+                  : 'Accedi con email e password. Se non ricordi la password usa "Password dimenticata?".',
+              style: theme.textTheme.bodySmall,
+            ),
+            const SizedBox(height: 12),
             TextField(
               controller: emailController,
               keyboardType: TextInputType.emailAddress,
@@ -11959,18 +12222,45 @@ class _CloudBackupAccountCard extends StatelessWidget {
               spacing: 10,
               runSpacing: 10,
               children: [
-                FilledButton.tonalIcon(
-                  onPressed: isAuthenticating ? null : () => onRegister(),
-                  icon: const Icon(Icons.cloud_upload_outlined),
-                  label: Text(
-                    isAuthenticating ? 'Attendi...' : 'Registrati e salva',
+                if (selectedAuthMode == _AccountAuthMode.register)
+                  FilledButton.tonalIcon(
+                    onPressed: isBusy ? null : () => onRegister(),
+                    icon: const Icon(Icons.cloud_upload_outlined),
+                    label: Text(
+                      isAuthenticating ? 'Attendi...' : 'Registrati e salva',
+                    ),
+                  )
+                else
+                  FilledButton.icon(
+                    onPressed: isBusy ? null : () => onLogin(),
+                    icon: const Icon(Icons.login_rounded),
+                    label: Text(
+                      isAuthenticating ? 'Attendi...' : 'Accedi e ripristina',
+                    ),
                   ),
-                ),
-                OutlinedButton.icon(
-                  onPressed: isAuthenticating ? null : () => onLogin(),
-                  icon: const Icon(Icons.login_rounded),
-                  label: const Text('Accedi e ripristina'),
-                ),
+                if (selectedAuthMode == _AccountAuthMode.login)
+                  TextButton(
+                    onPressed: isBusy
+                        ? null
+                        : () => onAuthModeChanged(_AccountAuthMode.register),
+                    child: const Text('Non hai un account? Registrati'),
+                  )
+                else
+                  TextButton(
+                    onPressed: isBusy
+                        ? null
+                        : () => onAuthModeChanged(_AccountAuthMode.login),
+                    child: const Text('Hai gia un account? Accedi'),
+                  ),
+                if (selectedAuthMode == _AccountAuthMode.login)
+                  TextButton(
+                    onPressed: isBusy ? null : () => onOpenPasswordRecovery(),
+                    child: Text(
+                      isRecoveringPassword
+                          ? 'Recupero in corso...'
+                          : 'Password dimenticata?',
+                    ),
+                  ),
               ],
             ),
           ] else ...[
@@ -15158,30 +15448,61 @@ Color _replaceColorChannel(Color color, {int? red, int? green, int? blue}) {
 class _Header extends StatelessWidget {
   const _Header({
     required this.profileName,
+    required this.selectedSection,
+    required this.hasCloudAccount,
     required this.navigationMenuButtonKey,
     required this.onOpenNavigationMenu,
+    required this.onOpenRegistration,
   });
 
   final String? profileName;
+  final _HomeSection selectedSection;
+  final bool hasCloudAccount;
   final GlobalKey navigationMenuButtonKey;
   final Future<void> Function() onOpenNavigationMenu;
+  final VoidCallback onOpenRegistration;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final showCloudWarning =
+        selectedSection == _HomeSection.workSettings && !hasCloudAccount;
 
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Expanded(
-          child: Text(
-            profileName == null
-                ? 'Work Hours Platform'
-                : 'Ciao ${profileName!}',
-            style: theme.textTheme.headlineMedium?.copyWith(
-              fontWeight: FontWeight.w800,
-            ),
-          ),
+          child: showCloudWarning
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Le impostazioni si perdono se non crei un account.',
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    TextButton(
+                      onPressed: onOpenRegistration,
+                      style: TextButton.styleFrom(
+                        padding: EdgeInsets.zero,
+                        minimumSize: const Size(0, 0),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        visualDensity: VisualDensity.compact,
+                      ),
+                      child: const Text('Registrati'),
+                    ),
+                  ],
+                )
+              : Text(
+                  profileName == null
+                      ? 'Work Hours Platform'
+                      : 'Ciao ${profileName!}',
+                  style: theme.textTheme.headlineMedium?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
         ),
         const SizedBox(width: 12),
         Container(

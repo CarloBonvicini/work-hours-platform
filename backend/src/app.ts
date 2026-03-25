@@ -112,6 +112,7 @@ interface SupportTicketAttachment {
 interface AuthResponse {
   token: string;
   user: AuthUser & { isAdmin: boolean; isSuperAdmin: boolean };
+  recoveryCode?: string;
 }
 
 function parseMonthQuery(query: unknown): string | null | undefined {
@@ -561,6 +562,37 @@ function verifyPasswordDigest(password: string, user: StoredAuthUser) {
   return hash === user.passwordHash;
 }
 
+function normalizeRecoveryCode(value: string) {
+  return value.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
+function createRecoveryCode() {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let normalized = "";
+  for (let index = 0; index < 10; index += 1) {
+    const randomIndex = randomBytes(1)[0] % alphabet.length;
+    normalized += alphabet[randomIndex];
+  }
+
+  return `${normalized.slice(0, 5)}-${normalized.slice(5)}`;
+}
+
+function createRecoveryCodeDigest(recoveryCode: string) {
+  return createPasswordDigest(normalizeRecoveryCode(recoveryCode));
+}
+
+function verifyRecoveryCodeDigest(recoveryCode: string, user: StoredAuthUser) {
+  if (!user.recoveryCodeHash || !user.recoveryCodeSalt) {
+    return false;
+  }
+
+  const normalizedCode = normalizeRecoveryCode(recoveryCode);
+  const hash = scryptSync(normalizedCode, user.recoveryCodeSalt, 64).toString(
+    "hex"
+  );
+  return hash === user.recoveryCodeHash;
+}
+
 function createSessionToken() {
   return randomBytes(32).toString("hex");
 }
@@ -758,6 +790,47 @@ function parseAuthCredentials(payload: unknown) {
     value: {
       email,
       password
+    }
+  };
+}
+
+function parsePasswordRecoveryPayload(payload: unknown) {
+  if (!payload || typeof payload !== "object") {
+    return { value: null, error: "Invalid body" as const };
+  }
+
+  const body = payload as Record<string, unknown>;
+  const email =
+    typeof body.email === "string" ? normalizeEmail(body.email) : null;
+  if (!email || !isValidEmail(email)) {
+    return { value: null, error: "email must be valid" as const };
+  }
+
+  const recoveryCode =
+    typeof body.recoveryCode === "string"
+      ? normalizeRecoveryCode(body.recoveryCode)
+      : null;
+  if (!recoveryCode || recoveryCode.length < 8) {
+    return {
+      value: null,
+      error: "recoveryCode must be valid" as const
+    };
+  }
+
+  const newPassword =
+    typeof body.newPassword === "string" ? body.newPassword : null;
+  if (!newPassword || newPassword.trim().length < 8) {
+    return {
+      value: null,
+      error: "newPassword must be at least 8 characters" as const
+    };
+  }
+
+  return {
+    value: {
+      email,
+      recoveryCode,
+      newPassword
     }
   };
 }
@@ -2483,13 +2556,13 @@ function renderAdminPage(options: {
       const ADMIN_TOKEN_KEY = "work_hours_admin_session_token";
       const bodyDataset = document.body.dataset || {};
       const baseUrl = bodyDataset.baseUrl || "";
-      const normalizedBaseUrl = String(baseUrl || "").replace(/\/+$/, "");
+      const normalizedBaseUrl = String(baseUrl || "").replace(/\\/+$/, "");
       const sameOriginOrigin = (
         typeof window !== "undefined" &&
         window.location &&
         window.location.origin
       )
-        ? String(window.location.origin).replace(/\/+$/, "")
+        ? String(window.location.origin).replace(/\\/+$/, "")
         : "";
       const inferredBasePath = (
         typeof window !== "undefined" &&
@@ -2506,7 +2579,7 @@ function renderAdminPage(options: {
             return pathname.slice(0, markerIndex);
           })()
         : "";
-      const sameOriginBaseUrl = (sameOriginOrigin + inferredBasePath).replace(/\/+$/, "");
+      const sameOriginBaseUrl = (sameOriginOrigin + inferredBasePath).replace(/\\/+$/, "");
       const apiBaseCandidates = Array.from(
         new Set(
           [sameOriginBaseUrl, normalizedBaseUrl, sameOriginOrigin].filter(
@@ -2637,7 +2710,7 @@ function renderAdminPage(options: {
         }
 
         const normalizedPath = value.startsWith("/") ? value : "/" + value;
-        return String(apiRoot || "").replace(/\/+$/, "") + normalizedPath;
+        return String(apiRoot || "").replace(/\\/+$/, "") + normalizedPath;
       }
       async function api(path, options = {}) {
         const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
@@ -3773,11 +3846,15 @@ export function buildApp(options: BuildAppOptions = {}) {
 
     const now = new Date().toISOString();
     const passwordDigest = createPasswordDigest(parsedCredentials.value.password);
+    const recoveryCode = createRecoveryCode();
+    const recoveryCodeDigest = createRecoveryCodeDigest(recoveryCode);
     const createdUser = await store.createAuthUser({
       id: randomUUID(),
       email: parsedCredentials.value.email,
       passwordHash: passwordDigest.hash,
       passwordSalt: passwordDigest.salt,
+      recoveryCodeHash: recoveryCodeDigest.hash,
+      recoveryCodeSalt: recoveryCodeDigest.salt,
       role: isLegacyAdminProfileEmail(parsedCredentials.value.email)
         ? "admin"
         : "user",
@@ -3795,7 +3872,8 @@ export function buildApp(options: BuildAppOptions = {}) {
 
     const response: AuthResponse = {
       token,
-      user: serializeAuthUser(createdUser)
+      user: serializeAuthUser(createdUser),
+      recoveryCode
     };
 
     return reply.code(201).send(response);
@@ -3814,21 +3892,77 @@ export function buildApp(options: BuildAppOptions = {}) {
       return reply.code(401).send({ error: "invalid email or password" });
     }
 
+    let nextRecoveryCode: string | undefined;
+    let effectiveUser = user;
+    if (!user.recoveryCodeHash || !user.recoveryCodeSalt) {
+      nextRecoveryCode = createRecoveryCode();
+      const recoveryCodeDigest = createRecoveryCodeDigest(nextRecoveryCode);
+      const refreshedAt = new Date().toISOString();
+      await store.updateStoredAuthUser({
+        ...user,
+        recoveryCodeHash: recoveryCodeDigest.hash,
+        recoveryCodeSalt: recoveryCodeDigest.salt,
+        updatedAt: refreshedAt
+      });
+      effectiveUser = {
+        ...user,
+        recoveryCodeHash: recoveryCodeDigest.hash,
+        recoveryCodeSalt: recoveryCodeDigest.salt,
+        updatedAt: refreshedAt
+      };
+    }
+
     const token = createSessionToken();
     const now = new Date().toISOString();
     await store.saveAuthSession({
       tokenHash: hashSessionToken(token),
-      userId: user.id,
+      userId: effectiveUser.id,
       createdAt: now,
       updatedAt: now
     });
 
     const response: AuthResponse = {
       token,
-      user: serializeAuthUser(user)
+      user: serializeAuthUser(effectiveUser),
+      recoveryCode: nextRecoveryCode
     };
 
     return response;
+  });
+
+  app.post("/auth/recover-password", async (request, reply) => {
+    const parsedPayload = parsePasswordRecoveryPayload(request.body);
+    if (!parsedPayload.value) {
+      return reply.code(400).send({
+        error: parsedPayload.error ?? "Invalid recovery payload"
+      });
+    }
+
+    const user = await store.findAuthUserByEmail(parsedPayload.value.email);
+    if (!user || !verifyRecoveryCodeDigest(parsedPayload.value.recoveryCode, user)) {
+      return reply.code(401).send({
+        error: "invalid recovery credentials"
+      });
+    }
+
+    const passwordDigest = createPasswordDigest(parsedPayload.value.newPassword);
+    const nextRecoveryCode = createRecoveryCode();
+    const nextRecoveryDigest = createRecoveryCodeDigest(nextRecoveryCode);
+    const now = new Date().toISOString();
+
+    await store.updateStoredAuthUser({
+      ...user,
+      passwordHash: passwordDigest.hash,
+      passwordSalt: passwordDigest.salt,
+      recoveryCodeHash: nextRecoveryDigest.hash,
+      recoveryCodeSalt: nextRecoveryDigest.salt,
+      updatedAt: now
+    });
+
+    return {
+      success: true,
+      recoveryCode: nextRecoveryCode
+    };
   });
 
   app.get("/auth/me", async (request, reply) => {

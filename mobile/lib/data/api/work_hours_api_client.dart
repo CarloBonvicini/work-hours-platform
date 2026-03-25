@@ -294,6 +294,30 @@ class WorkHoursApiClient {
     return AccountSession.fromJson(_decodeObject(response));
   }
 
+  Future<String> recoverPassword({
+    required String email,
+    required String recoveryCode,
+    required String newPassword,
+  }) async {
+    final response = await _httpClient.post(
+      _buildUri('auth/recover-password'),
+      headers: _headers(json: true),
+      body: jsonEncode({
+        'email': email,
+        'recoveryCode': recoveryCode,
+        'newPassword': newPassword,
+      }),
+    );
+
+    final body = _decodeObject(response);
+    final nextRecoveryCode = body['recoveryCode'];
+    if (nextRecoveryCode is! String || nextRecoveryCode.trim().isEmpty) {
+      throw ApiException('Risposta recupero password non valida.');
+    }
+
+    return nextRecoveryCode;
+  }
+
   Future<void> logout() async {
     final response = await _httpClient.delete(
       _buildUri('auth/session'),

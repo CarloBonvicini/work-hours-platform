@@ -30,6 +30,8 @@ export interface StoredAuthUser {
   email: string;
   passwordHash: string;
   passwordSalt: string;
+  recoveryCodeHash?: string;
+  recoveryCodeSalt?: string;
   role: AuthRole;
   createdAt: string;
   updatedAt: string;

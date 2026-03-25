@@ -73,6 +73,19 @@ class AccountService {
     await _sessionStore.clearSession();
   }
 
+  Future<String> recoverPassword({
+    required String email,
+    required String recoveryCode,
+    required String newPassword,
+  }) async {
+    final client = WorkHoursApiClient(baseUrl: _baseUrl);
+    return client.recoverPassword(
+      email: email,
+      recoveryCode: recoveryCode,
+      newPassword: newPassword,
+    );
+  }
+
   Future<void> backupToCloud({AccountSession? session}) async {
     final effectiveSession = session ?? await _sessionStore.loadSession();
     if (effectiveSession == null) {

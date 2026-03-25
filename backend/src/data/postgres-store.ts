@@ -71,6 +71,8 @@ type AuthUserRow = {
   role: AuthRole;
   password_hash: string;
   password_salt: string;
+  recovery_code_hash: string | null;
+  recovery_code_salt: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -309,6 +311,8 @@ export class PostgresStore implements AppStore {
         email TEXT NOT NULL UNIQUE,
         password_hash TEXT NOT NULL,
         password_salt TEXT NOT NULL,
+        recovery_code_hash TEXT,
+        recovery_code_salt TEXT,
         role TEXT NOT NULL DEFAULT 'user',
         is_admin BOOLEAN NOT NULL DEFAULT FALSE,
         created_at TIMESTAMPTZ NOT NULL,
@@ -317,7 +321,9 @@ export class PostgresStore implements AppStore {
 
       ALTER TABLE auth_users
         ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'user',
-        ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT FALSE;
+        ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT FALSE,
+        ADD COLUMN IF NOT EXISTS recovery_code_hash TEXT,
+        ADD COLUMN IF NOT EXISTS recovery_code_salt TEXT;
 
       UPDATE auth_users
       SET role = CASE WHEN is_admin THEN 'admin' ELSE 'user' END
@@ -675,6 +681,8 @@ export class PostgresStore implements AppStore {
           role,
           password_hash,
           password_salt,
+          recovery_code_hash,
+          recovery_code_salt,
           TO_CHAR(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS created_at,
           TO_CHAR(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS updated_at
         FROM auth_users
@@ -695,6 +703,8 @@ export class PostgresStore implements AppStore {
       role: row.role,
       passwordHash: row.password_hash,
       passwordSalt: row.password_salt,
+      recoveryCodeHash: row.recovery_code_hash ?? undefined,
+      recoveryCodeSalt: row.recovery_code_salt ?? undefined,
       createdAt: row.created_at,
       updatedAt: row.updated_at
     };
@@ -708,12 +718,14 @@ export class PostgresStore implements AppStore {
           email,
           password_hash,
           password_salt,
+          recovery_code_hash,
+          recovery_code_salt,
           role,
           is_admin,
           created_at,
           updated_at
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7::timestamptz, $8::timestamptz)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::timestamptz, $10::timestamptz)
         RETURNING
           id,
           email,
@@ -726,6 +738,8 @@ export class PostgresStore implements AppStore {
         user.email.trim().toLowerCase(),
         user.passwordHash,
         user.passwordSalt,
+        user.recoveryCodeHash ?? null,
+        user.recoveryCodeSalt ?? null,
         user.role,
         user.role !== "user",
         user.createdAt,
@@ -790,9 +804,11 @@ export class PostgresStore implements AppStore {
           email = $2,
           password_hash = $3,
           password_salt = $4,
-          role = $5,
-          is_admin = CASE WHEN $5 IN ('admin', 'super_admin') THEN TRUE ELSE FALSE END,
-          updated_at = $6::timestamptz
+          recovery_code_hash = $5,
+          recovery_code_salt = $6,
+          role = $7,
+          is_admin = CASE WHEN $7 IN ('admin', 'super_admin') THEN TRUE ELSE FALSE END,
+          updated_at = $8::timestamptz
         WHERE id = $1
         RETURNING
           id,
@@ -806,6 +822,8 @@ export class PostgresStore implements AppStore {
         user.email.trim().toLowerCase(),
         user.passwordHash,
         user.passwordSalt,
+        user.recoveryCodeHash ?? null,
+        user.recoveryCodeSalt ?? null,
         user.role,
         user.updatedAt
       ]

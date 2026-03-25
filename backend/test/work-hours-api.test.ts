@@ -119,6 +119,7 @@ describe("Auth and cloud backup API", () => {
       email: "carlo@example.com"
     });
     expect(registerBody.token).toEqual(expect.any(String));
+    expect(registerBody.recoveryCode).toEqual(expect.any(String));
 
     const backupResponse = await app.inject({
       method: "PUT",
@@ -191,6 +192,31 @@ describe("Auth and cloud backup API", () => {
       }
     });
     expect(loginResponse.statusCode).toBe(200);
+
+    const resetResponse = await app.inject({
+      method: "POST",
+      url: "/auth/recover-password",
+      payload: {
+        email: "carlo@example.com",
+        recoveryCode: registerBody.recoveryCode,
+        newPassword: "nuova-password"
+      }
+    });
+    expect(resetResponse.statusCode).toBe(200);
+    expect(resetResponse.json()).toMatchObject({
+      success: true,
+      recoveryCode: expect.any(String)
+    });
+
+    const loginWithNewPasswordResponse = await app.inject({
+      method: "POST",
+      url: "/auth/login",
+      payload: {
+        email: "carlo@example.com",
+        password: "nuova-password"
+      }
+    });
+    expect(loginWithNewPasswordResponse.statusCode).toBe(200);
 
     const meResponse = await app.inject({
       method: "GET",
