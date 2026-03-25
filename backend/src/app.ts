@@ -297,8 +297,21 @@ function deriveDailyTargetMinutes(
   return Math.round(total / workingDayValues.length);
 }
 
+function getRuntimeDirectory(envName: "MOBILE_UPDATES_DIR" | "TICKETS_DIR", leaf: string) {
+  const configuredDirectory = process.env[envName]?.trim();
+  if (configuredDirectory) {
+    return configuredDirectory;
+  }
+
+  if (process.cwd() === "/app") {
+    return path.posix.join("/app", leaf);
+  }
+
+  return path.join(process.cwd(), ".runtime-data", leaf);
+}
+
 function getUpdatesDirectory() {
-  return process.env.MOBILE_UPDATES_DIR ?? "/app/updates";
+  return getRuntimeDirectory("MOBILE_UPDATES_DIR", "updates");
 }
 
 function getReleaseMetadataPath() {
@@ -310,7 +323,7 @@ function getReleaseStatusPath() {
 }
 
 function getTicketsDirectory() {
-  return process.env.TICKETS_DIR ?? "/app/tickets";
+  return getRuntimeDirectory("TICKETS_DIR", "tickets");
 }
 
 async function loadReleaseMetadata(): Promise<MobileReleaseMetadata | null> {
