@@ -380,6 +380,10 @@ void main() {
     expect(find.text('Stesso orario lun-ven'), findsOneWidget);
     expect(find.text('Disattiva per personalizzare i giorni.'), findsOneWidget);
     expect(
+      find.byKey(const ValueKey('work-settings-lunch-break-monday')),
+      findsOneWidget,
+    );
+    expect(
       find.byWidgetPredicate(
         (widget) =>
             widget is RichText &&
@@ -424,6 +428,52 @@ void main() {
     expect(find.text('Ore giornaliere attese'), findsNothing);
     expect(find.text('Carica orari'), findsNothing);
     expect(find.text('Salva orari'), findsNothing);
+  });
+
+  testWidgets('toggles weekday lunch break in work settings', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 1400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      WorkHoursApp(
+        dashboardService: DashboardService(
+          repository: _FakeDashboardRepository(),
+        ),
+        appUpdateService: _FakeAppUpdateService(),
+        updateReminderStore: _FakeUpdateReminderStore(),
+        onboardingPreferenceStore: _FakeOnboardingPreferenceStore(
+          hasCompleted: true,
+        ),
+        themePreferenceStore: _FakeThemePreferenceStore(),
+        workdayStartStore: _FakeWorkdayStartStore(),
+        supportTicketStore: _FakeSupportTicketStore(),
+        hasCompletedInitialSetup: true,
+      ),
+    );
+
+    await tester.pumpAndSettle();
+    if (find.text('Ricordamelo piu tardi').evaluate().isNotEmpty) {
+      await tester.tap(find.text('Ricordamelo piu tardi'));
+      await tester.pumpAndSettle();
+    }
+
+    await tester.tap(find.byKey(const ValueKey('navigation-menu-button')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('navigation-option-workSettings')),
+    );
+    await tester.pumpAndSettle();
+
+    final mondayLunchBreakFinder = find.byKey(
+      const ValueKey('work-settings-lunch-break-monday'),
+    );
+    expect(mondayLunchBreakFinder, findsOneWidget);
+    expect(tester.widget<Checkbox>(mondayLunchBreakFinder).value, isTrue);
+
+    await tester.tap(mondayLunchBreakFinder);
+    await tester.pumpAndSettle();
+
+    expect(tester.widget<Checkbox>(mondayLunchBreakFinder).value, isFalse);
   });
 
   testWidgets('persists collapsed state for work settings sections', (

@@ -215,6 +215,24 @@ describe("Admin dashboard", () => {
       status: "in_progress"
     });
 
+    const detailResponse = await app.inject({
+      method: "GET",
+      url: `/admin/api/tickets/${ticketId}`,
+      headers: {
+        authorization: "Bearer secret-token"
+      }
+    });
+    expect(detailResponse.statusCode).toBe(200);
+    expect(detailResponse.json()).toMatchObject({
+      id: ticketId,
+      replies: [
+        {
+          author: "admin",
+          message: "Ricevuto. Lo stiamo implementando."
+        }
+      ]
+    });
+
     const files = await readdir(tempDirectory);
     expect(files).toHaveLength(1);
 
@@ -291,6 +309,24 @@ describe("Admin dashboard", () => {
     expect(
       ticketsResponse.json().items[0].attachments[0].downloadPath as string
     ).toContain("/tickets/");
+
+    const ticketId = createTicketResponse.json().id as string;
+    const detailResponse = await app.inject({
+      method: "GET",
+      url: `/admin/api/tickets/${ticketId}`,
+      headers: {
+        authorization: "Bearer secret-token"
+      }
+    });
+    expect(detailResponse.statusCode).toBe(200);
+    expect(detailResponse.json()).toMatchObject({
+      id: ticketId,
+      attachments: [
+        {
+          fileName: "anteprima-admin.png",
+        }
+      ]
+    });
   });
 
   it("seeds the super admin from env and allows access to user management", async () => {

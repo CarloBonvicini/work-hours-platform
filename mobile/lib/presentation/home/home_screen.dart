@@ -2212,6 +2212,59 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
+  void _setUniformLunchBreakEnabled(bool enabled) {
+    _setLunchBreakEnabled(
+      breakController: _uniformBreakController,
+      enabled: enabled,
+    );
+  }
+
+  void _setWeekdayLunchBreakEnabled(WeekdayKey weekday, bool enabled) {
+    _setLunchBreakEnabled(
+      breakController: _weekdayBreakControllers[weekday]!,
+      enabled: enabled,
+      weekday: weekday,
+    );
+  }
+
+  void _setLunchBreakEnabled({
+    required TextEditingController breakController,
+    required bool enabled,
+    WeekdayKey? weekday,
+  }) {
+    final currentBreakMinutes =
+        parseBreakDurationInput(breakController.text) ?? 0;
+    if (enabled && currentBreakMinutes <= 0) {
+      breakController.text = _formatBreakInput(_defaultLunchBreakMinutes());
+    } else if (!enabled) {
+      breakController.text = _formatBreakInput(0);
+    }
+
+    _syncProfileTargetFromTimes(weekday: weekday);
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  int _defaultLunchBreakMinutes() {
+    final configuredMinimumBreakMinutes = parseBreakDurationInput(
+      _rulesMinimumBreakController.text,
+    );
+    if (configuredMinimumBreakMinutes != null &&
+        configuredMinimumBreakMinutes > 0) {
+      return configuredMinimumBreakMinutes;
+    }
+
+    final uniformBreakMinutes = parseBreakDurationInput(
+      _uniformBreakController.text,
+    );
+    if (uniformBreakMinutes != null && uniformBreakMinutes > 0) {
+      return uniformBreakMinutes;
+    }
+
+    return 30;
+  }
+
   UserWorkRules? _buildWorkRulesFromControllers({
     required WeekdaySchedule weekdaySchedule,
   }) {
@@ -4813,6 +4866,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           onPickUniformTargetMinutes: _pickUniformTargetMinutes,
           onPickUniformScheduleTime: _pickUniformScheduleTime,
           onPickUniformBreakMinutes: _pickUniformBreakMinutes,
+          onUniformLunchBreakChanged: _setUniformLunchBreakEnabled,
           onPickRulesExpectedDailyMinutes: _pickRulesExpectedDailyMinutes,
           onPickRulesMinimumBreakMinutes: _pickRulesMinimumBreakMinutes,
           onPickRulesMaximumDailyCreditMinutes:
@@ -4826,6 +4880,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           onPickWeekdayTargetMinutes: _pickWeekdayTargetMinutes,
           onPickWeekdayScheduleTime: _pickWeekdayScheduleTime,
           onPickWeekdayBreakMinutes: _pickWeekdayBreakMinutes,
+          onWeekdayLunchBreakChanged: _setWeekdayLunchBreakEnabled,
           onAppearanceSettingsChanged: _updateAppearanceSettings,
           onReload: _reloadProfileDraft,
           onSubmit: _submitProfile,
@@ -9666,7 +9721,7 @@ class _ProfileCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return _SectionCard(
-      title: 'Impostazioni',
+      title: 'Impostazioni app',
       subtitle: 'Gestisci profilo, backup e aspetto dell app.',
       child: Form(
         key: formKey,
@@ -9772,6 +9827,7 @@ class _WorkSettingsCard extends StatelessWidget {
     required this.onPickUniformTargetMinutes,
     required this.onPickUniformScheduleTime,
     required this.onPickUniformBreakMinutes,
+    required this.onUniformLunchBreakChanged,
     required this.onPickRulesExpectedDailyMinutes,
     required this.onPickRulesMinimumBreakMinutes,
     required this.onPickRulesMaximumDailyCreditMinutes,
@@ -9781,6 +9837,7 @@ class _WorkSettingsCard extends StatelessWidget {
     required this.onPickWeekdayTargetMinutes,
     required this.onPickWeekdayScheduleTime,
     required this.onPickWeekdayBreakMinutes,
+    required this.onWeekdayLunchBreakChanged,
     required this.onAppearanceSettingsChanged,
     required this.onReload,
     required this.onSubmit,
@@ -9810,6 +9867,7 @@ class _WorkSettingsCard extends StatelessWidget {
   final Future<void> Function(_CalendarTimeField field)
   onPickUniformScheduleTime;
   final Future<void> Function() onPickUniformBreakMinutes;
+  final ValueChanged<bool> onUniformLunchBreakChanged;
   final Future<void> Function() onPickRulesExpectedDailyMinutes;
   final Future<void> Function() onPickRulesMinimumBreakMinutes;
   final Future<void> Function() onPickRulesMaximumDailyCreditMinutes;
@@ -9820,6 +9878,8 @@ class _WorkSettingsCard extends StatelessWidget {
   final Future<void> Function(WeekdayKey weekday, _CalendarTimeField field)
   onPickWeekdayScheduleTime;
   final Future<void> Function(WeekdayKey weekday) onPickWeekdayBreakMinutes;
+  final void Function(WeekdayKey weekday, bool hasLunchBreak)
+  onWeekdayLunchBreakChanged;
   final Future<void> Function(AppAppearanceSettings settings)
   onAppearanceSettingsChanged;
   final Future<void> Function() onReload;
@@ -9828,7 +9888,7 @@ class _WorkSettingsCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return _SectionCard(
-      title: 'Orari',
+      title: 'Orari e permessi',
       subtitle: 'Definisci orario, ore attese e limiti.',
       child: Form(
         key: formKey,
@@ -9870,6 +9930,16 @@ class _WorkSettingsCard extends StatelessWidget {
                       startTimeText: uniformStartTimeController.text,
                       endTimeText: uniformEndTimeController.text,
                       breakText: uniformBreakController.text,
+                      hasLunchBreak:
+                          (parseBreakDurationInput(
+                                uniformBreakController.text,
+                              ) ??
+                              0) >
+                          0,
+                      lunchBreakToggleKey: const ValueKey(
+                        'work-settings-lunch-break-uniform',
+                      ),
+                      onLunchBreakChanged: onUniformLunchBreakChanged,
                       onPickTarget: onPickUniformTargetMinutes,
                       onPickStartTime: () =>
                           onPickUniformScheduleTime(_CalendarTimeField.start),
@@ -9892,6 +9962,18 @@ class _WorkSettingsCard extends StatelessWidget {
                                     weekdayEndTimeControllers[weekday]!,
                                 breakController:
                                     weekdayBreakControllers[weekday]!,
+                                hasLunchBreak:
+                                    (parseBreakDurationInput(
+                                          weekdayBreakControllers[weekday]!
+                                              .text,
+                                        ) ??
+                                        0) >
+                                    0,
+                                lunchBreakToggleKey: ValueKey(
+                                  'work-settings-lunch-break-${weekday.name}',
+                                ),
+                                onLunchBreakChanged: (value) =>
+                                    onWeekdayLunchBreakChanged(weekday, value),
                                 onPickTarget: () =>
                                     onPickWeekdayTargetMinutes(weekday),
                                 onPickStartTime: () =>
@@ -10110,6 +10192,9 @@ class _DayScheduleEditorRow extends StatelessWidget {
     required this.startTimeController,
     required this.endTimeController,
     required this.breakController,
+    required this.hasLunchBreak,
+    this.lunchBreakToggleKey,
+    required this.onLunchBreakChanged,
     required this.onPickTarget,
     required this.onPickStartTime,
     required this.onPickEndTime,
@@ -10121,6 +10206,9 @@ class _DayScheduleEditorRow extends StatelessWidget {
   final TextEditingController startTimeController;
   final TextEditingController endTimeController;
   final TextEditingController breakController;
+  final bool hasLunchBreak;
+  final Key? lunchBreakToggleKey;
+  final ValueChanged<bool> onLunchBreakChanged;
   final Future<void> Function() onPickTarget;
   final Future<void> Function() onPickStartTime;
   final Future<void> Function() onPickEndTime;
@@ -10134,6 +10222,9 @@ class _DayScheduleEditorRow extends StatelessWidget {
       startTimeText: startTimeController.text,
       endTimeText: endTimeController.text,
       breakText: breakController.text,
+      hasLunchBreak: hasLunchBreak,
+      lunchBreakToggleKey: lunchBreakToggleKey,
+      onLunchBreakChanged: onLunchBreakChanged,
       onPickTarget: onPickTarget,
       onPickStartTime: onPickStartTime,
       onPickEndTime: onPickEndTime,
@@ -10149,6 +10240,9 @@ class _SettingsScheduleEditor extends StatelessWidget {
     required this.startTimeText,
     required this.endTimeText,
     required this.breakText,
+    required this.hasLunchBreak,
+    this.lunchBreakToggleKey,
+    required this.onLunchBreakChanged,
     required this.onPickTarget,
     required this.onPickStartTime,
     required this.onPickEndTime,
@@ -10160,6 +10254,9 @@ class _SettingsScheduleEditor extends StatelessWidget {
   final String startTimeText;
   final String endTimeText;
   final String breakText;
+  final bool hasLunchBreak;
+  final Key? lunchBreakToggleKey;
+  final ValueChanged<bool> onLunchBreakChanged;
   final Future<void> Function() onPickTarget;
   final Future<void> Function() onPickStartTime;
   final Future<void> Function() onPickEndTime;
@@ -10168,7 +10265,7 @@ class _SettingsScheduleEditor extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final values = [
+    final values = <Widget>[
       _SlimSettingsScheduleValue(
         label: 'Durata giornata',
         value: targetText.isEmpty ? '--' : targetText,
@@ -10190,14 +10287,43 @@ class _SettingsScheduleEditor extends StatelessWidget {
         kind: _SettingsValueKind.schedule,
         onTap: onPickEndTime,
       ),
-      _SlimSettingsScheduleValue(
-        label: 'Pausa',
-        value: _formatSettingsBreakValue(breakText, isMinimumBreak: false),
-        icon: Icons.coffee_outlined,
-        kind: _SettingsValueKind.duration,
-        onTap: onPickBreak,
-      ),
     ];
+    if (hasLunchBreak) {
+      values.add(
+        _SlimSettingsScheduleValue(
+          label: 'Pausa',
+          value: _formatSettingsBreakValue(breakText, isMinimumBreak: false),
+          icon: Icons.coffee_outlined,
+          kind: _SettingsValueKind.duration,
+          onTap: onPickBreak,
+        ),
+      );
+    }
+    final lunchBreakToggle = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Checkbox.adaptive(
+          key: lunchBreakToggleKey,
+          value: hasLunchBreak,
+          visualDensity: VisualDensity.compact,
+          onChanged: (value) {
+            if (value == null) {
+              return;
+            }
+            onLunchBreakChanged(value);
+          },
+        ),
+        Text(
+          hasLunchBreak ? 'Si pausa pranzo' : 'Nessuna pausa pranzo',
+          style: theme.textTheme.labelLarge?.copyWith(
+            fontWeight: FontWeight.w700,
+            color: hasLunchBreak
+                ? theme.colorScheme.primary
+                : theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+      ],
+    );
 
     return Container(
       padding: const EdgeInsets.all(14),
@@ -10232,10 +10358,13 @@ class _SettingsScheduleEditor extends StatelessWidget {
                     ),
                     const SizedBox(width: 12),
                     Expanded(
-                      child: Wrap(
-                        spacing: 10,
-                        runSpacing: 10,
-                        children: values,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          lunchBreakToggle,
+                          const SizedBox(height: 8),
+                          Wrap(spacing: 10, runSpacing: 10, children: values),
+                        ],
                       ),
                     ),
                   ],
@@ -10247,6 +10376,8 @@ class _SettingsScheduleEditor extends StatelessWidget {
                     fontWeight: FontWeight.w800,
                   ),
                 ),
+                const SizedBox(height: 8),
+                lunchBreakToggle,
                 const SizedBox(height: 8),
                 Wrap(spacing: 10, runSpacing: 10, children: values),
               ],
@@ -14328,9 +14459,9 @@ extension on _HomeSection {
       case _HomeSection.recentActivity:
         return 'Settimana';
       case _HomeSection.workSettings:
-        return 'Orari';
+        return 'Orari e permessi';
       case _HomeSection.profile:
-        return 'Impostazioni';
+        return 'Impostazioni app';
       case _HomeSection.ticket:
         return 'Ticket';
     }

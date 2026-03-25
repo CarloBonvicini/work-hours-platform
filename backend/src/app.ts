@@ -2427,6 +2427,7 @@ function renderAdminPage(options: {
         overview: null,
         tickets: [],
         users: [],
+        ticketDetailsById: {},
         selectedTicketId: null,
         authMode: "login",
         superAdminConfigured: bodyDataset.superAdminConfigured === "true"
@@ -2507,7 +2508,7 @@ function renderAdminPage(options: {
       async function api(path, options = {}) {
         const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
         if (state.token) headers.Authorization = "Bearer " + state.token;
-        const response = await fetch(path, { ...options, headers });
+        const response = await fetch(path, { cache: "no-store", ...options, headers });
         const payload = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(payload.error || "Request failed");
         return payload;
@@ -2519,6 +2520,20 @@ function renderAdminPage(options: {
       function categoryBadge(category) {
         const labels = { bug: "Bug", feature: "Feature", support: "Supporto" };
         return '<span class="badge category-' + escapeHtml(category) + '">' + (labels[category] || category) + '</span>';
+      }
+      function resolveTicketAssetUrl(path) {
+        if (typeof path !== "string" || path.length === 0) {
+          return "#";
+        }
+        if (path.startsWith("http://") || path.startsWith("https://")) {
+          return path;
+        }
+        if (!baseUrl) {
+          return path;
+        }
+        const normalizedBaseUrl = String(baseUrl).replace(/\/+$/, "");
+        const normalizedPath = path.startsWith("/") ? path : "/" + path;
+        return normalizedBaseUrl + normalizedPath;
       }
       function renderWorkspaceSummary() {
         const overview = state.overview;
@@ -2588,7 +2603,46 @@ function renderAdminPage(options: {
         ];
         statsContainer.innerHTML = cards.map((card) => '<article class="stat ' + escapeHtml(card.tone || "") + '"><div class="stat-label">' + card.label + '</div><div class="stat-value">' + card.value + '</div><div class="stat-note">' + card.note + '</div></article>').join("");
       }
-      function selectTicket(ticketId) { state.selectedTicketId = ticketId; renderTicketList(); renderTicketDetail(); }
+      function renderTicketDetailLoading() {
+        ticketDetail.innerHTML = '<div class="empty-state">Caricamento dettaglio ticket...</div>';
+      }
+      async function loadSelectedTicketDetail(options = {}) {
+        if (!state.selectedTicketId) {
+          return null;
+        }
+
+        const forceReload = options.force === true;
+        if (!forceReload && state.ticketDetailsById[state.selectedTicketId]) {
+          return state.ticketDetailsById[state.selectedTicketId];
+        }
+
+        const detail = await api(
+          baseUrl +
+            "/admin/api/tickets/" +
+            encodeURIComponent(state.selectedTicketId)
+        );
+        state.ticketDetailsById[state.selectedTicketId] = detail;
+        return detail;
+      }
+      async function selectTicket(ticketId) {
+        if (!ticketId) {
+          return;
+        }
+        state.selectedTicketId = ticketId;
+        renderTicketList();
+        renderTicketDetailLoading();
+        try {
+          await loadSelectedTicketDetail({ force: true });
+          renderTicketDetail();
+        } catch (error) {
+          ticketDetail.innerHTML = '<div class="empty-state">Impossibile caricare il dettaglio ticket.</div>';
+          setStatus(
+            error.message || "Errore durante il caricamento del ticket.",
+            "error",
+            "dashboard"
+          );
+        }
+      }
       function renderTicketList() {
         if (!state.tickets.length) { ticketList.innerHTML = '<div class="empty-state">Nessun ticket trovato.</div>'; return; }
         ticketList.innerHTML = state.tickets.map((ticket) => {
@@ -2603,15 +2657,15 @@ function renderAdminPage(options: {
           ticketDetail.innerHTML = '<div class="empty-state">Seleziona un ticket dall elenco per aprire messaggi, allegati e risposta admin.</div>';
           return;
         }
-        const ticket = state.tickets.find((entry) => entry.id === state.selectedTicketId);
+        const ticket = state.ticketDetailsById[state.selectedTicketId];
         if (!ticket) {
-          ticketDetail.innerHTML = '<div class="empty-state">Il ticket selezionato non e piu disponibile. Scegline un altro dalla lista.</div>';
+          ticketDetail.innerHTML = '<div class="empty-state">Apri un ticket dalla lista per caricare il dettaglio completo.</div>';
           return;
         }
         const attachments = Array.isArray(ticket.attachments) ? ticket.attachments : [];
         const replies = Array.isArray(ticket.replies) ? ticket.replies : [];
         const attachmentsSection = attachments.length
-          ? '<article class="message-card"><div class="field-label">Screenshot allegati</div><div class="attachment-gallery">' + attachments.map((attachment) => '<a class="attachment-card" target="_blank" rel="noreferrer" href="' + escapeHtml(attachment.downloadPath || "#") + '"><img class="attachment-preview" loading="lazy" src="' + escapeHtml(attachment.downloadPath || "#") + '" alt="' + escapeHtml(attachment.fileName || "Screenshot ticket") + '" /><div class="attachment-name">' + escapeHtml(attachment.fileName) + '</div><div class="attachment-meta">' + escapeHtml(attachment.contentType || "immagine") + ' - ' + escapeHtml(formatBytes(attachment.sizeBytes)) + '</div></a>').join("") + '</div></article>'
+          ? '<article class="message-card"><div class="field-label">Screenshot allegati</div><div class="attachment-gallery">' + attachments.map((attachment) => '<a class="attachment-card" target="_blank" rel="noreferrer" href="' + escapeHtml(resolveTicketAssetUrl(attachment.downloadPath || "#")) + '"><img class="attachment-preview" loading="lazy" src="' + escapeHtml(resolveTicketAssetUrl(attachment.downloadPath || "#")) + '" alt="' + escapeHtml(attachment.fileName || "Screenshot ticket") + '" /><div class="attachment-name">' + escapeHtml(attachment.fileName) + '</div><div class="attachment-meta">' + escapeHtml(attachment.contentType || "immagine") + ' - ' + escapeHtml(formatBytes(attachment.sizeBytes)) + '</div></a>').join("") + '</div></article>'
           : '';
         ticketDetail.innerHTML = '<div class="detail-shell"><div class="toolbar"><div><div class="reply-meta">' + categoryBadge(ticket.category) + statusBadge(ticket.status) + '</div><h3 class="detail-title">' + escapeHtml(ticket.subject) + '</h3><p class="lede">' + escapeHtml(ticket.name || ticket.email || "Ticket anonimo") + '</p></div></div><div class="detail-grid"><div class="field"><div class="field-label">Creato</div><div>' + formatDateTime(ticket.createdAt) + '</div></div><div class="field"><div class="field-label">Aggiornato</div><div>' + formatDateTime(ticket.updatedAt) + '</div></div><div class="field"><div class="field-label">Contatto</div><div>' + escapeHtml(ticket.name || "-") + (ticket.email ? " (" + escapeHtml(ticket.email) + ")" : "") + '</div></div><div class="field"><div class="field-label">Versione app</div><div>' + escapeHtml(ticket.appVersion || "-") + '</div></div></div><section class="thread"><article class="message-card"><div class="field-label">Messaggio utente</div><div style="margin-top:8px; white-space:pre-wrap;">' + escapeHtml(ticket.message) + '</div></article>' + attachmentsSection + (replies.map((reply) => '<article class="message-card reply"><div class="field-label">' + (reply.author === "admin" ? "Risposta admin" : "Replica utente") + ' - ' + formatDateTime(reply.createdAt) + '</div><div style="margin-top:8px; white-space:pre-wrap;">' + escapeHtml(reply.message) + '</div></article>').join("") || '<div class="empty-state">Ancora nessuna risposta nel thread.</div>') + '</section><form id="admin-reply-form" class="reply-form"><label class="field"><span class="field-label">Nuova risposta</span><textarea name="message" required placeholder="Scrivi la risposta che vuoi salvare nel thread del ticket"></textarea></label><label class="field"><span class="field-label">Nuovo stato</span><select name="status"><option value="answered">Risposto</option><option value="in_progress">In lavorazione</option><option value="closed">Chiuso</option></select></label><div class="reply-actions"><button type="submit" class="primary">Salva risposta</button></div></form></div>';
         const form = document.getElementById("admin-reply-form");
@@ -2625,6 +2679,7 @@ function renderAdminPage(options: {
             setStatus("Salvataggio risposta...", "info", "dashboard");
             await api(baseUrl + "/admin/api/tickets/" + encodeURIComponent(ticket.id) + "/replies", { method: "POST", body: JSON.stringify({ message, status }) });
             form.reset();
+            delete state.ticketDetailsById[ticket.id];
             await loadDashboard();
             setStatus("Risposta ticket salvata.", "success", "dashboard");
           } catch (error) {
@@ -2700,6 +2755,7 @@ function renderAdminPage(options: {
         state.overview = null;
         state.tickets = [];
         state.users = [];
+        state.ticketDetailsById = {};
         state.selectedTicketId = null;
         renderWorkspaceSummary();
         renderStats();
@@ -2716,6 +2772,11 @@ function renderAdminPage(options: {
         state.adminUser = adminUser;
         state.overview = overview;
         state.tickets = Array.isArray(ticketsResponse.items) ? ticketsResponse.items : [];
+        state.ticketDetailsById = Object.fromEntries(
+          Object.entries(state.ticketDetailsById).filter(([ticketId]) =>
+            state.tickets.some((ticket) => ticket.id === ticketId)
+          )
+        );
         if (adminUser && adminUser.isSuperAdmin === true) {
           const usersResponse = await api(baseUrl + "/admin/api/users");
           state.users = Array.isArray(usersResponse.items) ? usersResponse.items : [];
@@ -2728,6 +2789,12 @@ function renderAdminPage(options: {
         renderWorkspaceSummary();
         renderStats();
         renderTicketList();
+        if (state.selectedTicketId) {
+          renderTicketDetailLoading();
+          try {
+            await loadSelectedTicketDetail({ force: true });
+          } catch (_) {}
+        }
         renderTicketDetail();
         renderUserList();
         updateAuthPanel();
@@ -3341,6 +3408,7 @@ export function buildApp(options: BuildAppOptions = {}) {
     const latestRelease = await loadReleaseMetadata();
     const releaseStatus = await loadReleaseStatus();
     const tickets = await listSupportTickets();
+    reply.header("cache-control", "no-store");
 
     return buildAdminOverview({
       baseUrl,
@@ -3358,9 +3426,32 @@ export function buildApp(options: BuildAppOptions = {}) {
         .send({ error: adminAccess.error ?? "Unauthorized" });
     }
 
+    reply.header("cache-control", "no-store");
     return {
       items: (await listSupportTickets()).map(serializeSupportTicket)
     };
+  });
+
+  app.get("/admin/api/tickets/:ticketId", async (request, reply) => {
+    const adminAccess = await authorizeAdminRequest(request, store);
+    if (!adminAccess.authorized) {
+      return reply
+        .code(adminAccess.statusCode ?? 401)
+        .send({ error: adminAccess.error ?? "Unauthorized" });
+    }
+
+    const params = request.params as { ticketId?: unknown };
+    if (typeof params.ticketId !== "string" || params.ticketId.length === 0) {
+      return reply.code(400).send({ error: "ticketId is required" });
+    }
+
+    const ticket = await readSupportTicket(params.ticketId);
+    if (!ticket) {
+      return reply.code(404).send({ error: "Ticket not found" });
+    }
+
+    reply.header("cache-control", "no-store");
+    return serializeSupportTicket(ticket);
   });
 
   app.get("/admin/api/users", async (request, reply) => {
