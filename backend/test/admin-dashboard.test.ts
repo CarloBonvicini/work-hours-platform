@@ -65,6 +65,9 @@ describe("Admin dashboard", () => {
     expect(response.body).toContain("Accedi con un profilo gia autorizzato");
     expect(response.body).toContain("Non hai ancora un profilo?");
     expect(response.body).toContain("Torna al login");
+    expect(response.body).toContain(
+      "Seleziona un ticket dall elenco per aprire messaggi, allegati e risposta admin."
+    );
     expect(response.body).toContain("SUPER_ADMIN_EMAIL");
     expect(response.body).not.toContain("ADMIN_SETUP_TOKEN");
   });
@@ -107,7 +110,66 @@ describe("Admin dashboard", () => {
       tickets: {
         total: 1,
         waiting: 1,
+        active: 1,
+        resolved: 0,
         bug: 1
+      }
+    });
+  });
+
+  it("reports active and resolved ticket counters in overview", async () => {
+    tempDirectory = await mkdtemp(path.join(os.tmpdir(), "work-hours-admin-"));
+    process.env.TICKETS_DIR = tempDirectory;
+    process.env.ADMIN_DASHBOARD_TOKEN = "secret-token";
+    app = buildApp();
+
+    const createTicketResponse = await app.inject({
+      method: "POST",
+      url: "/tickets",
+      headers: {
+        "content-type": "application/json"
+      },
+      payload: {
+        category: "bug",
+        subject: "Contatore overview",
+        message: "Verifico i contatori della dashboard."
+      }
+    });
+    expect(createTicketResponse.statusCode).toBe(201);
+
+    const ticketId = createTicketResponse.json().id as string;
+
+    const replyResponse = await app.inject({
+      method: "POST",
+      url: `/admin/api/tickets/${ticketId}/replies`,
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer secret-token"
+      },
+      payload: {
+        message: "Aggiornamento inviato.",
+        status: "answered"
+      }
+    });
+    expect(replyResponse.statusCode).toBe(200);
+
+    const overviewResponse = await app.inject({
+      method: "GET",
+      url: "/admin/api/overview",
+      headers: {
+        authorization: "Bearer secret-token"
+      }
+    });
+    expect(overviewResponse.statusCode).toBe(200);
+    expect(overviewResponse.json()).toMatchObject({
+      tickets: {
+        total: 1,
+        waiting: 0,
+        inProgress: 0,
+        answered: 1,
+        closed: 0,
+        active: 0,
+        resolved: 1
       }
     });
   });

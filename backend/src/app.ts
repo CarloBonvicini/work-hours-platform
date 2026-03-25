@@ -1525,6 +1525,14 @@ function buildAdminOverview(options: {
   tickets: SupportTicket[];
 }) {
   const { baseUrl, latestRelease, releaseStatus, tickets } = options;
+  const waitingCount = tickets.filter((ticket) => ticket.status === "new").length;
+  const inProgressCount = tickets.filter(
+    (ticket) => ticket.status === "in_progress"
+  ).length;
+  const answeredCount = tickets.filter(
+    (ticket) => ticket.status === "answered"
+  ).length;
+  const closedCount = tickets.filter((ticket) => ticket.status === "closed").length;
 
   return {
     generatedAt: new Date().toISOString(),
@@ -1555,10 +1563,12 @@ function buildAdminOverview(options: {
     },
     tickets: {
       total: tickets.length,
-      waiting: tickets.filter((ticket) => ticket.status === "new").length,
-      inProgress: tickets.filter((ticket) => ticket.status === "in_progress").length,
-      answered: tickets.filter((ticket) => ticket.status === "answered").length,
-      closed: tickets.filter((ticket) => ticket.status === "closed").length,
+      waiting: waitingCount,
+      inProgress: inProgressCount,
+      answered: answeredCount,
+      closed: closedCount,
+      active: waitingCount + inProgressCount,
+      resolved: answeredCount + closedCount,
       bug: tickets.filter((ticket) => ticket.category === "bug").length,
       feature: tickets.filter((ticket) => ticket.category === "feature").length,
       support: tickets.filter((ticket) => ticket.category === "support").length,
@@ -2260,7 +2270,7 @@ function renderAdminPage(options: {
           <div class="section-heading">
             <div class="section-heading-copy">
               <h3>Support Inbox</h3>
-              <p>Workspace allineato alla logica di AutoCaptionServer: riepilogo laterale, lista ticket e dettaglio operativo affiancati.</p>
+              <p>Prima scorri l inbox, poi apri il dettaglio solo sul ticket che vuoi gestire.</p>
             </div>
           </div>
           <div class="admin-console-layout">
@@ -2301,7 +2311,7 @@ function renderAdminPage(options: {
                   <div class="toolbar">
                     <div>
                       <h3 style="margin-bottom:6px;">Ticket</h3>
-                      <p class="lede">Apri un ticket per vedere messaggi, screenshot e risposta admin.</p>
+                      <p class="lede">Seleziona un ticket per aprire messaggi, screenshot e risposta admin.</p>
                     </div>
                     <button type="button" id="admin-refresh-tickets-btn">Aggiorna</button>
                   </div>
@@ -2491,7 +2501,8 @@ function renderAdminPage(options: {
         if (!state.overview) { statsContainer.innerHTML = ""; return; }
         const currentRelease = state.overview.release.current;
         const publishingRelease = state.overview.release.publishing;
-        const openTickets = state.overview.tickets.waiting + state.overview.tickets.inProgress;
+        const activeTickets = Number(state.overview.tickets.active || 0);
+        const resolvedTickets = Number(state.overview.tickets.resolved || 0);
         const cards = [
           {
             label: "Release live",
@@ -2506,16 +2517,16 @@ function renderAdminPage(options: {
             tone: publishingRelease ? "tone-warning" : "",
           },
           {
-            label: "Ticket aperti",
-            value: String(openTickets),
-            note: state.overview.tickets.waiting + " nuovi, " + state.overview.tickets.inProgress + " in lavorazione",
-            tone: openTickets > 0 ? "tone-warning" : "",
+            label: "Ticket da gestire",
+            value: String(activeTickets),
+            note: state.overview.tickets.total + " totali, " + state.overview.tickets.waiting + " nuovi, " + state.overview.tickets.inProgress + " in lavorazione",
+            tone: activeTickets > 0 ? "tone-warning" : "",
           },
           {
-            label: "Ticket chiusi",
-            value: String(state.overview.tickets.closed),
-            note: state.overview.tickets.answered + " risposti, ultimo update " + formatDateTime(state.overview.tickets.latestUpdatedAt),
-            tone: "tone-success",
+            label: "Ticket gestiti",
+            value: String(resolvedTickets),
+            note: state.overview.tickets.answered + " risposti, " + state.overview.tickets.closed + " chiusi, ultimo update " + formatDateTime(state.overview.tickets.latestUpdatedAt),
+            tone: resolvedTickets > 0 ? "tone-success" : "",
           },
           {
             label: "Storage",
@@ -2537,9 +2548,15 @@ function renderAdminPage(options: {
         ticketList.querySelectorAll("[data-ticket-id]").forEach((node) => node.addEventListener("click", () => selectTicket(node.getAttribute("data-ticket-id"))));
       }
       function renderTicketDetail() {
-        const ticket = state.tickets.find((entry) => entry.id === state.selectedTicketId) || state.tickets[0];
-        if (!ticket) { ticketDetail.innerHTML = '<div class="empty-state">Seleziona un ticket per vedere il dettaglio.</div>'; return; }
-        state.selectedTicketId = ticket.id;
+        if (!state.selectedTicketId) {
+          ticketDetail.innerHTML = '<div class="empty-state">Seleziona un ticket dall elenco per aprire messaggi, allegati e risposta admin.</div>';
+          return;
+        }
+        const ticket = state.tickets.find((entry) => entry.id === state.selectedTicketId);
+        if (!ticket) {
+          ticketDetail.innerHTML = '<div class="empty-state">Il ticket selezionato non e piu disponibile. Scegline un altro dalla lista.</div>';
+          return;
+        }
         const attachments = Array.isArray(ticket.attachments) ? ticket.attachments : [];
         const replies = Array.isArray(ticket.replies) ? ticket.replies : [];
         const attachmentsSection = attachments.length
@@ -2654,8 +2671,8 @@ function renderAdminPage(options: {
         } else {
           state.users = [];
         }
-        if (!state.selectedTicketId || !state.tickets.some((ticket) => ticket.id === state.selectedTicketId)) {
-          state.selectedTicketId = state.tickets[0] ? state.tickets[0].id : null;
+        if (state.selectedTicketId && !state.tickets.some((ticket) => ticket.id === state.selectedTicketId)) {
+          state.selectedTicketId = null;
         }
         renderWorkspaceSummary();
         renderStats();
