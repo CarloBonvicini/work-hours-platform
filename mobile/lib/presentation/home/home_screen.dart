@@ -39,6 +39,7 @@ enum _AppearanceTab { theme, colors, typography }
 
 const int _maxTicketAttachments = 3;
 const int _maxTicketAttachmentBytes = 4 * 1024 * 1024;
+const Duration _ticketNotificationPollingInterval = Duration(minutes: 1);
 final ImagePicker _ticketImagePicker = ImagePicker();
 
 enum _HomeSection {
@@ -212,6 +213,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   int? _agendaPreviewPauseStartMinutes;
   int? _agendaPreviewPauseEndMinutes;
   AccountSession? _accountSession;
+  Timer? _ticketNotificationTimer;
   final _accountEmailController = TextEditingController();
   final _accountPasswordController = TextEditingController();
 
@@ -230,6 +232,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _loadSnapshot();
     unawaited(_loadWorkdaySessionForDate(_selectedDate));
     unawaited(_refreshTrackedSupportTickets());
+    _startTicketNotificationPolling();
     if (_hasCompletedInitialSetup) {
       unawaited(_checkForUpdate());
     } else {
@@ -246,13 +249,19 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       unawaited(_checkForUpdate());
     }
     if (state == AppLifecycleState.resumed) {
+      _startTicketNotificationPolling();
       unawaited(_refreshTrackedSupportTickets(notifyAboutNewReplies: true));
+    } else {
+      _ticketNotificationTimer?.cancel();
+      _ticketNotificationTimer = null;
     }
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _ticketNotificationTimer?.cancel();
+    _ticketNotificationTimer = null;
     _fullNameController.dispose();
     _uniformDailyTargetController.dispose();
     _uniformStartTimeController.dispose();
@@ -858,6 +867,94 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     return unreadReplies;
   }
 
+  void _startTicketNotificationPolling() {
+    _ticketNotificationTimer?.cancel();
+    _ticketNotificationTimer = Timer.periodic(
+      _ticketNotificationPollingInterval,
+      (_) {
+        if (!mounted) {
+          return;
+        }
+        unawaited(_refreshTrackedSupportTickets(notifyAboutNewReplies: true));
+      },
+    );
+  }
+
+  String _buildTicketReplyNotificationMessage(
+    List<({String subject, int newReplies})> updates,
+  ) {
+    if (updates.isEmpty) {
+      return 'Nuove risposte ticket disponibili.';
+    }
+
+    if (updates.length == 1) {
+      final update = updates.first;
+      if (update.newReplies == 1) {
+        return 'Nuova risposta su "${update.subject}".';
+      }
+      return 'Hai ${update.newReplies} nuove risposte su "${update.subject}".';
+    }
+
+    final totalNewReplies = updates.fold<int>(
+      0,
+      (total, update) => total + update.newReplies,
+    );
+    if (totalNewReplies == updates.length) {
+      return 'Hai nuove risposte su ${updates.length} ticket.';
+    }
+
+    return 'Hai $totalNewReplies nuove risposte su ${updates.length} ticket.';
+  }
+
+  Future<void> _markTrackedTicketRepliesNotified(
+    List<({String ticketId, int adminReplyCount})> updates,
+  ) async {
+    if (updates.isEmpty) {
+      return;
+    }
+
+    final latestAdminReplyCountByTicket = <String, int>{};
+    for (final update in updates) {
+      final previousValue = latestAdminReplyCountByTicket[update.ticketId];
+      if (previousValue == null || update.adminReplyCount > previousValue) {
+        latestAdminReplyCountByTicket[update.ticketId] =
+            update.adminReplyCount;
+      }
+    }
+
+    await Future.wait(
+      latestAdminReplyCountByTicket.entries.map(
+        (entry) => widget.supportTicketStore.markAdminRepliesNotified(
+          ticketId: entry.key,
+          adminReplyCount: entry.value,
+        ),
+      ),
+    );
+    if (!mounted) {
+      return;
+    }
+
+    var hasChanges = false;
+    final nextTrackedTickets = _trackedTickets.map((ticket) {
+      final latestAdminReplyCount = latestAdminReplyCountByTicket[ticket.id];
+      if (latestAdminReplyCount == null ||
+          latestAdminReplyCount <= ticket.lastNotifiedAdminReplyCount) {
+        return ticket;
+      }
+      hasChanges = true;
+      return ticket.copyWith(
+        lastNotifiedAdminReplyCount: latestAdminReplyCount,
+      );
+    }).toList(growable: false);
+    if (!hasChanges) {
+      return;
+    }
+
+    setState(() {
+      _trackedTickets = nextTrackedTickets;
+    });
+  }
+
   Future<void> _refreshTrackedSupportTickets({
     bool notifyAboutNewReplies = false,
   }) async {
@@ -902,7 +999,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
       final nextThreadsById = <String, SupportTicketThread>{};
       final nextTrackedTickets = <TrackedSupportTicket>[];
-      final newlyAnsweredSubjects = <String>[];
+      final newRepliesToNotify = <({
+        String ticketId,
+        String subject,
+        int newReplies,
+        int adminReplyCount,
+      })>[];
       for (var index = 0; index < trackedTickets.length; index++) {
         final trackedTicket = trackedTickets[index];
         final entry = fetchedEntries[index];
@@ -928,7 +1030,19 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           entry.thread.adminReplyCount - entry.tracked.lastSeenAdminReplyCount,
         );
         if (notifyAboutNewReplies && unreadReplies > 0) {
-          newlyAnsweredSubjects.add(entry.thread.subject);
+          final newReplies = math.max(
+            0,
+            entry.thread.adminReplyCount -
+                entry.tracked.lastNotifiedAdminReplyCount,
+          );
+          if (newReplies > 0) {
+            newRepliesToNotify.add((
+              ticketId: entry.thread.id,
+              subject: entry.thread.subject,
+              newReplies: newReplies,
+              adminReplyCount: entry.thread.adminReplyCount,
+            ));
+          }
         }
       }
 
@@ -954,11 +1068,32 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       });
 
       if (notifyAboutNewReplies &&
-          newlyAnsweredSubjects.isNotEmpty &&
+          newRepliesToNotify.isNotEmpty) {
+        await _markTrackedTicketRepliesNotified(
+          newRepliesToNotify
+              .map(
+                (update) => (
+                  ticketId: update.ticketId,
+                  adminReplyCount: update.adminReplyCount,
+                ),
+              )
+              .toList(growable: false),
+        );
+      }
+
+      if (notifyAboutNewReplies &&
+          newRepliesToNotify.isNotEmpty &&
           mounted) {
-        final message = newlyAnsweredSubjects.length == 1
-            ? 'Nuova risposta su "${newlyAnsweredSubjects.first}".'
-            : 'Hai ${newlyAnsweredSubjects.length} ticket con nuove risposte.';
+        final message = _buildTicketReplyNotificationMessage(
+          newRepliesToNotify
+              .map(
+                (update) => (
+                  subject: update.subject,
+                  newReplies: update.newReplies,
+                ),
+              )
+              .toList(growable: false),
+        );
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text(message)));
@@ -988,6 +1123,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       createdAt: thread.createdAt,
       lastSeenAdminReplyCount:
           trackedTicket?.lastSeenAdminReplyCount ?? thread.adminReplyCount,
+      lastNotifiedAdminReplyCount:
+          trackedTicket?.lastNotifiedAdminReplyCount ?? thread.adminReplyCount,
     );
     await widget.supportTicketStore.upsertTrackedTicket(nextTrackedTicket);
   }
@@ -999,23 +1136,36 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
 
     final trackedTicket = _trackedTicketById(ticketId);
-    if (trackedTicket == null ||
-        trackedTicket.lastSeenAdminReplyCount >= thread.adminReplyCount) {
+    if (trackedTicket == null) {
+      return;
+    }
+    if (trackedTicket.lastSeenAdminReplyCount >= thread.adminReplyCount &&
+        trackedTicket.lastNotifiedAdminReplyCount >= thread.adminReplyCount) {
       return;
     }
 
-    await widget.supportTicketStore.markAdminRepliesSeen(
-      ticketId: ticketId,
-      adminReplyCount: thread.adminReplyCount,
-    );
+    await Future.wait([
+      widget.supportTicketStore.markAdminRepliesSeen(
+        ticketId: ticketId,
+        adminReplyCount: thread.adminReplyCount,
+      ),
+      widget.supportTicketStore.markAdminRepliesNotified(
+        ticketId: ticketId,
+        adminReplyCount: thread.adminReplyCount,
+      ),
+    ]);
     if (!mounted) {
       return;
     }
 
+    final latestReplyCount = thread.adminReplyCount;
     final nextTrackedTickets = _trackedTickets
         .map(
           (ticket) => ticket.id == ticketId
-              ? ticket.copyWith(lastSeenAdminReplyCount: thread.adminReplyCount)
+              ? ticket.copyWith(
+                  lastSeenAdminReplyCount: latestReplyCount,
+                  lastNotifiedAdminReplyCount: latestReplyCount,
+                )
               : ticket,
         )
         .toList(growable: false);
@@ -3522,6 +3672,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             subject: createdThread.subject,
             createdAt: createdThread.createdAt,
             lastSeenAdminReplyCount: createdThread.adminReplyCount,
+            lastNotifiedAdminReplyCount: createdThread.adminReplyCount,
           ),
           ..._trackedTickets.where((ticket) => ticket.id != createdThread.id),
         ];
@@ -3534,6 +3685,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             subject: createdThread.subject,
             createdAt: createdThread.createdAt,
             lastSeenAdminReplyCount: createdThread.adminReplyCount,
+            lastNotifiedAdminReplyCount: createdThread.adminReplyCount,
           ),
           ..._trackedTickets.where((ticket) => ticket.id != createdThread.id),
         ], nextThreadsById);
@@ -5472,6 +5624,7 @@ class _CalendarCard extends StatelessWidget {
                 ),
             ],
           );
+    final compactCalendarTabs = MediaQuery.of(context).size.width <= 430;
 
     return _SectionCard(
       title: title,
@@ -5480,35 +5633,51 @@ class _CalendarCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (showViewSelector)
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: SegmentedButton<_CalendarView>(
-                showSelectedIcon: false,
-                segments: const [
-                  ButtonSegment<_CalendarView>(
-                    value: _CalendarView.week,
-                    label: Text('Settimana'),
-                    icon: Icon(Icons.view_week_outlined),
-                  ),
-                  ButtonSegment<_CalendarView>(
-                    value: _CalendarView.month,
-                    label: Text('Mese'),
-                    icon: Icon(Icons.calendar_month_outlined),
-                  ),
-                  ButtonSegment<_CalendarView>(
-                    value: _CalendarView.year,
-                    label: Text('Anno'),
-                    icon: Icon(Icons.calendar_view_month_outlined),
-                  ),
-                ],
-                selected: {_calendarViewOrDefault(calendarView)},
-                onSelectionChanged: (selection) {
-                  if (selection.isEmpty) {
-                    return;
-                  }
-                  unawaited(onCalendarViewChanged(selection.first));
-                },
-              ),
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final selector = SegmentedButton<_CalendarView>(
+                  showSelectedIcon: false,
+                  segments: [
+                    ButtonSegment<_CalendarView>(
+                      value: _CalendarView.week,
+                      label: Text('Settimana'),
+                      icon: compactCalendarTabs
+                          ? null
+                          : const Icon(Icons.view_week_outlined),
+                    ),
+                    ButtonSegment<_CalendarView>(
+                      value: _CalendarView.month,
+                      label: Text('Mese'),
+                      icon: compactCalendarTabs
+                          ? null
+                          : const Icon(Icons.calendar_month_outlined),
+                    ),
+                    ButtonSegment<_CalendarView>(
+                      value: _CalendarView.year,
+                      label: Text('Anno'),
+                      icon: compactCalendarTabs
+                          ? null
+                          : const Icon(Icons.calendar_view_month_outlined),
+                    ),
+                  ],
+                  selected: {_calendarViewOrDefault(calendarView)},
+                  onSelectionChanged: (selection) {
+                    if (selection.isEmpty) {
+                      return;
+                    }
+                    unawaited(onCalendarViewChanged(selection.first));
+                  },
+                );
+
+                if (compactCalendarTabs) {
+                  return SizedBox(width: constraints.maxWidth, child: selector);
+                }
+
+                return SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: selector,
+                );
+              },
             ),
           if (calendarView == _CalendarView.day && showWorkdaySessionCard) ...[
             SizedBox(height: workdaySessionSpacing),

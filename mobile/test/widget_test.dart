@@ -1588,6 +1588,21 @@ class _FakeSupportTicketStore implements SupportTicketStore {
       lastSeenAdminReplyCount: adminReplyCount,
     );
   }
+
+  @override
+  Future<void> markAdminRepliesNotified({
+    required String ticketId,
+    required int adminReplyCount,
+  }) async {
+    final index = _tickets.indexWhere((entry) => entry.id == ticketId);
+    if (index < 0) {
+      return;
+    }
+
+    _tickets[index] = _tickets[index].copyWith(
+      lastNotifiedAdminReplyCount: adminReplyCount,
+    );
+  }
 }
 
 class _FakeDashboardRepository implements DashboardRepository {

@@ -2389,6 +2389,37 @@ function renderAdminPage(options: {
       const ADMIN_TOKEN_KEY = "work_hours_admin_session_token";
       const bodyDataset = document.body.dataset || {};
       const baseUrl = bodyDataset.baseUrl || "";
+      const normalizedBaseUrl = String(baseUrl || "").replace(/\/+$/, "");
+      const sameOriginOrigin = (
+        typeof window !== "undefined" &&
+        window.location &&
+        window.location.origin
+      )
+        ? String(window.location.origin).replace(/\/+$/, "")
+        : "";
+      const inferredBasePath = (
+        typeof window !== "undefined" &&
+        window.location &&
+        typeof window.location.pathname === "string"
+      )
+        ? (() => {
+            const pathname = window.location.pathname;
+            const adminMarker = "/admin";
+            const markerIndex = pathname.lastIndexOf(adminMarker);
+            if (markerIndex <= 0) {
+              return "";
+            }
+            return pathname.slice(0, markerIndex);
+          })()
+        : "";
+      const sameOriginBaseUrl = (sameOriginOrigin + inferredBasePath).replace(/\/+$/, "");
+      const apiBaseCandidates = Array.from(
+        new Set(
+          [sameOriginBaseUrl, normalizedBaseUrl, sameOriginOrigin].filter(
+            (value) => typeof value === "string" && value.length > 0
+          )
+        )
+      );
       const authPanel = document.getElementById("admin-auth-panel");
       const dashboardPanel = document.getElementById("admin-dashboard-panel");
       const authStatusBox = document.getElementById("admin-auth-status");
@@ -2505,13 +2536,71 @@ function renderAdminPage(options: {
           element.className = "status " + tone;
         });
       }
+      function resolveApiUrl(path, apiRoot = apiBaseCandidates[0] || "") {
+        const value = String(path ?? "");
+        if (value.startsWith("http://") || value.startsWith("https://")) {
+          return value;
+        }
+
+        const normalizedPath = value.startsWith("/") ? value : "/" + value;
+        return String(apiRoot || "").replace(/\/+$/, "") + normalizedPath;
+      }
       async function api(path, options = {}) {
         const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
         if (state.token) headers.Authorization = "Bearer " + state.token;
-        const response = await fetch(path, { cache: "no-store", ...options, headers });
-        const payload = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(payload.error || "Request failed");
-        return payload;
+
+        let lastError = null;
+        for (let index = 0; index < apiBaseCandidates.length; index += 1) {
+          const requestUrl = resolveApiUrl(path, apiBaseCandidates[index]);
+          try {
+            const response = await fetch(requestUrl, {
+              cache: "no-store",
+              ...options,
+              headers
+            });
+            const contentType = String(response.headers.get("content-type") || "");
+            const payload = contentType.includes("application/json")
+              ? await response.json().catch(() => null)
+              : null;
+
+            if (!response.ok) {
+              const errorMessage =
+                payload &&
+                typeof payload === "object" &&
+                typeof payload.error === "string"
+                  ? payload.error
+                  : "Request failed";
+
+              const canRetry =
+                index < apiBaseCandidates.length - 1 &&
+                (response.status === 404 ||
+                  response.status === 405 ||
+                  response.status === 502 ||
+                  response.status === 503);
+              if (canRetry) {
+                continue;
+              }
+              throw new Error(errorMessage);
+            }
+
+            if (!payload || typeof payload !== "object") {
+              if (index < apiBaseCandidates.length - 1) {
+                continue;
+              }
+              throw new Error("Risposta API non valida.");
+            }
+
+            return payload;
+          } catch (error) {
+            lastError = error;
+            if (index < apiBaseCandidates.length - 1) {
+              continue;
+            }
+            throw error;
+          }
+        }
+
+        throw lastError || new Error("Request failed");
       }
       function statusBadge(status) {
         const labels = { new: "Nuovo", in_progress: "In lavorazione", answered: "Risposto", closed: "Chiuso" };
@@ -2528,12 +2617,7 @@ function renderAdminPage(options: {
         if (path.startsWith("http://") || path.startsWith("https://")) {
           return path;
         }
-        if (!baseUrl) {
-          return path;
-        }
-        const normalizedBaseUrl = String(baseUrl).replace(/\/+$/, "");
-        const normalizedPath = path.startsWith("/") ? path : "/" + path;
-        return normalizedBaseUrl + normalizedPath;
+        return resolveApiUrl(path);
       }
       function renderWorkspaceSummary() {
         const overview = state.overview;
@@ -2617,9 +2701,7 @@ function renderAdminPage(options: {
         }
 
         const detail = await api(
-          baseUrl +
-            "/admin/api/tickets/" +
-            encodeURIComponent(state.selectedTicketId)
+          "/admin/api/tickets/" + encodeURIComponent(state.selectedTicketId)
         );
         state.ticketDetailsById[state.selectedTicketId] = detail;
         return detail;
@@ -2677,7 +2759,7 @@ function renderAdminPage(options: {
           if (!message) { setStatus("Scrivi una risposta prima di salvare.", "error", "dashboard"); return; }
           try {
             setStatus("Salvataggio risposta...", "info", "dashboard");
-            await api(baseUrl + "/admin/api/tickets/" + encodeURIComponent(ticket.id) + "/replies", { method: "POST", body: JSON.stringify({ message, status }) });
+            await api("/admin/api/tickets/" + encodeURIComponent(ticket.id) + "/replies", { method: "POST", body: JSON.stringify({ message, status }) });
             form.reset();
             delete state.ticketDetailsById[ticket.id];
             await loadDashboard();
@@ -2732,7 +2814,7 @@ function renderAdminPage(options: {
             try {
               setStatus("Aggiornamento ruolo in corso...", "info", "dashboard");
               await api(
-                baseUrl + "/admin/api/users/" + encodeURIComponent(userId) + "/admin",
+                "/admin/api/users/" + encodeURIComponent(userId) + "/admin",
                 {
                   method: "POST",
                   body: JSON.stringify({ isAdmin: nextAdmin })
@@ -2765,9 +2847,9 @@ function renderAdminPage(options: {
       }
       async function loadDashboard() {
         const [adminUser, overview, ticketsResponse] = await Promise.all([
-          api(baseUrl + "/auth/me"),
-          api(baseUrl + "/admin/api/overview"),
-          api(baseUrl + "/admin/api/tickets")
+          api("/auth/me"),
+          api("/admin/api/overview"),
+          api("/admin/api/tickets")
         ]);
         state.adminUser = adminUser;
         state.overview = overview;
@@ -2778,7 +2860,7 @@ function renderAdminPage(options: {
           )
         );
         if (adminUser && adminUser.isSuperAdmin === true) {
-          const usersResponse = await api(baseUrl + "/admin/api/users");
+          const usersResponse = await api("/admin/api/users");
           state.users = Array.isArray(usersResponse.items) ? usersResponse.items : [];
         } else {
           state.users = [];
@@ -2836,13 +2918,13 @@ function renderAdminPage(options: {
 
         try {
           setStatus("Verifica profilo admin...", "info", "auth");
-          const response = await api(baseUrl + "/auth/login", {
+          const response = await api("/auth/login", {
             method: "POST",
             body: JSON.stringify({ email, password })
           });
           if (!response.user || response.user.isAdmin !== true) {
             try {
-              await fetch(baseUrl + "/auth/session", {
+              await fetch(resolveApiUrl("/auth/session"), {
                 method: "DELETE",
                 headers: {
                   Authorization: "Bearer " + response.token
@@ -2875,7 +2957,7 @@ function renderAdminPage(options: {
 
         try {
           setStatus("Creazione profilo in corso...", "info", "auth");
-          const response = await api(baseUrl + "/auth/register", {
+          const response = await api("/auth/register", {
             method: "POST",
             body: JSON.stringify({ email, password })
           });
@@ -2893,7 +2975,7 @@ function renderAdminPage(options: {
 
           try {
             if (response.token) {
-              await fetch(baseUrl + "/auth/session", {
+              await fetch(resolveApiUrl("/auth/session"), {
                 method: "DELETE",
                 headers: {
                   Authorization: "Bearer " + response.token
@@ -2941,7 +3023,7 @@ function renderAdminPage(options: {
         if (passwordInput) passwordInput.value = "";
         try {
           if (currentToken) {
-            await fetch(baseUrl + "/auth/session", {
+            await fetch(resolveApiUrl("/auth/session"), {
               method: "DELETE",
               headers: {
                 Authorization: "Bearer " + currentToken

@@ -8,18 +8,21 @@ class TrackedSupportTicket {
     required this.subject,
     required this.createdAt,
     required this.lastSeenAdminReplyCount,
+    required this.lastNotifiedAdminReplyCount,
   });
 
   final String id;
   final String subject;
   final DateTime createdAt;
   final int lastSeenAdminReplyCount;
+  final int lastNotifiedAdminReplyCount;
 
   TrackedSupportTicket copyWith({
     String? id,
     String? subject,
     DateTime? createdAt,
     int? lastSeenAdminReplyCount,
+    int? lastNotifiedAdminReplyCount,
   }) {
     return TrackedSupportTicket(
       id: id ?? this.id,
@@ -27,16 +30,22 @@ class TrackedSupportTicket {
       createdAt: createdAt ?? this.createdAt,
       lastSeenAdminReplyCount:
           lastSeenAdminReplyCount ?? this.lastSeenAdminReplyCount,
+      lastNotifiedAdminReplyCount:
+          lastNotifiedAdminReplyCount ?? this.lastNotifiedAdminReplyCount,
     );
   }
 
   factory TrackedSupportTicket.fromJson(Map<String, dynamic> json) {
+    final lastSeenAdminReplyCount =
+        (json['lastSeenAdminReplyCount'] as num?)?.toInt() ?? 0;
     return TrackedSupportTicket(
       id: json['id'] as String,
       subject: json['subject'] as String? ?? '',
       createdAt: DateTime.parse(json['createdAt'] as String),
-      lastSeenAdminReplyCount:
-          (json['lastSeenAdminReplyCount'] as num?)?.toInt() ?? 0,
+      lastSeenAdminReplyCount: lastSeenAdminReplyCount,
+      lastNotifiedAdminReplyCount:
+          (json['lastNotifiedAdminReplyCount'] as num?)?.toInt() ??
+          lastSeenAdminReplyCount,
     );
   }
 
@@ -46,6 +55,7 @@ class TrackedSupportTicket {
       'subject': subject,
       'createdAt': createdAt.toIso8601String(),
       'lastSeenAdminReplyCount': lastSeenAdminReplyCount,
+      'lastNotifiedAdminReplyCount': lastNotifiedAdminReplyCount,
     };
   }
 }
@@ -58,6 +68,11 @@ abstract class SupportTicketStore {
   Future<void> upsertTrackedTicket(TrackedSupportTicket ticket);
 
   Future<void> markAdminRepliesSeen({
+    required String ticketId,
+    required int adminReplyCount,
+  });
+
+  Future<void> markAdminRepliesNotified({
     required String ticketId,
     required int adminReplyCount,
   });
@@ -122,6 +137,22 @@ class SharedPreferencesSupportTicketStore implements SupportTicketStore {
         .map(
           (ticket) => ticket.id == ticketId
               ? ticket.copyWith(lastSeenAdminReplyCount: adminReplyCount)
+              : ticket,
+        )
+        .toList(growable: false);
+    await saveTrackedTickets(updatedTickets);
+  }
+
+  @override
+  Future<void> markAdminRepliesNotified({
+    required String ticketId,
+    required int adminReplyCount,
+  }) async {
+    final currentTickets = await loadTrackedTickets();
+    final updatedTickets = currentTickets
+        .map(
+          (ticket) => ticket.id == ticketId
+              ? ticket.copyWith(lastNotifiedAdminReplyCount: adminReplyCount)
               : ticket,
         )
         .toList(growable: false);
