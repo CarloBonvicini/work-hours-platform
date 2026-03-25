@@ -1,10 +1,10 @@
 import 'dart:async';
 import 'dart:math' as math;
 
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:work_hours_mobile/application/services/account_service.dart';
 import 'package:work_hours_mobile/application/services/app_update_service.dart';
 import 'package:work_hours_mobile/domain/models/account_session.dart';
@@ -23,8 +23,10 @@ import 'package:work_hours_mobile/domain/models/app_update.dart';
 import 'package:work_hours_mobile/domain/models/dashboard_snapshot.dart';
 import 'package:work_hours_mobile/domain/models/day_schedule.dart';
 import 'package:work_hours_mobile/domain/models/leave_entry.dart';
+import 'package:work_hours_mobile/domain/models/profile.dart';
 import 'package:work_hours_mobile/domain/models/schedule_override.dart';
 import 'package:work_hours_mobile/domain/models/support_ticket.dart';
+import 'package:work_hours_mobile/domain/models/user_work_rules.dart';
 import 'package:work_hours_mobile/domain/models/weekday_schedule.dart';
 import 'package:work_hours_mobile/domain/models/weekday_target_minutes.dart';
 import 'package:work_hours_mobile/presentation/home/initial_setup_dialog.dart';
@@ -37,6 +39,7 @@ enum _AppearanceTab { theme, colors, typography }
 
 const int _maxTicketAttachments = 3;
 const int _maxTicketAttachmentBytes = 4 * 1024 * 1024;
+final ImagePicker _ticketImagePicker = ImagePicker();
 
 enum _HomeSection {
   day,
@@ -122,6 +125,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final _uniformStartTimeController = TextEditingController();
   final _uniformEndTimeController = TextEditingController();
   final _uniformBreakController = TextEditingController();
+  final _rulesExpectedDailyController = TextEditingController();
+  final _rulesMinimumBreakController = TextEditingController();
+  final _rulesMaximumDailyCreditController = TextEditingController();
+  final _rulesMaximumDailyDebitController = TextEditingController();
+  final _rulesMaximumMonthlyCreditController = TextEditingController();
+  final _rulesMaximumMonthlyDebitController = TextEditingController();
   final _entryDateController = TextEditingController();
   final _entryMinutesController = TextEditingController();
   final _entryNoteController = TextEditingController();
@@ -247,6 +256,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _uniformStartTimeController.dispose();
     _uniformEndTimeController.dispose();
     _uniformBreakController.dispose();
+    _rulesExpectedDailyController.dispose();
+    _rulesMinimumBreakController.dispose();
+    _rulesMaximumDailyCreditController.dispose();
+    _rulesMaximumDailyDebitController.dispose();
+    _rulesMaximumMonthlyCreditController.dispose();
+    _rulesMaximumMonthlyDebitController.dispose();
     _entryDateController.dispose();
     _entryMinutesController.dispose();
     _entryNoteController.dispose();
@@ -372,6 +387,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             dailyTargetMinutes: configuration.dailyTargetMinutes,
             weekdayTargetMinutes: configuration.weekdayTargetMinutes,
             weekdaySchedule: configuration.weekdaySchedule,
+            workRules: UserProfile.defaultWorkRules(
+              dailyTargetMinutes: configuration.dailyTargetMinutes,
+              weekdaySchedule: configuration.weekdaySchedule,
+            ),
             month: _snapshot?.summary.month,
           );
           await _cacheSnapshot(savedSnapshot);
@@ -475,6 +494,24 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         snapshot.profile.weekdaySchedule.monday.endTime ?? '';
     _uniformBreakController.text = _formatBreakInput(
       snapshot.profile.weekdaySchedule.monday.breakMinutes,
+    );
+    _rulesExpectedDailyController.text = _formatHoursInput(
+      snapshot.profile.workRules.expectedDailyMinutes,
+    );
+    _rulesMinimumBreakController.text = _formatBreakInput(
+      snapshot.profile.workRules.minimumBreakMinutes,
+    );
+    _rulesMaximumDailyCreditController.text = _formatHoursInput(
+      snapshot.profile.workRules.maximumDailyCreditMinutes,
+    );
+    _rulesMaximumDailyDebitController.text = _formatHoursInput(
+      snapshot.profile.workRules.maximumDailyDebitMinutes,
+    );
+    _rulesMaximumMonthlyCreditController.text = _formatHoursInput(
+      snapshot.profile.workRules.maximumMonthlyCreditMinutes,
+    );
+    _rulesMaximumMonthlyDebitController.text = _formatHoursInput(
+      snapshot.profile.workRules.maximumMonthlyDebitMinutes,
     );
     for (final weekday in WeekdayKey.values) {
       final daySchedule = snapshot.profile.weekdaySchedule.forWeekday(weekday);
@@ -1619,9 +1656,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final weekdayTargetMinutes = _deriveWeekdayTargetMinutesFromSchedule(
       weekdaySchedule,
     );
-    final uniformDailyTargetMinutes = _useUniformDailyTarget
-        ? weekdaySchedule.monday.targetMinutes
-        : null;
+    final workRules = _buildWorkRulesFromControllers(
+      weekdaySchedule: weekdaySchedule,
+    );
+    if (workRules == null) {
+      setState(() {
+        _errorMessage =
+            'Controlla le regole contratto: ore attese, pausa minima e limiti di credito o debito devono essere validi.';
+      });
+      return;
+    }
 
     setState(() {
       _isSavingProfile = true;
@@ -1632,11 +1676,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       final snapshot = await widget.dashboardService.saveProfile(
         fullName: _fullNameController.text.trim(),
         useUniformDailyTarget: _useUniformDailyTarget,
-        dailyTargetMinutes:
-            uniformDailyTargetMinutes ??
-            _averageWorkingDayTargetMinutes(weekdayTargetMinutes),
+        dailyTargetMinutes: workRules.expectedDailyMinutes,
         weekdayTargetMinutes: weekdayTargetMinutes,
         weekdaySchedule: weekdaySchedule,
+        workRules: workRules,
         month: _snapshot?.summary.month,
       );
 
@@ -2162,6 +2205,146 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
+  UserWorkRules? _buildWorkRulesFromControllers({
+    required WeekdaySchedule weekdaySchedule,
+  }) {
+    final expectedDailyMinutes =
+        parseHoursInput(_rulesExpectedDailyController.text) ??
+        (_useUniformDailyTarget
+            ? weekdaySchedule.monday.targetMinutes
+            : _averageWorkingDayTargetMinutes(
+                _deriveWeekdayTargetMinutesFromSchedule(weekdaySchedule),
+              ));
+    final minimumBreakMinutes = parseBreakDurationInput(
+      _rulesMinimumBreakController.text,
+    );
+    final maximumDailyCreditMinutes = parseHoursInput(
+      _rulesMaximumDailyCreditController.text,
+    );
+    final maximumDailyDebitMinutes = parseHoursInput(
+      _rulesMaximumDailyDebitController.text,
+    );
+    final maximumMonthlyCreditMinutes = parseHoursInput(
+      _rulesMaximumMonthlyCreditController.text,
+    );
+    final maximumMonthlyDebitMinutes = parseHoursInput(
+      _rulesMaximumMonthlyDebitController.text,
+    );
+
+    if (minimumBreakMinutes == null ||
+        maximumDailyCreditMinutes == null ||
+        maximumDailyDebitMinutes == null ||
+        maximumMonthlyCreditMinutes == null ||
+        maximumMonthlyDebitMinutes == null) {
+      return null;
+    }
+
+    return UserWorkRules(
+      expectedDailyMinutes: expectedDailyMinutes,
+      minimumBreakMinutes: minimumBreakMinutes,
+      maximumDailyCreditMinutes: maximumDailyCreditMinutes,
+      maximumDailyDebitMinutes: maximumDailyDebitMinutes,
+      maximumMonthlyCreditMinutes: maximumMonthlyCreditMinutes,
+      maximumMonthlyDebitMinutes: maximumMonthlyDebitMinutes,
+    );
+  }
+
+  Future<void> _pickRulesExpectedDailyMinutes() async {
+    final currentMinutes =
+        parseHoursInput(_rulesExpectedDailyController.text) ??
+        parseHoursInput(_uniformDailyTargetController.text) ??
+        8 * 60;
+    final pickedMinutes = await _showDurationWheelPicker(
+      title: 'Ore giornaliere attese',
+      initialMinutes: currentMinutes,
+      maxMinutes: 16 * 60,
+      stepMinutes: 5,
+    );
+    if (pickedMinutes == null) {
+      return;
+    }
+
+    _rulesExpectedDailyController.text = _formatHoursInput(pickedMinutes);
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  Future<void> _pickRulesMinimumBreakMinutes() async {
+    final currentMinutes =
+        parseBreakDurationInput(_rulesMinimumBreakController.text) ?? 0;
+    final pickedMinutes = await _showDurationWheelPicker(
+      title: 'Pausa minima',
+      initialMinutes: currentMinutes,
+      maxMinutes: 4 * 60,
+      stepMinutes: 5,
+      zeroLabel: 'Nessuna pausa minima',
+    );
+    if (pickedMinutes == null) {
+      return;
+    }
+
+    _rulesMinimumBreakController.text = _formatBreakInput(pickedMinutes);
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  Future<void> _pickRulesMaximumDailyCreditMinutes() async {
+    await _pickRulesLimitDuration(
+      title: 'Massimo credito giornaliero',
+      controller: _rulesMaximumDailyCreditController,
+      maxMinutes: 16 * 60,
+    );
+  }
+
+  Future<void> _pickRulesMaximumDailyDebitMinutes() async {
+    await _pickRulesLimitDuration(
+      title: 'Massimo debito giornaliero',
+      controller: _rulesMaximumDailyDebitController,
+      maxMinutes: 16 * 60,
+    );
+  }
+
+  Future<void> _pickRulesMaximumMonthlyCreditMinutes() async {
+    await _pickRulesLimitDuration(
+      title: 'Massimo credito mensile',
+      controller: _rulesMaximumMonthlyCreditController,
+      maxMinutes: 240 * 60,
+    );
+  }
+
+  Future<void> _pickRulesMaximumMonthlyDebitMinutes() async {
+    await _pickRulesLimitDuration(
+      title: 'Massimo debito mensile',
+      controller: _rulesMaximumMonthlyDebitController,
+      maxMinutes: 240 * 60,
+    );
+  }
+
+  Future<void> _pickRulesLimitDuration({
+    required String title,
+    required TextEditingController controller,
+    required int maxMinutes,
+  }) async {
+    final currentMinutes = parseHoursInput(controller.text) ?? 0;
+    final pickedMinutes = await _showDurationWheelPicker(
+      title: title,
+      initialMinutes: currentMinutes,
+      maxMinutes: maxMinutes,
+      stepMinutes: 5,
+      zeroLabel: 'Nessun limite',
+    );
+    if (pickedMinutes == null) {
+      return;
+    }
+
+    controller.text = _formatHoursInput(pickedMinutes);
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
   void _syncProfileTargetFromTimes({WeekdayKey? weekday}) {
     final targetController = weekday == null
         ? _uniformDailyTargetController
@@ -2338,9 +2521,23 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     required String title,
     required int initialMinutes,
   }) async {
-    const stepMinutes = 5;
+    return _showDurationWheelPicker(
+      title: title,
+      initialMinutes: initialMinutes,
+      maxMinutes: 16 * 60,
+      stepMinutes: 5,
+    );
+  }
+
+  Future<int?> _showDurationWheelPicker({
+    required String title,
+    required int initialMinutes,
+    required int maxMinutes,
+    int stepMinutes = 5,
+    String? zeroLabel,
+  }) async {
     final allowedValues = List<int>.generate(
-      ((16 * 60) ~/ stepMinutes) + 1,
+      (maxMinutes ~/ stepMinutes) + 1,
       (index) => index * stepMinutes,
     );
     final normalizedInitial =
@@ -2358,7 +2555,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         valueBuilder: (controller) => ValueListenableBuilder<int>(
           valueListenable: controller,
           builder: (context, value, _) => Text(
-            _formatHoursInput(value),
+            value == 0 && zeroLabel != null ? zeroLabel : _formatHoursInput(value),
             style: Theme.of(
               context,
             ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
@@ -2376,7 +2573,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             },
             children: [
               for (final value in allowedValues)
-                Center(child: Text(_formatHoursInput(value))),
+                Center(
+                  child: Text(
+                    value == 0 && zeroLabel != null
+                        ? zeroLabel
+                        : _formatHoursInput(value),
+                  ),
+                ),
             ],
           ),
         ),
@@ -3054,6 +3257,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       expectedMinutes: metrics.expectedMinutes,
       workedMinutes: metrics.workedMinutes,
       leaveMinutes: metrics.leaveMinutes,
+      rawBalanceMinutes: metrics.rawBalanceMinutes,
       balanceMinutes: metrics.balanceMinutes,
       hasOverride: metrics.hasOverride,
       schedule: displayedSchedule,
@@ -3291,13 +3495,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
 
     try {
-      final result = await FilePicker.platform.pickFiles(
-        allowMultiple: true,
-        withData: true,
-        type: FileType.custom,
-        allowedExtensions: const ['png', 'jpg', 'jpeg', 'webp'],
+      final selectedImages = await _ticketImagePicker.pickMultiImage(
+        requestFullMetadata: false,
       );
-      if (result == null || !mounted) {
+      if (selectedImages.isEmpty || !mounted) {
         return;
       }
 
@@ -3306,16 +3507,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       );
       var addedCount = 0;
       var skippedCount = 0;
-      for (final file in result.files) {
+      for (final selectedImage in selectedImages) {
         if (nextAttachments.length >= _maxTicketAttachments) {
           skippedCount += 1;
           continue;
         }
 
-        final contentType = _ticketAttachmentContentTypeForFileName(file.name);
-        final bytes = file.bytes;
+        final fileName = selectedImage.name;
+        final contentType = _ticketAttachmentContentTypeForFileName(fileName);
+        final bytes = await selectedImage.readAsBytes();
         if (contentType == null ||
-            bytes == null ||
             bytes.isEmpty ||
             bytes.lengthInBytes > _maxTicketAttachmentBytes) {
           skippedCount += 1;
@@ -3324,7 +3525,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
         nextAttachments.add(
           SupportTicketUploadAttachment(
-            fileName: file.name,
+            fileName: fileName,
             contentType: contentType,
             bytes: bytes,
           ),
@@ -3364,7 +3565,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Impossibile aprire il selettore screenshot.'),
+          content: Text('Impossibile aprire la galleria screenshot.'),
         ),
       );
     }
@@ -3919,14 +4120,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final override = _findScheduleOverrideForDate(snapshot, date);
     final workedMinutes = _sumWorkedMinutesForDate(snapshot, isoDate);
     final leaveMinutes = _sumLeaveMinutesForDate(snapshot, isoDate);
+    final rawBalanceMinutes =
+        workedMinutes + leaveMinutes - effectiveSchedule.targetMinutes;
 
     return _DayMetrics(
       date: date,
       expectedMinutes: effectiveSchedule.targetMinutes,
       workedMinutes: workedMinutes,
       leaveMinutes: leaveMinutes,
-      balanceMinutes:
-          workedMinutes + leaveMinutes - effectiveSchedule.targetMinutes,
+      rawBalanceMinutes: rawBalanceMinutes,
+      balanceMinutes: snapshot.profile.workRules.clampDailyBalance(
+        rawBalanceMinutes,
+      ),
       hasOverride: override != null,
       schedule: effectiveSchedule,
       overrideNote: override?.note,
@@ -3956,6 +4161,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         expectedMinutes: snapshot.summary.expectedMinutes,
         workedMinutes: snapshot.summary.workedMinutes,
         leaveMinutes: snapshot.summary.leaveMinutes,
+        rawBalanceMinutes: snapshot.summary.rawBalanceMinutes,
         balanceMinutes: snapshot.summary.balanceMinutes,
         overrideCount: _overrideCountForMonth(snapshot),
       );
@@ -4398,6 +4604,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       isLoadingCalendarData: _isLoadingCalendarData,
       month: monthSnapshot.summary.month,
       selectedDate: _selectedDate,
+      workRules: monthSnapshot.profile.workRules,
       days: _buildCalendarDays(monthSnapshot),
       baseDaySchedule: baseDaySchedule,
       effectiveDaySchedule: displayedDaySchedule,
@@ -4419,6 +4626,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         expectedMinutes: monthSnapshot.summary.expectedMinutes,
         workedMinutes: monthSnapshot.summary.workedMinutes,
         leaveMinutes: monthSnapshot.summary.leaveMinutes,
+        rawBalanceMinutes: monthSnapshot.summary.rawBalanceMinutes,
         balanceMinutes: monthSnapshot.summary.balanceMinutes,
         overrideCount: _overrideCountForMonth(monthSnapshot),
       ),
@@ -4560,6 +4768,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           uniformStartTimeController: _uniformStartTimeController,
           uniformEndTimeController: _uniformEndTimeController,
           uniformBreakController: _uniformBreakController,
+          rulesExpectedDailyController: _rulesExpectedDailyController,
+          rulesMinimumBreakController: _rulesMinimumBreakController,
+          rulesMaximumDailyCreditController:
+              _rulesMaximumDailyCreditController,
+          rulesMaximumDailyDebitController: _rulesMaximumDailyDebitController,
+          rulesMaximumMonthlyCreditController:
+              _rulesMaximumMonthlyCreditController,
+          rulesMaximumMonthlyDebitController:
+              _rulesMaximumMonthlyDebitController,
           weekdayControllers: _weekdayControllers,
           weekdayStartTimeControllers: _weekdayStartTimeControllers,
           weekdayEndTimeControllers: _weekdayEndTimeControllers,
@@ -4583,6 +4800,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           onPickUniformTargetMinutes: _pickUniformTargetMinutes,
           onPickUniformScheduleTime: _pickUniformScheduleTime,
           onPickUniformBreakMinutes: _pickUniformBreakMinutes,
+          onPickRulesExpectedDailyMinutes: _pickRulesExpectedDailyMinutes,
+          onPickRulesMinimumBreakMinutes: _pickRulesMinimumBreakMinutes,
+          onPickRulesMaximumDailyCreditMinutes:
+              _pickRulesMaximumDailyCreditMinutes,
+          onPickRulesMaximumDailyDebitMinutes:
+              _pickRulesMaximumDailyDebitMinutes,
+          onPickRulesMaximumMonthlyCreditMinutes:
+              _pickRulesMaximumMonthlyCreditMinutes,
+          onPickRulesMaximumMonthlyDebitMinutes:
+              _pickRulesMaximumMonthlyDebitMinutes,
           onPickWeekdayTargetMinutes: _pickWeekdayTargetMinutes,
           onPickWeekdayScheduleTime: _pickWeekdayScheduleTime,
           onPickWeekdayBreakMinutes: _pickWeekdayBreakMinutes,
@@ -4831,6 +5058,7 @@ class _CalendarCard extends StatelessWidget {
     required this.isLoadingCalendarData,
     required this.month,
     required this.selectedDate,
+    required this.workRules,
     required this.days,
     required this.baseDaySchedule,
     required this.effectiveDaySchedule,
@@ -4883,6 +5111,7 @@ class _CalendarCard extends StatelessWidget {
   final bool isLoadingCalendarData;
   final String month;
   final DateTime selectedDate;
+  final UserWorkRules workRules;
   final List<_CalendarDay> days;
   final DaySchedule baseDaySchedule;
   final DaySchedule effectiveDaySchedule;
@@ -4960,6 +5189,30 @@ class _CalendarCard extends StatelessWidget {
       return quickPauseWindow.resumeMinutes -
           quickPauseWindow.pauseStartMinutes;
     })();
+    final liveExpectedMinutes = _resolveDisplayedExpectedMinutes(
+      effectiveSchedule: effectiveDaySchedule,
+      quickEditorSchedule: quickEditorDaySchedule,
+    );
+    final liveWorkedMinutes = _resolveDisplayedWorkedMinutes(
+      quickEditorSchedule: quickEditorDaySchedule,
+      workRules: workRules,
+    );
+    final liveRawDayBalanceMinutes =
+        (liveWorkedMinutes + dayMetrics.leaveMinutes) - liveExpectedMinutes;
+    final liveDayBalanceMinutes = workRules.clampDailyBalance(
+      liveRawDayBalanceMinutes,
+    );
+    final liveRawMonthBalanceMinutes =
+        monthMetrics.rawBalanceMinutes +
+        (liveRawDayBalanceMinutes - dayMetrics.rawBalanceMinutes);
+    final liveMonthBalanceMinutes = workRules.clampMonthlyBalance(
+      liveRawMonthBalanceMinutes,
+    );
+    final suggestedExitLabel = _resolveSuggestedExitLabel(
+      effectiveSchedule: effectiveDaySchedule,
+      quickEditorSchedule: quickEditorDaySchedule,
+      workRules: workRules,
+    );
     final selectedDayInfo = switch (_compareDateToToday(selectedDate)) {
       0 => (
         label: 'Oggi',
@@ -5012,6 +5265,10 @@ class _CalendarCard extends StatelessWidget {
               ),
             ),
             onMarkDayAsOff: onMarkDayAsOff,
+            expectedMinutes: liveExpectedMinutes,
+            todayBalanceMinutes: liveDayBalanceMinutes,
+            monthBalanceMinutes: liveMonthBalanceMinutes,
+            suggestedExitLabel: suggestedExitLabel,
           ),
         ],
       ),
@@ -5298,6 +5555,10 @@ class _CalendarQuickScheduleEditor extends StatelessWidget {
     required this.onRedoChange,
     required this.onToggleExpanded,
     required this.onMarkDayAsOff,
+    required this.expectedMinutes,
+    required this.todayBalanceMinutes,
+    required this.monthBalanceMinutes,
+    required this.suggestedExitLabel,
   });
 
   final bool isExpanded;
@@ -5317,6 +5578,10 @@ class _CalendarQuickScheduleEditor extends StatelessWidget {
   final Future<void> Function() onRedoChange;
   final ValueChanged<bool> onToggleExpanded;
   final VoidCallback onMarkDayAsOff;
+  final int expectedMinutes;
+  final int todayBalanceMinutes;
+  final int monthBalanceMinutes;
+  final String suggestedExitLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -5444,6 +5709,13 @@ class _CalendarQuickScheduleEditor extends StatelessWidget {
                           ],
                         );
                       },
+                    ),
+                    const SizedBox(height: 12),
+                    _QuickDayComputedSummary(
+                      expectedMinutes: expectedMinutes,
+                      todayBalanceMinutes: todayBalanceMinutes,
+                      monthBalanceMinutes: monthBalanceMinutes,
+                      suggestedExitLabel: suggestedExitLabel,
                     ),
                     const SizedBox(height: 8),
                     Align(
@@ -5746,6 +6018,132 @@ class _QuickScheduleValue extends StatelessWidget {
                 color: theme.colorScheme.primary,
               ),
             ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _QuickDayComputedSummary extends StatelessWidget {
+  const _QuickDayComputedSummary({
+    required this.expectedMinutes,
+    required this.todayBalanceMinutes,
+    required this.monthBalanceMinutes,
+    required this.suggestedExitLabel,
+  });
+
+  final int expectedMinutes;
+  final int todayBalanceMinutes;
+  final int monthBalanceMinutes;
+  final String suggestedExitLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final items = [
+      (
+        label: 'Ore attese oggi',
+        value: _formatHoursInput(expectedMinutes),
+        valueKey: const ValueKey('calendar-live-expected-value'),
+        accentColor: theme.colorScheme.primary,
+      ),
+      (
+        label: 'Saldo oggi',
+        value: _formatSignedHoursInput(todayBalanceMinutes),
+        valueKey: const ValueKey('calendar-live-day-balance-value'),
+        accentColor: _balanceColor(context, todayBalanceMinutes),
+      ),
+      (
+        label: 'Saldo mese',
+        value: _formatSignedHoursInput(monthBalanceMinutes),
+        valueKey: const ValueKey('calendar-live-month-balance-value'),
+        accentColor: _balanceColor(context, monthBalanceMinutes),
+      ),
+      (
+        label: 'Esci alle',
+        value: suggestedExitLabel,
+        valueKey: const ValueKey('calendar-live-suggested-exit-value'),
+        accentColor: theme.colorScheme.primary,
+      ),
+    ];
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.72),
+        ),
+      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final columnCount = constraints.maxWidth >= 760 ? 4 : 2;
+          const spacing = 12.0;
+          final itemWidth = columnCount <= 1
+              ? constraints.maxWidth
+              : (constraints.maxWidth - (spacing * (columnCount - 1))) /
+                    columnCount;
+
+          return Wrap(
+            spacing: spacing,
+            runSpacing: 12,
+            children: [
+              for (final item in items)
+                SizedBox(
+                  width: itemWidth,
+                  child: _QuickDayComputedValue(
+                    label: item.label,
+                    value: item.value,
+                    valueKey: item.valueKey,
+                    accentColor: item.accentColor,
+                  ),
+                ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _QuickDayComputedValue extends StatelessWidget {
+  const _QuickDayComputedValue({
+    required this.label,
+    required this.value,
+    required this.valueKey,
+    required this.accentColor,
+  });
+
+  final String label;
+  final String value;
+  final Key valueKey;
+  final Color accentColor;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: theme.textTheme.labelMedium?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          value,
+          key: valueKey,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: theme.textTheme.titleMedium?.copyWith(
+            color: accentColor,
+            fontWeight: FontWeight.w800,
           ),
         ),
       ],
@@ -6150,10 +6548,7 @@ class _CompactWeekTimelineRow extends StatelessWidget {
     final helperText = schedule.targetMinutes <= 0
         ? 'Giorno libero'
         : _compactWeekScheduleLabel(schedule);
-    final comparisonTargetMinutes = metrics.expectedMinutes;
-    final workedDeltaMinutes = dayDetails == null
-        ? 0
-        : dayDetails.workedMinutes - comparisonTargetMinutes;
+    final workedDeltaMinutes = metrics.balanceMinutes;
     final workedLabelColor = workedDeltaMinutes >= 0
         ? const Color(0xFF0B6E69)
         : const Color(0xFF9D3D2F);
@@ -8758,6 +9153,12 @@ class _ProfileCard extends StatelessWidget {
     required this.uniformStartTimeController,
     required this.uniformEndTimeController,
     required this.uniformBreakController,
+    required this.rulesExpectedDailyController,
+    required this.rulesMinimumBreakController,
+    required this.rulesMaximumDailyCreditController,
+    required this.rulesMaximumDailyDebitController,
+    required this.rulesMaximumMonthlyCreditController,
+    required this.rulesMaximumMonthlyDebitController,
     required this.weekdayControllers,
     required this.weekdayStartTimeControllers,
     required this.weekdayEndTimeControllers,
@@ -8781,6 +9182,12 @@ class _ProfileCard extends StatelessWidget {
     required this.onPickUniformTargetMinutes,
     required this.onPickUniformScheduleTime,
     required this.onPickUniformBreakMinutes,
+    required this.onPickRulesExpectedDailyMinutes,
+    required this.onPickRulesMinimumBreakMinutes,
+    required this.onPickRulesMaximumDailyCreditMinutes,
+    required this.onPickRulesMaximumDailyDebitMinutes,
+    required this.onPickRulesMaximumMonthlyCreditMinutes,
+    required this.onPickRulesMaximumMonthlyDebitMinutes,
     required this.onPickWeekdayTargetMinutes,
     required this.onPickWeekdayScheduleTime,
     required this.onPickWeekdayBreakMinutes,
@@ -8802,6 +9209,12 @@ class _ProfileCard extends StatelessWidget {
   final TextEditingController uniformStartTimeController;
   final TextEditingController uniformEndTimeController;
   final TextEditingController uniformBreakController;
+  final TextEditingController rulesExpectedDailyController;
+  final TextEditingController rulesMinimumBreakController;
+  final TextEditingController rulesMaximumDailyCreditController;
+  final TextEditingController rulesMaximumDailyDebitController;
+  final TextEditingController rulesMaximumMonthlyCreditController;
+  final TextEditingController rulesMaximumMonthlyDebitController;
   final Map<WeekdayKey, TextEditingController> weekdayControllers;
   final Map<WeekdayKey, TextEditingController> weekdayStartTimeControllers;
   final Map<WeekdayKey, TextEditingController> weekdayEndTimeControllers;
@@ -8826,6 +9239,12 @@ class _ProfileCard extends StatelessWidget {
   final Future<void> Function(_CalendarTimeField field)
   onPickUniformScheduleTime;
   final Future<void> Function() onPickUniformBreakMinutes;
+  final Future<void> Function() onPickRulesExpectedDailyMinutes;
+  final Future<void> Function() onPickRulesMinimumBreakMinutes;
+  final Future<void> Function() onPickRulesMaximumDailyCreditMinutes;
+  final Future<void> Function() onPickRulesMaximumDailyDebitMinutes;
+  final Future<void> Function() onPickRulesMaximumMonthlyCreditMinutes;
+  final Future<void> Function() onPickRulesMaximumMonthlyDebitMinutes;
   final Future<void> Function(WeekdayKey weekday) onPickWeekdayTargetMinutes;
   final Future<void> Function(WeekdayKey weekday, _CalendarTimeField field)
   onPickWeekdayScheduleTime;
@@ -8920,6 +9339,24 @@ class _ProfileCard extends StatelessWidget {
             Text(
               'Puoi indicare solo i dati che ti servono. L app completa automaticamente il resto quando possibile.',
               style: Theme.of(context).textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 24),
+            _WorkRulesEditor(
+              expectedDailyText: rulesExpectedDailyController.text,
+              minimumBreakText: rulesMinimumBreakController.text,
+              maximumDailyCreditText: rulesMaximumDailyCreditController.text,
+              maximumDailyDebitText: rulesMaximumDailyDebitController.text,
+              maximumMonthlyCreditText:
+                  rulesMaximumMonthlyCreditController.text,
+              maximumMonthlyDebitText: rulesMaximumMonthlyDebitController.text,
+              onPickExpectedDaily: onPickRulesExpectedDailyMinutes,
+              onPickMinimumBreak: onPickRulesMinimumBreakMinutes,
+              onPickMaximumDailyCredit: onPickRulesMaximumDailyCreditMinutes,
+              onPickMaximumDailyDebit: onPickRulesMaximumDailyDebitMinutes,
+              onPickMaximumMonthlyCredit:
+                  onPickRulesMaximumMonthlyCreditMinutes,
+              onPickMaximumMonthlyDebit:
+                  onPickRulesMaximumMonthlyDebitMinutes,
             ),
             const SizedBox(height: 18),
             Wrap(
@@ -9113,6 +9550,96 @@ class _SettingsScheduleEditor extends StatelessWidget {
           ],
         );
       },
+    );
+  }
+}
+
+class _WorkRulesEditor extends StatelessWidget {
+  const _WorkRulesEditor({
+    required this.expectedDailyText,
+    required this.minimumBreakText,
+    required this.maximumDailyCreditText,
+    required this.maximumDailyDebitText,
+    required this.maximumMonthlyCreditText,
+    required this.maximumMonthlyDebitText,
+    required this.onPickExpectedDaily,
+    required this.onPickMinimumBreak,
+    required this.onPickMaximumDailyCredit,
+    required this.onPickMaximumDailyDebit,
+    required this.onPickMaximumMonthlyCredit,
+    required this.onPickMaximumMonthlyDebit,
+  });
+
+  final String expectedDailyText;
+  final String minimumBreakText;
+  final String maximumDailyCreditText;
+  final String maximumDailyDebitText;
+  final String maximumMonthlyCreditText;
+  final String maximumMonthlyDebitText;
+  final Future<void> Function() onPickExpectedDaily;
+  final Future<void> Function() onPickMinimumBreak;
+  final Future<void> Function() onPickMaximumDailyCredit;
+  final Future<void> Function() onPickMaximumDailyDebit;
+  final Future<void> Function() onPickMaximumMonthlyCredit;
+  final Future<void> Function() onPickMaximumMonthlyDebit;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final values = [
+      _SlimSettingsScheduleValue(
+        label: 'Ore giornaliere attese',
+        value: expectedDailyText.isEmpty ? '--' : expectedDailyText,
+        onTap: onPickExpectedDaily,
+      ),
+      _SlimSettingsScheduleValue(
+        label: 'Pausa minima',
+        value: minimumBreakText.isEmpty ? '0:00' : minimumBreakText,
+        onTap: onPickMinimumBreak,
+      ),
+      _SlimSettingsScheduleValue(
+        label: 'Max credito giorno',
+        value: maximumDailyCreditText.isEmpty ? '0:00' : maximumDailyCreditText,
+        onTap: onPickMaximumDailyCredit,
+      ),
+      _SlimSettingsScheduleValue(
+        label: 'Max debito giorno',
+        value: maximumDailyDebitText.isEmpty ? '0:00' : maximumDailyDebitText,
+        onTap: onPickMaximumDailyDebit,
+      ),
+      _SlimSettingsScheduleValue(
+        label: 'Max credito mese',
+        value: maximumMonthlyCreditText.isEmpty
+            ? '0:00'
+            : maximumMonthlyCreditText,
+        onTap: onPickMaximumMonthlyCredit,
+      ),
+      _SlimSettingsScheduleValue(
+        label: 'Max debito mese',
+        value: maximumMonthlyDebitText.isEmpty
+            ? '0:00'
+            : maximumMonthlyDebitText,
+        onTap: onPickMaximumMonthlyDebit,
+      ),
+    ];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Regole contratto',
+          style: theme.textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          'Qui definisci il dovuto del contratto e i limiti validi di credito o debito che l app deve rispettare.',
+          style: theme.textTheme.bodyMedium,
+        ),
+        const SizedBox(height: 12),
+        Wrap(spacing: 10, runSpacing: 10, children: values),
+      ],
     );
   }
 }
@@ -10476,7 +11003,7 @@ class _SupportTicketCard extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              'Puoi allegare fino a 3 screenshot PNG, JPG o WEBP da massimo 4 MB ciascuno.',
+              'Puoi scegliere fino a 3 screenshot dalla galleria in PNG, JPG o WEBP da massimo 4 MB ciascuno.',
               style: Theme.of(context).textTheme.bodySmall,
             ),
             const SizedBox(height: 10),
@@ -10491,7 +11018,7 @@ class _SupportTicketCard extends StatelessWidget {
                   icon: const Icon(Icons.add_photo_alternate_outlined),
                   label: Text(
                     attachments.isEmpty
-                        ? 'Aggiungi screenshot'
+                        ? 'Scegli dalla galleria'
                         : 'Aggiungi altri screenshot',
                   ),
                 ),
@@ -11289,6 +11816,7 @@ class _DayMetrics {
     required this.expectedMinutes,
     required this.workedMinutes,
     required this.leaveMinutes,
+    required this.rawBalanceMinutes,
     required this.balanceMinutes,
     required this.hasOverride,
     required this.schedule,
@@ -11301,6 +11829,7 @@ class _DayMetrics {
       expectedMinutes: 0,
       workedMinutes: 0,
       leaveMinutes: 0,
+      rawBalanceMinutes: 0,
       balanceMinutes: 0,
       hasOverride: false,
       schedule: const DaySchedule(targetMinutes: 0),
@@ -11311,6 +11840,7 @@ class _DayMetrics {
   final int expectedMinutes;
   final int workedMinutes;
   final int leaveMinutes;
+  final int rawBalanceMinutes;
   final int balanceMinutes;
   final bool hasOverride;
   final DaySchedule schedule;
@@ -11363,6 +11893,7 @@ class _MonthMetrics {
     required this.expectedMinutes,
     required this.workedMinutes,
     required this.leaveMinutes,
+    required this.rawBalanceMinutes,
     required this.balanceMinutes,
     required this.overrideCount,
   });
@@ -11373,6 +11904,7 @@ class _MonthMetrics {
       expectedMinutes: 0,
       workedMinutes: 0,
       leaveMinutes: 0,
+      rawBalanceMinutes: 0,
       balanceMinutes: 0,
       overrideCount: 0,
     );
@@ -11382,6 +11914,7 @@ class _MonthMetrics {
   final int expectedMinutes;
   final int workedMinutes;
   final int leaveMinutes;
+  final int rawBalanceMinutes;
   final int balanceMinutes;
   final int overrideCount;
 }
@@ -11428,6 +11961,88 @@ String _formatHours(int minutes, {bool signed = false}) {
 
 String _formatHoursInput(int minutes) {
   return formatHoursInput(minutes);
+}
+
+String _formatSignedHoursInput(int minutes) {
+  if (minutes == 0) {
+    return '0:00';
+  }
+
+  final prefix = minutes > 0 ? '+' : '-';
+  return '$prefix${_formatHoursInput(minutes.abs())}';
+}
+
+bool _isExplicitDayOffSchedule(DaySchedule schedule) {
+  final startTime = schedule.startTime?.trim() ?? '';
+  final endTime = schedule.endTime?.trim() ?? '';
+  return schedule.targetMinutes == 0 &&
+      schedule.breakMinutes == 0 &&
+      startTime.isEmpty &&
+      endTime.isEmpty;
+}
+
+int _resolveDisplayedExpectedMinutes({
+  required DaySchedule effectiveSchedule,
+  required DaySchedule quickEditorSchedule,
+}) {
+  if (_isExplicitDayOffSchedule(quickEditorSchedule)) {
+    return 0;
+  }
+
+  return effectiveSchedule.targetMinutes;
+}
+
+int _resolveDisplayedWorkedMinutes({
+  required DaySchedule quickEditorSchedule,
+  required UserWorkRules workRules,
+}) {
+  final startMinutes = parseTimeInput(quickEditorSchedule.startTime);
+  final endMinutes = parseTimeInput(quickEditorSchedule.endTime);
+  if (startMinutes == null || endMinutes == null || endMinutes <= startMinutes) {
+    return quickEditorSchedule.targetMinutes;
+  }
+
+  final effectiveBreakMinutes = math.max(
+    quickEditorSchedule.breakMinutes,
+    workRules.minimumBreakMinutes,
+  );
+  return math.max(0, endMinutes - startMinutes - effectiveBreakMinutes);
+}
+
+String _resolveSuggestedExitLabel({
+  required DaySchedule effectiveSchedule,
+  required DaySchedule quickEditorSchedule,
+  required UserWorkRules workRules,
+}) {
+  final expectedMinutes = _resolveDisplayedExpectedMinutes(
+    effectiveSchedule: effectiveSchedule,
+    quickEditorSchedule: quickEditorSchedule,
+  );
+  if (expectedMinutes <= 0) {
+    return 'Libero';
+  }
+
+  final startMinutes =
+      parseTimeInput(quickEditorSchedule.startTime) ??
+      parseTimeInput(effectiveSchedule.startTime);
+  if (startMinutes == null) {
+    final fallbackEndMinutes =
+        parseTimeInput(effectiveSchedule.endTime) ??
+        parseTimeInput(quickEditorSchedule.endTime);
+    return fallbackEndMinutes == null
+        ? '--:--'
+        : formatTimeInput(fallbackEndMinutes);
+  }
+
+  final effectiveBreakMinutes = math.max(
+    quickEditorSchedule.breakMinutes,
+    math.max(effectiveSchedule.breakMinutes, workRules.minimumBreakMinutes),
+  );
+  final suggestedExitMinutes =
+      startMinutes + expectedMinutes + effectiveBreakMinutes;
+  final normalizedMinutes = suggestedExitMinutes % (24 * 60);
+  final nextDaySuffix = suggestedExitMinutes >= (24 * 60) ? ' +1g' : '';
+  return '${formatTimeInput(normalizedMinutes)}$nextDaySuffix';
 }
 
 DateTime _monthToDate(String month) {
@@ -12698,10 +13313,7 @@ class _TodayStatusBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: EdgeInsets.symmetric(
-        horizontal: 14,
-        vertical: 10,
-      ),
+      padding: EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(999),
@@ -12713,9 +13325,7 @@ class _TodayStatusBadge extends StatelessWidget {
           const SizedBox(width: 8),
           Text(
             label,
-            style: Theme.of(
-              context,
-            ).textTheme.labelLarge?.copyWith(
+            style: Theme.of(context).textTheme.labelLarge?.copyWith(
               color: color,
               fontWeight: FontWeight.w700,
             ),

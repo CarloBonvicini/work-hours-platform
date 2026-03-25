@@ -1,6 +1,7 @@
 import 'package:work_hours_mobile/domain/models/dashboard_snapshot.dart';
 import 'package:work_hours_mobile/domain/models/leave_entry.dart';
 import 'package:work_hours_mobile/domain/models/support_ticket.dart';
+import 'package:work_hours_mobile/domain/models/user_work_rules.dart';
 import 'package:work_hours_mobile/domain/models/weekday_schedule.dart';
 import 'package:work_hours_mobile/domain/models/weekday_target_minutes.dart';
 
@@ -13,6 +14,7 @@ abstract class DashboardRepository {
     required int dailyTargetMinutes,
     required WeekdayTargetMinutes weekdayTargetMinutes,
     required WeekdaySchedule weekdaySchedule,
+    required UserWorkRules workRules,
     required String month,
   });
 

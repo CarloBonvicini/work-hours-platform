@@ -5,6 +5,7 @@ import 'package:work_hours_mobile/domain/models/monthly_summary.dart';
 import 'package:work_hours_mobile/domain/models/profile.dart';
 import 'package:work_hours_mobile/domain/models/schedule_override.dart';
 import 'package:work_hours_mobile/domain/models/support_ticket.dart';
+import 'package:work_hours_mobile/domain/models/user_work_rules.dart';
 import 'package:work_hours_mobile/domain/models/weekday_schedule.dart';
 import 'package:work_hours_mobile/domain/models/weekday_target_minutes.dart';
 import 'package:work_hours_mobile/domain/models/work_entry.dart';
@@ -66,6 +67,43 @@ class UiDemoDashboardRepository implements DashboardRepository {
         ),
         saturday: DaySchedule(targetMinutes: 0),
         sunday: DaySchedule(targetMinutes: 0),
+      ),
+      workRules: UserProfile.defaultWorkRules(
+        dailyTargetMinutes: 450,
+        weekdaySchedule: const WeekdaySchedule(
+          monday: DaySchedule(
+            targetMinutes: 480,
+            startTime: '08:30',
+            endTime: '17:00',
+            breakMinutes: 30,
+          ),
+          tuesday: DaySchedule(
+            targetMinutes: 360,
+            startTime: '09:00',
+            endTime: '15:30',
+            breakMinutes: 30,
+          ),
+          wednesday: DaySchedule(
+            targetMinutes: 360,
+            startTime: '09:00',
+            endTime: '15:30',
+            breakMinutes: 30,
+          ),
+          thursday: DaySchedule(
+            targetMinutes: 480,
+            startTime: '08:30',
+            endTime: '17:00',
+            breakMinutes: 30,
+          ),
+          friday: DaySchedule(
+            targetMinutes: 480,
+            startTime: '08:30',
+            endTime: '17:00',
+            breakMinutes: 30,
+          ),
+          saturday: DaySchedule(targetMinutes: 0),
+          sunday: DaySchedule(targetMinutes: 0),
+        ),
       ),
     );
 
@@ -136,6 +174,7 @@ class UiDemoDashboardRepository implements DashboardRepository {
     required int dailyTargetMinutes,
     required WeekdayTargetMinutes weekdayTargetMinutes,
     required WeekdaySchedule weekdaySchedule,
+    required UserWorkRules workRules,
     required String month,
   }) async {
     _profile = UserProfile(
@@ -145,6 +184,7 @@ class UiDemoDashboardRepository implements DashboardRepository {
       dailyTargetMinutes: dailyTargetMinutes,
       weekdayTargetMinutes: weekdayTargetMinutes,
       weekdaySchedule: weekdaySchedule,
+      workRules: workRules,
     );
     return _buildSnapshot(month);
   }
@@ -343,12 +383,12 @@ class UiDemoDashboardRepository implements DashboardRepository {
 
     return DashboardSnapshot(
       profile: _profile,
-      summary: MonthlySummary(
+      summary: MonthlySummary.fromTotals(
         month: month,
         expectedMinutes: expectedMinutes,
         workedMinutes: workedMinutes,
         leaveMinutes: leaveMinutes,
-        balanceMinutes: workedMinutes + leaveMinutes - expectedMinutes,
+        rules: _profile.workRules,
       ),
       workEntries: workEntries..sort((a, b) => b.date.compareTo(a.date)),
       leaveEntries: leaveEntries..sort((a, b) => b.date.compareTo(a.date)),

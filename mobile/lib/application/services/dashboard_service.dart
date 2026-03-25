@@ -1,6 +1,7 @@
 import 'package:work_hours_mobile/domain/models/dashboard_snapshot.dart';
 import 'package:work_hours_mobile/domain/models/leave_entry.dart';
 import 'package:work_hours_mobile/domain/models/support_ticket.dart';
+import 'package:work_hours_mobile/domain/models/user_work_rules.dart';
 import 'package:work_hours_mobile/domain/models/weekday_schedule.dart';
 import 'package:work_hours_mobile/domain/models/weekday_target_minutes.dart';
 import 'package:work_hours_mobile/domain/repositories/dashboard_repository.dart';
@@ -21,6 +22,7 @@ class DashboardService {
     required int dailyTargetMinutes,
     required WeekdayTargetMinutes weekdayTargetMinutes,
     required WeekdaySchedule weekdaySchedule,
+    required UserWorkRules workRules,
     String? month,
   }) {
     return _repository.saveProfile(
@@ -29,6 +31,7 @@ class DashboardService {
       dailyTargetMinutes: dailyTargetMinutes,
       weekdayTargetMinutes: weekdayTargetMinutes,
       weekdaySchedule: weekdaySchedule,
+      workRules: workRules,
       month: month ?? currentMonth,
     );
   }

@@ -1,5 +1,6 @@
 import 'package:work_hours_mobile/domain/models/leave_entry.dart';
 import 'package:work_hours_mobile/domain/models/support_ticket.dart';
+import 'package:work_hours_mobile/domain/models/user_work_rules.dart';
 import 'package:work_hours_mobile/domain/models/weekday_schedule.dart';
 import 'package:work_hours_mobile/domain/models/weekday_target_minutes.dart';
 import 'package:work_hours_mobile/data/api/work_hours_api_client.dart';
@@ -24,6 +25,7 @@ class ApiDashboardRepository implements DashboardRepository {
     required int dailyTargetMinutes,
     required WeekdayTargetMinutes weekdayTargetMinutes,
     required WeekdaySchedule weekdaySchedule,
+    required UserWorkRules workRules,
     required String month,
   }) async {
     await _apiClient.updateProfile(
@@ -32,6 +34,7 @@ class ApiDashboardRepository implements DashboardRepository {
       dailyTargetMinutes: dailyTargetMinutes,
       weekdayTargetMinutes: weekdayTargetMinutes,
       weekdaySchedule: weekdaySchedule,
+      workRules: workRules,
     );
 
     return _buildSnapshot(month: month);
@@ -142,7 +145,7 @@ class ApiDashboardRepository implements DashboardRepository {
     );
 
     final profile = await profileFuture;
-    final summary = await summaryFuture;
+    final summary = (await summaryFuture).applyingRules(profile.workRules);
     final workEntries = await workEntriesFuture;
     final leaveEntries = await leaveEntriesFuture;
     final scheduleOverrides = await scheduleOverridesFuture;

@@ -229,6 +229,70 @@ describe("Admin dashboard", () => {
     });
   });
 
+  it("keeps inline screenshot previews available in the admin dashboard", async () => {
+    tempDirectory = await mkdtemp(path.join(os.tmpdir(), "work-hours-admin-"));
+    process.env.TICKETS_DIR = tempDirectory;
+    process.env.ADMIN_DASHBOARD_TOKEN = "secret-token";
+    app = buildApp();
+
+    const screenshotBytes = Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7Z0uoAAAAASUVORK5CYII=",
+      "base64"
+    );
+
+    const createTicketResponse = await app.inject({
+      method: "POST",
+      url: "/tickets",
+      headers: {
+        "content-type": "application/json"
+      },
+      payload: {
+        category: "bug",
+        subject: "Screenshot admin",
+        message: "Controllo anteprima inline.",
+        attachments: [
+          {
+            fileName: "anteprima-admin.png",
+            contentType: "image/png",
+            base64Data: screenshotBytes.toString("base64")
+          }
+        ]
+      }
+    });
+    expect(createTicketResponse.statusCode).toBe(201);
+
+    const dashboardResponse = await app.inject({
+      method: "GET",
+      url: "/admin"
+    });
+    expect(dashboardResponse.statusCode).toBe(200);
+    expect(dashboardResponse.body).toContain("attachment-preview");
+    expect(dashboardResponse.body).toContain("Screenshot allegati");
+
+    const ticketsResponse = await app.inject({
+      method: "GET",
+      url: "/admin/api/tickets",
+      headers: {
+        authorization: "Bearer secret-token"
+      }
+    });
+    expect(ticketsResponse.statusCode).toBe(200);
+    expect(ticketsResponse.json()).toMatchObject({
+      items: [
+        {
+          attachments: [
+            {
+              fileName: "anteprima-admin.png",
+            }
+          ]
+        }
+      ]
+    });
+    expect(
+      ticketsResponse.json().items[0].attachments[0].downloadPath as string
+    ).toContain("/tickets/");
+  });
+
   it("seeds the super admin from env and allows access to user management", async () => {
     process.env.SUPER_ADMIN_EMAIL = "owner@example.com";
     process.env.SUPER_ADMIN_PASSWORD = "super-segreta";

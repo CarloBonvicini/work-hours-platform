@@ -14,6 +14,7 @@ import type {
   StoredAuthUser
 } from "./data/store.js";
 import {
+  buildDefaultWorkRules,
   buildUniformWeekdayTargetMinutes,
   buildMonthlySummary,
   isIsoDate,
@@ -842,6 +843,28 @@ function parseProfilePayload(
       : undefined,
     weekdayTargetMinutes
   );
+  const parsedWorkRules =
+    body.workRules === undefined
+      ? buildDefaultWorkRules({
+          dailyTargetMinutes,
+          weekdaySchedule
+        })
+      : parseWorkRulesPayload(body.workRules);
+
+  if (body.workRules !== undefined && parsedWorkRules === null) {
+    return {
+      value: null,
+      error:
+        "workRules must include expectedDailyMinutes > 0, minimumBreakMinutes >= 0 and non-negative daily or monthly limits"
+    };
+  }
+
+  if (parsedWorkRules === null) {
+    return {
+      value: null,
+      error: "workRules are required"
+    };
+  }
 
   return {
     value: {
@@ -853,8 +876,36 @@ function parseProfilePayload(
       useUniformDailyTarget,
       dailyTargetMinutes,
       weekdayTargetMinutes,
-      weekdaySchedule
+      weekdaySchedule,
+      workRules: parsedWorkRules
     }
+  };
+}
+
+function parseWorkRulesPayload(payload: unknown): Profile["workRules"] | null {
+  if (!payload || typeof payload !== "object") {
+    return null;
+  }
+
+  const body = payload as Record<string, unknown>;
+  if (
+    !isPositiveInteger(body.expectedDailyMinutes) ||
+    !isNonNegativeInteger(body.minimumBreakMinutes) ||
+    !isNonNegativeInteger(body.maximumDailyCreditMinutes) ||
+    !isNonNegativeInteger(body.maximumDailyDebitMinutes) ||
+    !isNonNegativeInteger(body.maximumMonthlyCreditMinutes) ||
+    !isNonNegativeInteger(body.maximumMonthlyDebitMinutes)
+  ) {
+    return null;
+  }
+
+  return {
+    expectedDailyMinutes: body.expectedDailyMinutes,
+    minimumBreakMinutes: body.minimumBreakMinutes,
+    maximumDailyCreditMinutes: body.maximumDailyCreditMinutes,
+    maximumDailyDebitMinutes: body.maximumDailyDebitMinutes,
+    maximumMonthlyCreditMinutes: body.maximumMonthlyCreditMinutes,
+    maximumMonthlyDebitMinutes: body.maximumMonthlyDebitMinutes
   };
 }
 

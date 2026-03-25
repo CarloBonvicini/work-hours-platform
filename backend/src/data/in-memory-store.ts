@@ -11,21 +11,32 @@ import type {
   StoredAuthUser
 } from "./store.js";
 import {
+  buildDefaultWorkRules,
   buildUniformWeekdaySchedule,
   buildUniformWeekdayTargetMinutes
 } from "../domain/monthly-summary.js";
 
+const DEFAULT_WEEKDAY_SCHEDULE = buildUniformWeekdaySchedule(480);
 const DEFAULT_PROFILE: Profile = {
   id: "default-profile",
   fullName: "Utente",
   useUniformDailyTarget: true,
   dailyTargetMinutes: 480,
   weekdayTargetMinutes: buildUniformWeekdayTargetMinutes(480),
-  weekdaySchedule: buildUniformWeekdaySchedule(480)
+  weekdaySchedule: DEFAULT_WEEKDAY_SCHEDULE,
+  workRules: buildDefaultWorkRules({
+    dailyTargetMinutes: 480,
+    weekdaySchedule: DEFAULT_WEEKDAY_SCHEDULE
+  })
 };
 
 export class InMemoryStore implements AppStore {
-  private profile: Profile = { ...DEFAULT_PROFILE };
+  private profile: Profile = {
+    ...DEFAULT_PROFILE,
+    weekdayTargetMinutes: { ...DEFAULT_PROFILE.weekdayTargetMinutes },
+    weekdaySchedule: structuredClone(DEFAULT_PROFILE.weekdaySchedule),
+    workRules: { ...DEFAULT_PROFILE.workRules }
+  };
   private workEntries: WorkEntry[] = [];
   private leaveEntries: LeaveEntry[] = [];
   private scheduleOverrides: ScheduleOverride[] = [];
@@ -37,7 +48,8 @@ export class InMemoryStore implements AppStore {
     return {
       ...this.profile,
       weekdayTargetMinutes: { ...this.profile.weekdayTargetMinutes },
-      weekdaySchedule: structuredClone(this.profile.weekdaySchedule)
+      weekdaySchedule: structuredClone(this.profile.weekdaySchedule),
+      workRules: { ...this.profile.workRules }
     };
   }
 
@@ -45,7 +57,8 @@ export class InMemoryStore implements AppStore {
     this.profile = {
       ...profile,
       weekdayTargetMinutes: { ...profile.weekdayTargetMinutes },
-      weekdaySchedule: structuredClone(profile.weekdaySchedule)
+      weekdaySchedule: structuredClone(profile.weekdaySchedule),
+      workRules: { ...profile.workRules }
     };
     return this.getProfile();
   }

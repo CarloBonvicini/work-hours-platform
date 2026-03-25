@@ -8,6 +8,7 @@ import 'package:work_hours_mobile/domain/models/monthly_summary.dart';
 import 'package:work_hours_mobile/domain/models/profile.dart';
 import 'package:work_hours_mobile/domain/models/schedule_override.dart';
 import 'package:work_hours_mobile/domain/models/support_ticket.dart';
+import 'package:work_hours_mobile/domain/models/user_work_rules.dart';
 import 'package:work_hours_mobile/domain/models/weekday_schedule.dart';
 import 'package:work_hours_mobile/domain/models/weekday_target_minutes.dart';
 import 'package:work_hours_mobile/domain/models/work_entry.dart';
@@ -52,6 +53,7 @@ class WorkHoursApiClient {
     required int dailyTargetMinutes,
     required WeekdayTargetMinutes weekdayTargetMinutes,
     required WeekdaySchedule weekdaySchedule,
+    required UserWorkRules workRules,
   }) async {
     final response = await _httpClient.put(
       _buildUri('profile'),
@@ -62,6 +64,7 @@ class WorkHoursApiClient {
         'dailyTargetMinutes': dailyTargetMinutes,
         'weekdayTargetMinutes': weekdayTargetMinutes.toJson(),
         'weekdaySchedule': weekdaySchedule.toJson(),
+        'workRules': workRules.toJson(),
       }),
     );
 

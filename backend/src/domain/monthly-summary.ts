@@ -4,6 +4,7 @@ import type {
   MonthlySummary,
   Profile,
   ScheduleOverride,
+  UserWorkRules,
   Weekday,
   WeekdaySchedule,
   WorkEntry
@@ -18,6 +19,9 @@ export const WEEKDAY_KEYS: Weekday[] = [
   "saturday",
   "sunday"
 ];
+
+const DEFAULT_UNBOUNDED_DAILY_LIMIT_MINUTES = 24 * 60;
+const DEFAULT_UNBOUNDED_MONTHLY_LIMIT_MINUTES = 31 * 24 * 60;
 
 export function isYearMonth(value: string): boolean {
   return /^\d{4}-(0[1-9]|1[0-2])$/.test(value);
@@ -124,6 +128,99 @@ function buildDaySchedule(
   };
 }
 
+function clampMinutes(value: number, min: number, max: number): number {
+  if (value < min) {
+    return min;
+  }
+
+  if (value > max) {
+    return max;
+  }
+
+  return value;
+}
+
+export function clampBalanceMinutes(
+  balanceMinutes: number,
+  maximumCreditMinutes: number,
+  maximumDebitMinutes: number
+): number {
+  if (balanceMinutes >= 0) {
+    return clampMinutes(balanceMinutes, 0, maximumCreditMinutes);
+  }
+
+  return -clampMinutes(-balanceMinutes, 0, maximumDebitMinutes);
+}
+
+export function defaultMinimumBreakMinutes(
+  weekdaySchedule: WeekdaySchedule
+): number {
+  const scheduledBreaks = WEEKDAY_KEYS.map((key) => weekdaySchedule[key].breakMinutes)
+    .filter((minutes) => minutes > 0);
+
+  if (scheduledBreaks.length === 0) {
+    return 0;
+  }
+
+  return scheduledBreaks.reduce((current, next) =>
+    current < next ? current : next
+  );
+}
+
+export function buildDefaultWorkRules(
+  profile: Pick<Profile, "dailyTargetMinutes" | "weekdaySchedule">
+): UserWorkRules {
+  return {
+    expectedDailyMinutes: profile.dailyTargetMinutes,
+    minimumBreakMinutes: defaultMinimumBreakMinutes(profile.weekdaySchedule),
+    maximumDailyCreditMinutes: DEFAULT_UNBOUNDED_DAILY_LIMIT_MINUTES,
+    maximumDailyDebitMinutes: DEFAULT_UNBOUNDED_DAILY_LIMIT_MINUTES,
+    maximumMonthlyCreditMinutes: DEFAULT_UNBOUNDED_MONTHLY_LIMIT_MINUTES,
+    maximumMonthlyDebitMinutes: DEFAULT_UNBOUNDED_MONTHLY_LIMIT_MINUTES
+  };
+}
+
+export function sanitizeWorkRules(
+  value: UserWorkRules | null | undefined,
+  fallbackProfile: Pick<Profile, "dailyTargetMinutes" | "weekdaySchedule">
+): UserWorkRules {
+  const fallback = buildDefaultWorkRules(fallbackProfile);
+  if (!value || typeof value !== "object") {
+    return fallback;
+  }
+
+  return {
+    expectedDailyMinutes:
+      Number.isInteger(value.expectedDailyMinutes) && value.expectedDailyMinutes > 0
+        ? value.expectedDailyMinutes
+        : fallback.expectedDailyMinutes,
+    minimumBreakMinutes:
+      Number.isInteger(value.minimumBreakMinutes) && value.minimumBreakMinutes >= 0
+        ? value.minimumBreakMinutes
+        : fallback.minimumBreakMinutes,
+    maximumDailyCreditMinutes:
+      Number.isInteger(value.maximumDailyCreditMinutes) &&
+      value.maximumDailyCreditMinutes >= 0
+        ? value.maximumDailyCreditMinutes
+        : fallback.maximumDailyCreditMinutes,
+    maximumDailyDebitMinutes:
+      Number.isInteger(value.maximumDailyDebitMinutes) &&
+      value.maximumDailyDebitMinutes >= 0
+        ? value.maximumDailyDebitMinutes
+        : fallback.maximumDailyDebitMinutes,
+    maximumMonthlyCreditMinutes:
+      Number.isInteger(value.maximumMonthlyCreditMinutes) &&
+      value.maximumMonthlyCreditMinutes >= 0
+        ? value.maximumMonthlyCreditMinutes
+        : fallback.maximumMonthlyCreditMinutes,
+    maximumMonthlyDebitMinutes:
+      Number.isInteger(value.maximumMonthlyDebitMinutes) &&
+      value.maximumMonthlyDebitMinutes >= 0
+        ? value.maximumMonthlyDebitMinutes
+        : fallback.maximumMonthlyDebitMinutes
+  };
+}
+
 export function buildExpectedMinutes(
   month: string,
   profile: Profile,
@@ -172,12 +269,29 @@ export function buildMonthlySummary(
   );
   const workedMinutes = workEntries.reduce((total, entry) => total + entry.minutes, 0);
   const leaveMinutes = leaveEntries.reduce((total, entry) => total + entry.minutes, 0);
+  const workRules = sanitizeWorkRules(profile.workRules, profile);
+  const rawBalanceMinutes = workedMinutes + leaveMinutes - expectedMinutes;
 
   return {
     month,
     expectedMinutes,
     workedMinutes,
     leaveMinutes,
-    balanceMinutes: workedMinutes + leaveMinutes - expectedMinutes
+    rawBalanceMinutes,
+    balanceMinutes: clampBalanceMinutes(
+      rawBalanceMinutes,
+      workRules.maximumMonthlyCreditMinutes,
+      workRules.maximumMonthlyDebitMinutes
+    ),
+    remainingCreditMinutes: clampMinutes(
+      workRules.maximumMonthlyCreditMinutes - rawBalanceMinutes,
+      0,
+      workRules.maximumMonthlyCreditMinutes
+    ),
+    remainingDebitMinutes: clampMinutes(
+      workRules.maximumMonthlyDebitMinutes + rawBalanceMinutes,
+      0,
+      workRules.maximumMonthlyDebitMinutes
+    )
   };
 }

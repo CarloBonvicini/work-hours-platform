@@ -9,6 +9,7 @@ import 'package:work_hours_mobile/domain/models/monthly_summary.dart';
 import 'package:work_hours_mobile/domain/models/profile.dart';
 import 'package:work_hours_mobile/domain/models/schedule_override.dart';
 import 'package:work_hours_mobile/domain/models/support_ticket.dart';
+import 'package:work_hours_mobile/domain/models/user_work_rules.dart';
 import 'package:work_hours_mobile/domain/models/weekday_schedule.dart';
 import 'package:work_hours_mobile/domain/models/weekday_target_minutes.dart';
 import 'package:work_hours_mobile/domain/models/work_entry.dart';
@@ -61,6 +62,7 @@ class SharedPreferencesLocalDashboardRepository implements DashboardRepository {
     required int dailyTargetMinutes,
     required WeekdayTargetMinutes weekdayTargetMinutes,
     required WeekdaySchedule weekdaySchedule,
+    required UserWorkRules workRules,
     required String month,
   }) async {
     final currentBundle = await exportBundle();
@@ -72,6 +74,7 @@ class SharedPreferencesLocalDashboardRepository implements DashboardRepository {
         dailyTargetMinutes: dailyTargetMinutes,
         weekdayTargetMinutes: weekdayTargetMinutes,
         weekdaySchedule: weekdaySchedule,
+        workRules: workRules,
       ),
       workEntries: currentBundle.workEntries,
       leaveEntries: currentBundle.leaveEntries,
@@ -285,6 +288,18 @@ class SharedPreferencesLocalDashboardRepository implements DashboardRepository {
           saturday: DaySchedule(targetMinutes: 0, breakMinutes: 0),
           sunday: DaySchedule(targetMinutes: 0, breakMinutes: 0),
         ),
+        workRules: UserProfile.defaultWorkRules(
+          dailyTargetMinutes: 480,
+          weekdaySchedule: const WeekdaySchedule(
+            monday: DaySchedule(targetMinutes: 480, breakMinutes: 0),
+            tuesday: DaySchedule(targetMinutes: 480, breakMinutes: 0),
+            wednesday: DaySchedule(targetMinutes: 480, breakMinutes: 0),
+            thursday: DaySchedule(targetMinutes: 480, breakMinutes: 0),
+            friday: DaySchedule(targetMinutes: 480, breakMinutes: 0),
+            saturday: DaySchedule(targetMinutes: 0, breakMinutes: 0),
+            sunday: DaySchedule(targetMinutes: 0, breakMinutes: 0),
+          ),
+        ),
       ),
       workEntries: const [],
       leaveEntries: const [],
@@ -322,12 +337,12 @@ class SharedPreferencesLocalDashboardRepository implements DashboardRepository {
 
     return DashboardSnapshot(
       profile: bundle.profile,
-      summary: MonthlySummary(
+      summary: MonthlySummary.fromTotals(
         month: month,
         expectedMinutes: expectedMinutes,
         workedMinutes: workedMinutes,
         leaveMinutes: leaveMinutes,
-        balanceMinutes: workedMinutes + leaveMinutes - expectedMinutes,
+        rules: bundle.profile.workRules,
       ),
       workEntries: workEntries.reversed.toList(growable: false),
       leaveEntries: leaveEntries.reversed.toList(growable: false),

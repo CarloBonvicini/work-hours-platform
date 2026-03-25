@@ -38,6 +38,7 @@ describe("Profile API", () => {
       id: "default-profile",
       fullName: "Carlo Bonvicini",
       useUniformDailyTarget: false,
+      dailyTargetMinutes: 432,
       weekdayTargetMinutes: {
         monday: 480,
         tuesday: 360,
@@ -52,6 +53,14 @@ describe("Profile API", () => {
           targetMinutes: 480,
           breakMinutes: 0
         }
+      },
+      workRules: {
+        expectedDailyMinutes: 432,
+        minimumBreakMinutes: 0,
+        maximumDailyCreditMinutes: 1440,
+        maximumDailyDebitMinutes: 1440,
+        maximumMonthlyCreditMinutes: 44640,
+        maximumMonthlyDebitMinutes: 44640
       }
     });
 
@@ -65,6 +74,7 @@ describe("Profile API", () => {
       id: "default-profile",
       fullName: "Carlo Bonvicini",
       useUniformDailyTarget: false,
+      dailyTargetMinutes: 432,
       weekdayTargetMinutes: {
         monday: 480,
         tuesday: 360,
@@ -79,6 +89,14 @@ describe("Profile API", () => {
           targetMinutes: 480,
           breakMinutes: 0
         }
+      },
+      workRules: {
+        expectedDailyMinutes: 432,
+        minimumBreakMinutes: 0,
+        maximumDailyCreditMinutes: 1440,
+        maximumDailyDebitMinutes: 1440,
+        maximumMonthlyCreditMinutes: 44640,
+        maximumMonthlyDebitMinutes: 44640
       }
     });
   });
@@ -115,7 +133,15 @@ describe("Auth and cloud backup API", () => {
           useUniformDailyTarget: true,
           dailyTargetMinutes: 480,
           weekdayTargetMinutes: buildUniformWeekdayTargetMinutes(480),
-          weekdaySchedule: buildUniformWeekdaySchedule(480)
+          weekdaySchedule: buildUniformWeekdaySchedule(480),
+          workRules: {
+            expectedDailyMinutes: 480,
+            minimumBreakMinutes: 30,
+            maximumDailyCreditMinutes: 60,
+            maximumDailyDebitMinutes: 45,
+            maximumMonthlyCreditMinutes: 240,
+            maximumMonthlyDebitMinutes: 180
+          }
         },
         appearanceSettings: {
           themeMode: "dark",
@@ -190,7 +216,15 @@ describe("Auth and cloud backup API", () => {
       hasBackup: true,
       bundle: {
         profile: {
-          fullName: "Carlo"
+          fullName: "Carlo",
+          workRules: {
+            expectedDailyMinutes: 480,
+            minimumBreakMinutes: 30,
+            maximumDailyCreditMinutes: 60,
+            maximumDailyDebitMinutes: 45,
+            maximumMonthlyCreditMinutes: 240,
+            maximumMonthlyDebitMinutes: 180
+          }
         },
         appearanceSettings: {
           themeMode: "dark"
@@ -224,6 +258,14 @@ describe("Work and leave entries API", () => {
         friday: { targetMinutes: 480, startTime: "08:30", endTime: "17:00", breakMinutes: 30 },
         saturday: { targetMinutes: 0, breakMinutes: 0 },
         sunday: { targetMinutes: 0, breakMinutes: 0 }
+      },
+      workRules: {
+        expectedDailyMinutes: 432,
+        minimumBreakMinutes: 30,
+        maximumDailyCreditMinutes: 60,
+        maximumDailyDebitMinutes: 90,
+        maximumMonthlyCreditMinutes: 240,
+        maximumMonthlyDebitMinutes: 120
       }
     };
 
@@ -233,7 +275,8 @@ describe("Work and leave entries API", () => {
       payload: {
         fullName: profile.fullName,
         useUniformDailyTarget: profile.useUniformDailyTarget,
-        weekdaySchedule: profile.weekdaySchedule
+        weekdaySchedule: profile.weekdaySchedule,
+        workRules: profile.workRules
       }
     });
 
@@ -338,7 +381,10 @@ describe("Work and leave entries API", () => {
       expectedMinutes,
       workedMinutes: 900,
       leaveMinutes: 60,
-      balanceMinutes: 960 - expectedMinutes
+      rawBalanceMinutes: 960 - expectedMinutes,
+      balanceMinutes: -120,
+      remainingCreditMinutes: 240,
+      remainingDebitMinutes: 0
     });
   });
 
@@ -359,6 +405,14 @@ describe("Work and leave entries API", () => {
       useUniformDailyTarget: true,
       dailyTargetMinutes: 420,
       weekdayTargetMinutes: buildUniformWeekdayTargetMinutes(420),
+      workRules: {
+        expectedDailyMinutes: 420,
+        minimumBreakMinutes: 0,
+        maximumDailyCreditMinutes: 1440,
+        maximumDailyDebitMinutes: 1440,
+        maximumMonthlyCreditMinutes: 44640,
+        maximumMonthlyDebitMinutes: 44640
+      },
       weekdaySchedule: {
         monday: { targetMinutes: 420, breakMinutes: 0 },
         friday: { targetMinutes: 420, breakMinutes: 0 },

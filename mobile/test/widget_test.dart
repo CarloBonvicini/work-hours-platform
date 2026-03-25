@@ -16,6 +16,7 @@ import 'package:work_hours_mobile/domain/models/monthly_summary.dart';
 import 'package:work_hours_mobile/domain/models/profile.dart';
 import 'package:work_hours_mobile/domain/models/schedule_override.dart';
 import 'package:work_hours_mobile/domain/models/support_ticket.dart';
+import 'package:work_hours_mobile/domain/models/user_work_rules.dart';
 import 'package:work_hours_mobile/domain/models/weekday_schedule.dart';
 import 'package:work_hours_mobile/domain/models/weekday_target_minutes.dart';
 import 'package:work_hours_mobile/domain/models/work_entry.dart';
@@ -124,6 +125,26 @@ void main() {
       find.byKey(const ValueKey('calendar-override-break-value')),
       findsOneWidget,
     );
+    expect(find.text('Ore attese oggi'), findsOneWidget);
+    expect(find.text('Saldo oggi'), findsOneWidget);
+    expect(find.text('Saldo mese'), findsOneWidget);
+    expect(find.text('Esci alle'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('calendar-live-expected-value')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('calendar-live-day-balance-value')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('calendar-live-month-balance-value')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('calendar-live-suggested-exit-value')),
+      findsOneWidget,
+    );
     expect(
       find.byKey(const ValueKey('calendar-record-start-button')),
       findsNothing,
@@ -187,7 +208,7 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('Ore 6:00'), findsWidgets);
-    expect(find.text('Credito: 0:00'), findsWidgets);
+    expect(find.text('Debito: 6:00'), findsWidgets);
     expect(find.text('In pari'), findsNothing);
     expect(find.text('Pausa 0:30'), findsNothing);
     expect(find.text('08:30 - 15:00'), findsNothing);
@@ -254,6 +275,22 @@ void main() {
       ),
       findsOneWidget,
     );
+    expect(
+      tester
+          .widget<Text>(
+            find.byKey(const ValueKey('calendar-live-suggested-exit-value')),
+          )
+          .data,
+      'Libero',
+    );
+    expect(
+      tester
+          .widget<Text>(
+            find.byKey(const ValueKey('calendar-live-day-balance-value')),
+          )
+          .data,
+      '0:00',
+    );
 
     await tester.tap(
       find.byKey(const ValueKey('calendar-override-undo-button')),
@@ -317,10 +354,12 @@ void main() {
     await tester.pumpAndSettle();
 
     final targetValueText = tester.widget<Text>(
-      find.descendant(
-        of: find.byKey(const ValueKey('calendar-override-target-value')),
-        matching: find.byType(Text),
-      ).first,
+      find
+          .descendant(
+            of: find.byKey(const ValueKey('calendar-override-target-value')),
+            matching: find.byType(Text),
+          )
+          .first,
     );
     final expectedWorkedHours = targetValueText.data;
 
@@ -475,7 +514,10 @@ void main() {
       findsNothing,
     );
     expect(find.text('Giornata di oggi'), findsNothing);
-    expect(find.text('Qui registri entrata, pausa e uscita di oggi.'), findsOneWidget);
+    expect(
+      find.text('Qui registri entrata, pausa e uscita di oggi.'),
+      findsOneWidget,
+    );
     expect(themePreferenceStore.settings.expandDayWorkdayCard, isFalse);
 
     await tester.pumpWidget(
@@ -512,7 +554,10 @@ void main() {
       findsNothing,
     );
     expect(find.text('Giornata di oggi'), findsNothing);
-    expect(find.text('Qui registri entrata, pausa e uscita di oggi.'), findsOneWidget);
+    expect(
+      find.text('Qui registri entrata, pausa e uscita di oggi.'),
+      findsOneWidget,
+    );
   });
 
   testWidgets('checks for updates again when app resumes', (tester) async {
@@ -729,6 +774,8 @@ void main() {
     expect(repository.savedFullName, 'Carlo');
     expect(repository.savedDailyTargetMinutes, 480);
     expect(repository.savedWeekdaySchedule?.monday.targetMinutes, 480);
+    expect(repository.savedWorkRules?.expectedDailyMinutes, 480);
+    expect(repository.savedWorkRules?.minimumBreakMinutes, 30);
   });
 
   testWidgets('submits a support ticket from the app', (tester) async {
@@ -1039,6 +1086,7 @@ class _FakeDashboardRepository implements DashboardRepository {
   int? savedDailyTargetMinutes;
   WeekdayTargetMinutes? savedWeekdayTargetMinutes;
   WeekdaySchedule? savedWeekdaySchedule;
+  UserWorkRules? savedWorkRules;
   SupportTicketCategory? submittedTicketCategory;
   String? submittedTicketName;
   String? submittedTicketEmail;
@@ -1069,13 +1117,9 @@ class _FakeDashboardRepository implements DashboardRepository {
 
   @override
   Future<DashboardSnapshot> loadSnapshot({required String month}) async {
-    return DashboardSnapshot(
-      profile: const UserProfile(
-        id: 'default-profile',
-        fullName: 'Carlo Bonvicini',
-        useUniformDailyTarget: false,
-        dailyTargetMinutes: 450,
-        weekdayTargetMinutes: WeekdayTargetMinutes(
+    final weekdayTargetMinutes =
+        savedWeekdayTargetMinutes ??
+        WeekdayTargetMinutes(
           monday: 480,
           tuesday: 360,
           wednesday: 360,
@@ -1083,8 +1127,10 @@ class _FakeDashboardRepository implements DashboardRepository {
           friday: 480,
           saturday: 0,
           sunday: 0,
-        ),
-        weekdaySchedule: WeekdaySchedule(
+        );
+    final weekdaySchedule =
+        savedWeekdaySchedule ??
+        WeekdaySchedule(
           monday: DaySchedule(
             targetMinutes: 480,
             startTime: '08:30',
@@ -1117,14 +1163,29 @@ class _FakeDashboardRepository implements DashboardRepository {
           ),
           saturday: DaySchedule(targetMinutes: 0),
           sunday: DaySchedule(targetMinutes: 0),
-        ),
+        );
+    final workRules =
+        savedWorkRules ??
+        UserWorkRules.unbounded(
+          expectedDailyMinutes: savedDailyTargetMinutes ?? 450,
+          minimumBreakMinutes: 30,
+        );
+    return DashboardSnapshot(
+      profile: UserProfile(
+        id: 'default-profile',
+        fullName: savedFullName ?? 'Carlo Bonvicini',
+        useUniformDailyTarget: false,
+        dailyTargetMinutes: savedDailyTargetMinutes ?? 450,
+        weekdayTargetMinutes: weekdayTargetMinutes,
+        weekdaySchedule: weekdaySchedule,
+        workRules: workRules,
       ),
-      summary: MonthlySummary(
+      summary: MonthlySummary.fromTotals(
         month: month,
         expectedMinutes: 10350,
         workedMinutes: 900,
         leaveMinutes: 60,
-        balanceMinutes: -9390,
+        rules: workRules,
       ),
       workEntries: const [
         WorkEntry(
@@ -1157,12 +1218,14 @@ class _FakeDashboardRepository implements DashboardRepository {
     required int dailyTargetMinutes,
     required WeekdayTargetMinutes weekdayTargetMinutes,
     required WeekdaySchedule weekdaySchedule,
+    required UserWorkRules workRules,
     required String month,
   }) {
     savedFullName = fullName;
     savedDailyTargetMinutes = dailyTargetMinutes;
     savedWeekdayTargetMinutes = weekdayTargetMinutes;
     savedWeekdaySchedule = weekdaySchedule;
+    savedWorkRules = workRules;
     return loadSnapshot(month: month);
   }
 

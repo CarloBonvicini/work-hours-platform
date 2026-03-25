@@ -18,6 +18,15 @@ export interface DaySchedule {
 
 export type WeekdaySchedule = Record<Weekday, DaySchedule>;
 
+export interface UserWorkRules {
+  expectedDailyMinutes: number;
+  minimumBreakMinutes: number;
+  maximumDailyCreditMinutes: number;
+  maximumDailyDebitMinutes: number;
+  maximumMonthlyCreditMinutes: number;
+  maximumMonthlyDebitMinutes: number;
+}
+
 export interface Profile {
   id: string;
   fullName: string;
@@ -25,6 +34,7 @@ export interface Profile {
   dailyTargetMinutes: number;
   weekdayTargetMinutes: WeekdayTargetMinutes;
   weekdaySchedule: WeekdaySchedule;
+  workRules: UserWorkRules;
 }
 
 export interface WorkEntry {
@@ -57,5 +67,8 @@ export interface MonthlySummary {
   expectedMinutes: number;
   workedMinutes: number;
   leaveMinutes: number;
+  rawBalanceMinutes: number;
   balanceMinutes: number;
+  remainingCreditMinutes: number;
+  remainingDebitMinutes: number;
 }

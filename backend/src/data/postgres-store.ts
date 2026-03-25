@@ -12,13 +12,16 @@ import type {
   LeaveType,
   Profile,
   ScheduleOverride,
+  UserWorkRules,
   WeekdaySchedule,
   WeekdayTargetMinutes,
   WorkEntry
 } from "../domain/types.js";
 import {
+  buildDefaultWorkRules,
   buildUniformWeekdaySchedule,
   buildUniformWeekdayTargetMinutes,
+  sanitizeWorkRules,
   WEEKDAY_KEYS
 } from "../domain/monthly-summary.js";
 import type { AppStore } from "./store.js";
@@ -34,6 +37,7 @@ type ProfileRow = {
   use_uniform_daily_target: boolean;
   weekday_target_minutes: WeekdayTargetMinutes | null;
   weekday_schedule: WeekdaySchedule | null;
+  work_rules: UserWorkRules | null;
 };
 
 type WorkEntryRow = {
@@ -85,13 +89,18 @@ type CloudBackupRow = {
   updated_at: string;
 };
 
+const DEFAULT_WEEKDAY_SCHEDULE = buildUniformWeekdaySchedule(480);
 const DEFAULT_PROFILE: Profile = {
   id: "default-profile",
   fullName: "Utente",
   useUniformDailyTarget: true,
   dailyTargetMinutes: 480,
   weekdayTargetMinutes: buildUniformWeekdayTargetMinutes(480),
-  weekdaySchedule: buildUniformWeekdaySchedule(480)
+  weekdaySchedule: DEFAULT_WEEKDAY_SCHEDULE,
+  workRules: buildDefaultWorkRules({
+    dailyTargetMinutes: 480,
+    weekdaySchedule: DEFAULT_WEEKDAY_SCHEDULE
+  })
 };
 
 function sanitizeWeekdayTargetMinutes(
@@ -193,12 +202,17 @@ function sanitizeCloudBackupRecord(value: CloudBackupRecord): CloudBackupRecord 
     value.profile.weekdaySchedule,
     weekdayTargetMinutes
   );
+  const workRules = sanitizeWorkRules(value.profile.workRules, {
+    dailyTargetMinutes: value.profile.dailyTargetMinutes,
+    weekdaySchedule
+  });
 
   return {
     profile: {
       ...value.profile,
       weekdayTargetMinutes,
-      weekdaySchedule
+      weekdaySchedule,
+      workRules
     },
     appearanceSettings: sanitizeAppearanceSettings(value.appearanceSettings),
     workEntries: value.workEntries.map((entry) => ({ ...entry })),
@@ -251,7 +265,8 @@ export class PostgresStore implements AppStore {
         ADD COLUMN IF NOT EXISTS daily_target_minutes INTEGER NOT NULL DEFAULT 480,
         ADD COLUMN IF NOT EXISTS use_uniform_daily_target BOOLEAN NOT NULL DEFAULT TRUE,
         ADD COLUMN IF NOT EXISTS weekday_target_minutes JSONB,
-        ADD COLUMN IF NOT EXISTS weekday_schedule JSONB;
+        ADD COLUMN IF NOT EXISTS weekday_schedule JSONB,
+        ADD COLUMN IF NOT EXISTS work_rules JSONB;
 
       CREATE TABLE IF NOT EXISTS work_entries (
         id TEXT PRIMARY KEY,
@@ -336,7 +351,7 @@ export class PostgresStore implements AppStore {
     const result = await this.pool.query<ProfileRow>(
       `
         SELECT id, full_name, daily_target_minutes, use_uniform_daily_target, weekday_target_minutes
-        , weekday_schedule
+        , weekday_schedule, work_rules
         FROM profile
         WHERE id = $1
         LIMIT 1
@@ -345,7 +360,12 @@ export class PostgresStore implements AppStore {
     );
 
     if (result.rowCount === 0) {
-      return { ...DEFAULT_PROFILE };
+      return {
+        ...DEFAULT_PROFILE,
+        weekdayTargetMinutes: { ...DEFAULT_PROFILE.weekdayTargetMinutes },
+        weekdaySchedule: structuredClone(DEFAULT_PROFILE.weekdaySchedule),
+        workRules: { ...DEFAULT_PROFILE.workRules }
+      };
     }
 
     const row = result.rows[0];
@@ -357,6 +377,10 @@ export class PostgresStore implements AppStore {
       row.weekday_schedule,
       weekdayTargetMinutes
     );
+    const workRules = sanitizeWorkRules(row.work_rules, {
+      dailyTargetMinutes: row.daily_target_minutes,
+      weekdaySchedule
+    });
 
     return {
       id: row.id,
@@ -364,7 +388,8 @@ export class PostgresStore implements AppStore {
       useUniformDailyTarget: row.use_uniform_daily_target,
       dailyTargetMinutes: row.daily_target_minutes,
       weekdayTargetMinutes,
-      weekdaySchedule
+      weekdaySchedule,
+      workRules
     };
   }
 
@@ -377,6 +402,10 @@ export class PostgresStore implements AppStore {
       profile.weekdaySchedule,
       weekdayTargetMinutes
     );
+    const workRules = sanitizeWorkRules(profile.workRules, {
+      dailyTargetMinutes: profile.dailyTargetMinutes,
+      weekdaySchedule
+    });
     const result = await this.pool.query<ProfileRow>(
       `
         INSERT INTO profile (
@@ -385,23 +414,26 @@ export class PostgresStore implements AppStore {
           daily_target_minutes,
           use_uniform_daily_target,
           weekday_target_minutes,
-          weekday_schedule
+          weekday_schedule,
+          work_rules
         )
-        VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb)
+        VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb)
         ON CONFLICT (id)
         DO UPDATE SET
           full_name = EXCLUDED.full_name,
           daily_target_minutes = EXCLUDED.daily_target_minutes,
           use_uniform_daily_target = EXCLUDED.use_uniform_daily_target,
           weekday_target_minutes = EXCLUDED.weekday_target_minutes,
-          weekday_schedule = EXCLUDED.weekday_schedule
+          weekday_schedule = EXCLUDED.weekday_schedule,
+          work_rules = EXCLUDED.work_rules
         RETURNING
           id,
           full_name,
           daily_target_minutes,
           use_uniform_daily_target,
           weekday_target_minutes,
-          weekday_schedule
+          weekday_schedule,
+          work_rules
       `,
       [
         profile.id,
@@ -409,27 +441,31 @@ export class PostgresStore implements AppStore {
         profile.dailyTargetMinutes,
         profile.useUniformDailyTarget,
         JSON.stringify(weekdayTargetMinutes),
-        JSON.stringify(weekdaySchedule)
+        JSON.stringify(weekdaySchedule),
+        JSON.stringify(workRules)
       ]
     );
 
     const row = result.rows[0];
+    const savedWeekdayTargetMinutes = sanitizeWeekdayTargetMinutes(
+      row.weekday_target_minutes,
+      row.daily_target_minutes
+    );
+    const savedWeekdaySchedule = sanitizeWeekdaySchedule(
+      row.weekday_schedule,
+      savedWeekdayTargetMinutes
+    );
     return {
       id: row.id,
       fullName: row.full_name,
       useUniformDailyTarget: row.use_uniform_daily_target,
       dailyTargetMinutes: row.daily_target_minutes,
-      weekdayTargetMinutes: sanitizeWeekdayTargetMinutes(
-        row.weekday_target_minutes,
-        row.daily_target_minutes
-      ),
-      weekdaySchedule: sanitizeWeekdaySchedule(
-        row.weekday_schedule,
-        sanitizeWeekdayTargetMinutes(
-          row.weekday_target_minutes,
-          row.daily_target_minutes
-        )
-      )
+      weekdayTargetMinutes: savedWeekdayTargetMinutes,
+      weekdaySchedule: savedWeekdaySchedule,
+      workRules: sanitizeWorkRules(row.work_rules, {
+        dailyTargetMinutes: row.daily_target_minutes,
+        weekdaySchedule: savedWeekdaySchedule
+      })
     };
   }
 
