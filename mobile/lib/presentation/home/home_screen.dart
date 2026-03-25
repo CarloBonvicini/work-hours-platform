@@ -6102,32 +6102,28 @@ class _QuickScheduleValue extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    final labelColor = isPrimaryAction
+        ? colorScheme.primary
+        : colorScheme.onSurface;
+    final supportingColor = isPrimaryAction
+        ? colorScheme.primary.withValues(alpha: 0.88)
+        : colorScheme.onSurfaceVariant;
 
     return Material(
       color: Colors.transparent,
       child: InkWell(
         key: valueKey,
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(14),
         onTap: () => onTap(),
-        child: Ink(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-          decoration: BoxDecoration(
-            color: isPrimaryAction
-                ? colorScheme.primary.withValues(alpha: 0.10)
-                : colorScheme.surfaceContainerLow,
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(
-              color: isPrimaryAction
-                  ? colorScheme.primary.withValues(alpha: 0.72)
-                  : colorScheme.outlineVariant.withValues(alpha: 0.78),
-            ),
-          ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
                 label,
                 style: theme.textTheme.labelLarge?.copyWith(
+                  color: labelColor,
                   fontWeight: FontWeight.w700,
                 ),
               ),
@@ -6157,7 +6153,7 @@ class _QuickScheduleValue extends StatelessWidget {
                 Text(
                   supportingText!,
                   style: theme.textTheme.bodySmall?.copyWith(
-                    color: colorScheme.onSurfaceVariant,
+                    color: supportingColor,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
