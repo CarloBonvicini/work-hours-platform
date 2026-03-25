@@ -22,7 +22,6 @@ import 'package:work_hours_mobile/domain/models/app_update.dart';
 import 'package:work_hours_mobile/domain/models/dashboard_snapshot.dart';
 import 'package:work_hours_mobile/domain/models/day_schedule.dart';
 import 'package:work_hours_mobile/domain/models/leave_entry.dart';
-import 'package:work_hours_mobile/domain/models/profile.dart';
 import 'package:work_hours_mobile/domain/models/schedule_override.dart';
 import 'package:work_hours_mobile/domain/models/support_ticket.dart';
 import 'package:work_hours_mobile/domain/models/user_work_rules.dart';
@@ -963,9 +962,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           ),
         ),
       );
-      if (session?.recoveryCode != null && session!.recoveryCode!.isNotEmpty) {
+      final sessionRecoveryCode = session?.recoveryCode?.trim();
+      if (sessionRecoveryCode != null && sessionRecoveryCode.isNotEmpty) {
         await _showRecoveryCodeDialog(
-          recoveryCode: session.recoveryCode!,
+          recoveryCode: sessionRecoveryCode,
           title: 'Codice recupero generato',
           description:
               'Il tuo account non aveva ancora un codice recupero: ora e stato creato.',
