@@ -28,6 +28,7 @@ export interface StoredAuthUser {
   email: string;
   passwordHash: string;
   passwordSalt: string;
+  isAdmin: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -35,6 +36,7 @@ export interface StoredAuthUser {
 export interface AuthUser {
   id: string;
   email: string;
+  isAdmin: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -53,6 +55,11 @@ export interface AppStore {
   removeScheduleOverride(date: string): Promise<boolean> | boolean;
   findAuthUserByEmail(email: string): Promise<StoredAuthUser | null> | StoredAuthUser | null;
   createAuthUser(user: StoredAuthUser): Promise<AuthUser> | AuthUser;
+  listAuthUsers(): Promise<AuthUser[]> | AuthUser[];
+  updateAuthUserAdminStatus(
+    userId: string,
+    isAdmin: boolean
+  ): Promise<AuthUser | null> | AuthUser | null;
   findAuthUserByTokenHash(
     tokenHash: string
   ): Promise<AuthUser | null> | AuthUser | null;

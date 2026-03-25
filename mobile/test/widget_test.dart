@@ -282,6 +282,61 @@ void main() {
     );
   });
 
+  testWidgets('shows worked hours in the quick day time picker', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(800, 1400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      WorkHoursApp(
+        dashboardService: DashboardService(
+          repository: _FakeDashboardRepository(),
+        ),
+        appUpdateService: _FakeAppUpdateService(),
+        updateReminderStore: _FakeUpdateReminderStore(),
+        onboardingPreferenceStore: _FakeOnboardingPreferenceStore(
+          hasCompleted: true,
+        ),
+        themePreferenceStore: _FakeThemePreferenceStore(),
+        workdayStartStore: _FakeWorkdayStartStore(),
+        supportTicketStore: _FakeSupportTicketStore(),
+        hasCompletedInitialSetup: true,
+      ),
+    );
+
+    await tester.pumpAndSettle();
+    if (find.text('Ricordamelo piu tardi').evaluate().isNotEmpty) {
+      await tester.tap(find.text('Ricordamelo piu tardi'));
+      await tester.pumpAndSettle();
+    }
+
+    await tester.tap(find.byKey(const ValueKey('navigation-menu-button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('navigation-option-day')));
+    await tester.pumpAndSettle();
+
+    final targetValueText = tester.widget<Text>(
+      find.descendant(
+        of: find.byKey(const ValueKey('calendar-override-target-value')),
+        matching: find.byType(Text),
+      ).first,
+    );
+    final expectedWorkedHours = targetValueText.data;
+
+    await tester.tap(
+      find.byKey(const ValueKey('calendar-override-end-time-button')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Uscita'), findsWidgets);
+    expect(
+      find.byKey(const ValueKey('schedule-time-wheel-helper-text')),
+      findsOneWidget,
+    );
+    expect(find.text('Ore di lavoro: $expectedWorkedHours'), findsOneWidget);
+  });
+
   testWidgets('persists collapsed state for quick day editor', (tester) async {
     await tester.binding.setSurfaceSize(const Size(800, 1400));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -420,6 +475,7 @@ void main() {
       findsNothing,
     );
     expect(find.text('Giornata di oggi'), findsNothing);
+    expect(find.text('Qui registri entrata, pausa e uscita di oggi.'), findsOneWidget);
     expect(themePreferenceStore.settings.expandDayWorkdayCard, isFalse);
 
     await tester.pumpWidget(
@@ -456,6 +512,7 @@ void main() {
       findsNothing,
     );
     expect(find.text('Giornata di oggi'), findsNothing);
+    expect(find.text('Qui registri entrata, pausa e uscita di oggi.'), findsOneWidget);
   });
 
   testWidgets('checks for updates again when app resumes', (tester) async {

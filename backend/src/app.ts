@@ -551,7 +551,7 @@ function hashSessionToken(token: string) {
   return createHash("sha256").update(token).digest("hex");
 }
 
-function getAdminProfileEmails() {
+function getLegacyAdminProfileEmails() {
   return new Set(
     (process.env.ADMIN_EMAILS ?? "")
       .split(",")
@@ -561,17 +561,77 @@ function getAdminProfileEmails() {
   );
 }
 
-function isAdminProfileEmail(email: string) {
-  return getAdminProfileEmails().has(normalizeEmail(email));
+function isLegacyAdminProfileEmail(email: string) {
+  return getLegacyAdminProfileEmails().has(normalizeEmail(email));
 }
 
-function serializeAuthUser(user: Pick<AuthUser, "id" | "email" | "createdAt" | "updatedAt">) {
+function isAdminUser(user: Pick<AuthUser, "email" | "isAdmin">) {
+  return user.isAdmin || isLegacyAdminProfileEmail(user.email);
+}
+
+function getAdminSetupToken() {
+  const token = process.env.ADMIN_SETUP_TOKEN?.trim();
+  return token && token.length > 0 ? token : null;
+}
+
+async function hasAnyConfiguredAdmin(store: AppStore) {
+  const users = await store.listAuthUsers();
+  return users.some((user) => isAdminUser(user));
+}
+
+function serializeAuthUser(
+  user: Pick<AuthUser, "id" | "email" | "isAdmin" | "createdAt" | "updatedAt">
+) {
   return {
     id: user.id,
     email: user.email,
     createdAt: user.createdAt,
     updatedAt: user.updatedAt,
-    isAdmin: isAdminProfileEmail(user.email)
+    isAdmin: isAdminUser(user)
+  };
+}
+
+function parseAdminBootstrapPayload(payload: unknown) {
+  const parsedCredentials = parseAuthCredentials(payload);
+  if (!parsedCredentials.value) {
+    return {
+      value: null,
+      error: parsedCredentials.error ?? "Invalid credentials"
+    };
+  }
+
+  if (!payload || typeof payload !== "object") {
+    return { value: null, error: "Invalid body" as const };
+  }
+
+  const body = payload as Record<string, unknown>;
+  const setupToken = normalizeRequiredText(body.setupToken, 200);
+  if (!setupToken) {
+    return { value: null, error: "setupToken is required" as const };
+  }
+
+  return {
+    value: {
+      ...parsedCredentials.value,
+      setupToken
+    }
+  };
+}
+
+function parseAdminRolePayload(payload: unknown) {
+  if (!payload || typeof payload !== "object") {
+    return { value: null, error: "Invalid body" as const };
+  }
+
+  const body = payload as Record<string, unknown>;
+  if (typeof body.isAdmin !== "boolean") {
+    return { value: null, error: "isAdmin must be boolean" as const };
+  }
+
+  return {
+    value: {
+      isAdmin: body.isAdmin
+    }
   };
 }
 
@@ -1304,7 +1364,7 @@ async function authorizeAdminRequest(
     return { authorized: false, statusCode: 401, error: "Unauthorized" };
   }
 
-  if (!isAdminProfileEmail(user.email)) {
+  if (!isAdminUser(user)) {
     return {
       authorized: false,
       statusCode: 403,
@@ -1313,6 +1373,31 @@ async function authorizeAdminRequest(
   }
 
   return { authorized: true };
+}
+
+async function authorizeAdminProfileRequest(
+  request: FastifyRequest,
+  store: AppStore
+): Promise<{
+  authorized: boolean;
+  user?: AuthUser;
+  statusCode?: number;
+  error?: string;
+}> {
+  const { user } = await readAuthenticatedUser(request, store);
+  if (!user) {
+    return { authorized: false, statusCode: 401, error: "Unauthorized" };
+  }
+
+  if (!isAdminUser(user)) {
+    return {
+      authorized: false,
+      statusCode: 403,
+      error: "Admin profile required"
+    };
+  }
+
+  return { authorized: true, user };
 }
 
 function buildAdminOverview(options: {
@@ -1761,8 +1846,14 @@ function renderTicketPage(options: { baseUrl: string }) {
 </html>`;
 }
 
-function renderAdminPage(options: { baseUrl: string }) {
-  const { baseUrl } = options;
+function renderAdminPage(options: {
+  baseUrl: string;
+  adminSetupEnabled: boolean;
+  bootstrapRequired: boolean;
+  hasConfiguredAdmin: boolean;
+}) {
+  const { baseUrl, adminSetupEnabled, bootstrapRequired, hasConfiguredAdmin } =
+    options;
 
   return `<!DOCTYPE html>
 <html lang="it">
@@ -1772,15 +1863,16 @@ function renderAdminPage(options: { baseUrl: string }) {
     <title>Admin Dashboard - Work Hours Platform</title>
     <style>
       :root {
-        --bg: #1b1d22;
+        --bg: #1e1e1e;
         --bg-card: rgba(37, 37, 38, 0.96);
-        --bg-soft: rgba(32, 35, 44, 0.92);
+        --bg-soft: rgba(22, 26, 35, 0.74);
+        --bg-input: #1f1f1f;
         --line: #3f3f46;
         --line-strong: #4c4c52;
-        --ink: #eceff4;
-        --muted: #98a2b3;
+        --ink: #d4d4d4;
+        --muted: #9da3a9;
         --accent: #0e639c;
-        --accent-soft: rgba(14, 99, 156, 0.16);
+        --accent-hover: #1177bb;
         --success: #73c991;
         --success-soft: rgba(115, 201, 145, 0.14);
         --warning: #f2cc60;
@@ -1794,59 +1886,112 @@ function renderAdminPage(options: { baseUrl: string }) {
       body {
         margin: 0;
         min-height: 100vh;
+        overflow-x: hidden;
         color: var(--ink);
         font-family: "Segoe UI", "IBM Plex Sans", sans-serif;
+        background-color: var(--bg);
         background:
           linear-gradient(180deg, rgba(14, 99, 156, 0.12), transparent 220px),
           radial-gradient(circle at top right, rgba(14, 99, 156, 0.14), transparent 32%),
           linear-gradient(180deg, #181818 0%, var(--bg) 100%);
+        background-repeat: no-repeat;
+        background-size: 100% 220px, 100% 100%, 100% 100%;
+        background-attachment: fixed;
       }
-      .shell { max-width: 1440px; margin: 0 auto; padding: 28px 20px 56px; }
-      .hero { text-align: center; margin-bottom: 22px; }
+      .shell { max-width: 1440px; margin: 0 auto; padding: 32px 20px 64px; }
+      .hero { text-align: center; margin-bottom: 26px; }
       .hero-actions { display: flex; justify-content: flex-end; gap: 10px; margin-bottom: 12px; }
-      .ghost-link, button, input, textarea, select {
+      .brand-lockup { position: relative; width: min(100%, 220px); height: 88px; margin: 0 auto 10px; }
+      .brand-mark { position: absolute; inset: 0; margin: auto; width: 108px; height: 72px; border-radius: 22px; border: 1px solid rgba(117,190,255,0.24); background: linear-gradient(135deg, rgba(117,190,255,0.16), rgba(14,99,156,0.72)); box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 14px 30px rgba(0,0,0,0.28); }
+      .brand-mark::before, .brand-mark::after { content: ""; position: absolute; inset: 0; margin: auto; }
+      .brand-mark::before { width: 30px; height: 30px; border-radius: 10px; border: 2px solid rgba(255,255,255,0.74); transform: translateX(-18px) rotate(10deg); }
+      .brand-mark::after { width: 10px; height: 34px; border-radius: 999px; background: rgba(255,255,255,0.84); transform: translateX(18px); }
+      .brand-mark-main::before { box-shadow: 22px 0 0 rgba(255,255,255,0.22); }
+      .brand-mark-glow { opacity: 0.68; filter: blur(18px) saturate(1.16); transform: scale(1.08); }
+      .ghost-link, button, input, textarea, select, code {
         font: inherit;
       }
       .ghost-link {
-        display: inline-flex; align-items: center; padding: 8px 12px; border-radius: 8px;
-        border: 1px solid var(--line); background: rgba(22, 26, 35, 0.56); color: #c4e0f7; text-decoration: none; font-size: 12px; font-weight: 600;
+        display: inline-flex; align-items: center; justify-content: center; padding: 8px 12px; border-radius: 8px;
+        border: 1px solid var(--line); background: rgba(22, 26, 35, 0.56); color: #c4e0f7; text-decoration: none; font-size: 12px; font-weight: 600; letter-spacing: 0.02em;
+        transition: border-color 140ms ease, color 140ms ease, background 140ms ease;
       }
+      .ghost-link:hover { border-color: rgba(117,190,255,0.72); background: rgba(14,99,156,0.18); color: #e9f6ff; }
+      .toolbar-quick-link { font-size: 13px; font-weight: 700; }
       .eyebrow { margin: 0 0 10px; color: var(--info); text-transform: uppercase; letter-spacing: 0.18em; font-size: 12px; }
-      h1,h2,h3,h4 { margin: 0 0 12px; color: #fff; }
+      h1,h2,h3,h4 { margin: 0 0 12px; color: #fff; font-family: "Segoe UI Semibold", "Segoe UI", sans-serif; }
       h1 { font-size: clamp(2.2rem, 4vw, 3rem); }
       p { margin: 0; }
-      .lede, .muted { color: var(--muted); line-height: 1.5; }
-      .panel, .card, .stat { background: var(--bg-card); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); }
+      .lede, .muted { color: var(--muted); line-height: 1.45; overflow-wrap: anywhere; }
+      .panel, .card, .stat { background: var(--bg-card); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); min-width: 0; max-width: 100%; }
       .panel { padding: 20px; margin-bottom: 18px; }
+      .auth-stage { display: grid; justify-items: center; padding: 0; border: 0; background: transparent; box-shadow: none; }
+      .auth-shell { width: min(100%, 920px); padding: 20px; border-color: rgba(117,190,255,0.24); background: rgba(22,26,35,0.62); backdrop-filter: blur(16px); box-shadow: 0 22px 50px rgba(0,0,0,0.4), 0 0 0 1px rgba(117,190,255,0.14), 0 0 34px rgba(14,99,156,0.22); }
+      .auth-view { display: grid; gap: 14px; }
+      .auth-cta { color: var(--muted); font-size: 14px; }
+      .auth-grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+      .auth-card { align-content: start; }
+      .auth-card h3 { margin-bottom: 6px; }
+      .pill { display: inline-flex; align-items: center; gap: 6px; width: fit-content; border-radius: 999px; padding: 5px 10px; font-size: 12px; font-weight: 700; }
+      .pill.info { background: rgba(117, 190, 255, 0.12); color: var(--info); }
+      .pill.warning { background: var(--warning-soft); color: var(--warning); }
+      .pill.success { background: var(--success-soft); color: var(--success); }
       .hidden { display: none !important; }
       .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+      .console-toolbar { margin-bottom: 6px; align-items: flex-start; }
       .toolbar-actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
       button {
-        border: 1px solid var(--line); border-radius: 10px; background: rgba(26, 30, 38, 0.9);
-        color: var(--ink); min-height: 38px; padding: 0 14px; cursor: pointer;
+        border: 1px solid var(--line); border-radius: 8px; background: var(--bg-input);
+        color: var(--ink); min-height: 42px; padding: 0 14px; cursor: pointer;
+        transition: border-color 140ms ease, box-shadow 140ms ease, background 140ms ease, transform 140ms ease;
       }
-      button.primary { background: var(--accent); border-color: rgba(117, 190, 255, 0.42); color: white; }
-      button:hover, .ghost-link:hover { border-color: var(--line-strong); }
+      button.primary { background: linear-gradient(180deg, var(--accent-hover), var(--accent)); border-color: rgba(117,190,255,0.42); color: white; }
+      button:hover { border-color: var(--line-strong); background: rgba(255,255,255,0.06); }
       input, textarea, select {
-        width: 100%; border-radius: 10px; border: 1px solid var(--line); background: #1f1f1f; color: var(--ink); padding: 12px 13px;
+        width: 100%; border-radius: 8px; border: 1px solid var(--line); background: var(--bg-input); color: var(--ink); padding: 12px 13px;
       }
       textarea { min-height: 140px; resize: vertical; }
+      form { display: grid; gap: 12px; }
+      label { display: grid; gap: 7px; color: var(--muted); font-size: 13px; }
+      code { display: inline-block; padding: 2px 6px; border-radius: 6px; background: rgba(255,255,255,0.06); color: #f0f3f6; }
       .status { border-radius: 10px; padding: 12px 14px; border: 1px solid transparent; font-weight: 600; }
       .status.info { background: rgba(117, 190, 255, 0.1); color: var(--info); }
       .status.error { background: var(--danger-soft); color: var(--danger); }
       .status.success { background: var(--success-soft); color: var(--success); }
-      .stats { display: grid; gap: 12px; grid-template-columns: repeat(4, minmax(0, 1fr)); }
-      .stat { padding: 18px; background: linear-gradient(180deg, rgba(37, 37, 38, 0.96), rgba(28, 28, 31, 0.96)); }
+      .console-section { display: grid; gap: 14px; margin-top: 18px; }
+      .section-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+      .section-heading-copy { display: grid; gap: 4px; }
+      .section-heading h3 { margin-bottom: 4px; }
+      .section-heading p { margin: 0; color: var(--muted); font-size: 13px; }
+      .stats { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
+      .stat { padding: 16px; background: linear-gradient(180deg, rgba(37,37,38,0.96), rgba(28,28,31,0.96)); }
+      .stat.tone-info { border-color: rgba(117,190,255,0.2); }
+      .stat.tone-warning { border-color: rgba(242,204,96,0.2); }
+      .stat.tone-success { border-color: rgba(115,201,145,0.2); }
       .stat-label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; }
-      .stat-value { margin-top: 10px; font-size: 30px; font-weight: 700; }
+      .stat-value { margin-top: 10px; font-size: 30px; font-weight: 700; color: #fff; }
       .stat-note { margin-top: 8px; color: var(--muted); font-size: 13px; line-height: 1.45; }
-      .dashboard-grid { display: grid; gap: 16px; grid-template-columns: 340px minmax(0, 1fr); margin-top: 18px; }
-      .ticket-list { display: grid; gap: 10px; max-height: 70vh; overflow: auto; }
-      .ticket-card { border-radius: 12px; border: 1px solid var(--line); background: var(--bg-soft); padding: 14px; cursor: pointer; }
-      .ticket-card.is-active { border-color: rgba(117, 190, 255, 0.72); box-shadow: inset 0 0 0 1px rgba(117, 190, 255, 0.24); }
-      .ticket-card-head, .ticket-badges, .reply-meta, .reply-actions { display: flex; gap: 8px; flex-wrap: wrap; }
-      .ticket-card-head, .toolbar { align-items: flex-start; }
+      .admin-console-layout { display: grid; gap: 16px; grid-template-columns: minmax(240px, 280px) minmax(0, 1fr); align-items: start; }
+      .workspace-nav { display: grid; gap: 12px; padding: 14px; }
+      .workspace-nav h4 { margin: 0; color: var(--muted); font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; }
+      .workspace-stack { display: grid; gap: 12px; }
+      .workspace-card { display: grid; gap: 10px; border: 1px solid var(--line); border-radius: 10px; background: rgba(22,22,24,0.75); padding: 12px; }
+      .mini-label { color: #89929d; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; }
+      .workspace-value { color: #fff; font-size: 16px; font-weight: 700; }
+      .metric-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: #d8dde4; }
+      .metric-row + .metric-row { padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.06); }
+      .metric-row strong { color: #fff; }
+      .quick-link-grid { display: grid; gap: 8px; }
+      .admin-content-grid { display: grid; gap: 16px; }
+      .ticket-workspace { display: grid; gap: 16px; grid-template-columns: minmax(300px, 360px) minmax(0, 1fr); align-items: start; }
+      .ticket-list { display: grid; gap: 10px; max-height: 72vh; overflow: auto; padding-right: 4px; }
+      .ticket-card { border-radius: 12px; border: 1px solid var(--line); background: var(--bg-soft); padding: 14px; cursor: pointer; transition: border-color 140ms ease, background 140ms ease, transform 140ms ease; }
+      .ticket-card:hover { border-color: rgba(117,190,255,0.34); background: rgba(26,30,38,0.9); transform: translateY(-1px); }
+      .ticket-card.is-active { border-color: rgba(117,190,255,0.72); box-shadow: inset 0 0 0 1px rgba(117,190,255,0.24), 0 14px 28px rgba(0,0,0,0.2); }
+      .ticket-card-head, .ticket-badges, .ticket-card-summary, .reply-meta, .reply-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+      .ticket-card-head { align-items: flex-start; justify-content: space-between; }
       .ticket-card-head { justify-content: space-between; }
+      .ticket-card-summary { margin-top: 10px; color: var(--muted); font-size: 12px; }
       .badge { display: inline-flex; align-items: center; border-radius: 999px; padding: 4px 10px; font-size: 12px; font-weight: 700; }
       .badge.status-new { background: var(--warning-soft); color: var(--warning); }
       .badge.status-in_progress { background: rgba(117, 190, 255, 0.12); color: var(--info); }
@@ -1858,101 +2003,343 @@ function renderAdminPage(options: { baseUrl: string }) {
       .ticket-title { margin: 6px 0 4px; font-size: 16px; font-weight: 700; }
       .ticket-meta, .field-label { color: var(--muted); font-size: 12px; }
       .field-label { text-transform: uppercase; letter-spacing: 0.08em; }
-      .thread { display: grid; gap: 12px; margin-top: 18px; }
+      .detail-shell { display: grid; gap: 18px; }
+      .detail-title { margin: 6px 0; }
+      .thread { display: grid; gap: 12px; }
       .message-card { border-radius: 12px; border: 1px solid var(--line); padding: 14px; background: rgba(255,255,255,0.02); }
       .message-card.reply { background: rgba(117, 190, 255, 0.06); border-color: rgba(117, 190, 255, 0.22); }
       .attachment-gallery { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); margin-top: 12px; }
-      .attachment-card { display: grid; gap: 10px; border-radius: 12px; border: 1px solid var(--line); background: rgba(255,255,255,0.03); padding: 12px; }
+      .attachment-card { display: grid; gap: 10px; border-radius: 12px; border: 1px solid var(--line); background: rgba(255,255,255,0.03); padding: 12px; text-decoration: none; color: inherit; }
       .attachment-preview { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 10px; border: 1px solid rgba(255,255,255,0.08); background: rgba(0,0,0,0.16); }
       .attachment-name { font-size: 13px; font-weight: 700; color: #fff; word-break: break-word; }
       .attachment-meta { color: var(--muted); font-size: 12px; }
       .detail-grid { display: grid; gap: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .field { display: grid; gap: 6px; }
-      .reply-form { display: grid; gap: 12px; margin-top: 20px; }
+      .reply-form { display: grid; gap: 12px; }
       .reply-actions { justify-content: flex-end; }
       .empty-state { border-radius: 12px; border: 1px dashed var(--line); padding: 18px; color: var(--muted); text-align: center; }
-      @media (max-width: 1024px) { .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } .dashboard-grid { grid-template-columns: 1fr; } }
-      @media (max-width: 720px) { .shell { padding: 20px 14px 40px; } .stats, .detail-grid { grid-template-columns: 1fr; } }
+      .user-list { display: grid; gap: 10px; }
+      .user-row { display: grid; gap: 10px; grid-template-columns: minmax(0, 1fr) auto; align-items: center; border: 1px solid var(--line); border-radius: 12px; background: var(--bg-soft); padding: 14px; }
+      .user-row-main { display: grid; gap: 6px; min-width: 0; }
+      .user-row-email { color: #fff; font-weight: 700; overflow-wrap: anywhere; }
+      .user-row-meta { display: flex; gap: 8px; flex-wrap: wrap; color: var(--muted); font-size: 12px; }
+      .user-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+      @media (max-width: 1120px) { .ticket-workspace { grid-template-columns: 1fr; } }
+      @media (max-width: 980px) { .admin-console-layout { grid-template-columns: 1fr; } }
+      @media (max-width: 720px) { .shell { padding: 20px 14px 40px; } .hero-actions, .toolbar, .section-heading, .user-row { flex-direction: column; align-items: stretch; } .toolbar-actions, .user-actions { justify-content: flex-start; } .stats, .detail-grid, .auth-grid { grid-template-columns: 1fr; } .user-row { display: grid; grid-template-columns: 1fr; } }
     </style>
   </head>
-  <body data-base-url="${escapeHtml(baseUrl)}">
+  <body
+    data-base-url="${escapeHtml(baseUrl)}"
+    data-admin-setup-enabled="${adminSetupEnabled ? "true" : "false"}"
+    data-admin-bootstrap-required="${bootstrapRequired ? "true" : "false"}"
+    data-admin-has-configured-admin="${hasConfiguredAdmin ? "true" : "false"}"
+  >
     <main class="shell">
       <section class="hero">
         <div class="hero-actions">
           <a class="ghost-link" href="${escapeHtml(baseUrl)}/">Home</a>
           <a class="ghost-link" href="${escapeHtml(baseUrl)}/tickets">Ticket pubblici</a>
         </div>
+        <div class="brand-lockup" aria-hidden="true">
+          <div class="brand-mark brand-mark-glow"></div>
+          <div class="brand-mark brand-mark-main"></div>
+        </div>
         <p class="eyebrow">Work Hours Platform</p>
-        <h1>Admin Dashboard</h1>
-        <p class="lede">Panoramica rapida per manutenzione, release e ticket.</p>
+        <h1>Admin Console</h1>
+        <p class="lede">Layout ispirato alla dashboard admin di AutoCaptionServer, adattato a release, storage e supporto di Work Hours Platform.</p>
       </section>
 
-      <section class="panel" id="admin-auth-panel">
-        <h2>Accesso admin</h2>
-        <p class="lede">Accedi con email e password di un profilo admin autorizzato.</p>
-        <div style="display:grid; gap:12px; margin-top:16px; max-width:420px;">
-          <input id="admin-email-input" type="email" placeholder="Email admin" />
-          <input id="admin-password-input" type="password" placeholder="Password" />
-          <div id="admin-auth-status" class="status info">Accedi con un profilo admin per aprire la dashboard.</div>
-          <div class="toolbar-actions" style="justify-content:flex-start;">
-            <button class="primary" id="admin-login-btn" type="button">Accedi</button>
-          </div>
+      <section class="panel auth-stage" id="admin-auth-panel">
+        <div class="card auth-shell">
+          <section class="auth-view">
+            <h2>Accesso admin</h2>
+            <p class="lede">Qui puoi entrare come admin, creare un profilo normale oppure configurare il primo amministratore del sistema.</p>
+            <div id="admin-auth-status" class="status info">Accedi con un profilo admin per aprire la dashboard.</div>
+            <div class="auth-grid">
+              <article class="workspace-card auth-card" id="admin-bootstrap-card">
+                <span class="pill warning">Primo accesso</span>
+                <div>
+                  <h3>Configura il primo admin</h3>
+                  <p class="lede">Usa il token di setup del backend solo una volta per creare il primo profilo amministratore.</p>
+                </div>
+                <form id="admin-bootstrap-form">
+                  <label>Setup token
+                    <input id="admin-setup-token-input" type="password" autocomplete="off" placeholder="ADMIN_SETUP_TOKEN" />
+                  </label>
+                  <label>Email admin
+                    <input id="admin-bootstrap-email-input" type="email" autocomplete="username" placeholder="admin@example.com" />
+                  </label>
+                  <label>Password
+                    <input id="admin-bootstrap-password-input" type="password" autocomplete="new-password" placeholder="Almeno 8 caratteri" />
+                  </label>
+                  <div class="toolbar-actions" style="justify-content:flex-start;">
+                    <button class="primary" type="submit">Crea primo admin</button>
+                  </div>
+                </form>
+              </article>
+
+              <article class="workspace-card auth-card">
+                <span class="pill info">Login</span>
+                <div>
+                  <h3>Entra in dashboard</h3>
+                  <p class="lede">Accedi con email e password di un profilo gia abilitato come admin.</p>
+                </div>
+                <form id="admin-login-form">
+                  <label>Email
+                    <input id="admin-email-input" type="email" autocomplete="username" placeholder="admin@example.com" required />
+                  </label>
+                  <label>Password
+                    <input id="admin-password-input" type="password" autocomplete="current-password" placeholder="Password" required />
+                  </label>
+                  <div class="toolbar-actions" style="justify-content:flex-start;">
+                    <button class="primary" id="admin-login-btn" type="submit">Login</button>
+                  </div>
+                </form>
+              </article>
+
+              <article class="workspace-card auth-card">
+                <span class="pill success">Registrazione</span>
+                <div>
+                  <h3>Crea profilo</h3>
+                  <p class="lede">La registrazione crea un account normale. Un admin esistente deve poi promuoverti dalla dashboard.</p>
+                </div>
+                <form id="admin-register-form">
+                  <label>Email
+                    <input id="admin-register-email-input" type="email" autocomplete="username" placeholder="utente@example.com" required />
+                  </label>
+                  <label>Password
+                    <input id="admin-register-password-input" type="password" autocomplete="new-password" placeholder="Almeno 8 caratteri" required />
+                  </label>
+                  <div class="toolbar-actions" style="justify-content:flex-start;">
+                    <button type="submit">Registrati</button>
+                  </div>
+                </form>
+              </article>
+            </div>
+            <p class="auth-cta" id="admin-auth-cta">La registrazione non rende admin in automatico. Il primo admin si crea solo con <code>ADMIN_SETUP_TOKEN</code>, poi gli altri admin vengono promossi da un admin gia attivo.</p>
+          </section>
         </div>
       </section>
 
       <section class="panel hidden" id="admin-dashboard-panel">
-        <div class="toolbar">
+        <div class="toolbar console-toolbar">
           <div>
-            <h2 style="margin-bottom:6px;">Console</h2>
-            <p class="lede">Dati utili, stato release e thread ticket.</p>
+            <p class="eyebrow" style="margin-bottom:8px;">Sessione Admin</p>
+            <h2 style="margin-bottom:6px;">Admin Dashboard</h2>
+            <p class="lede" id="admin-session-copy">Monitoraggio release, data provider e thread ticket.</p>
           </div>
           <div class="toolbar-actions">
-            <button type="button" id="admin-refresh-btn">Refresh</button>
-            <button type="button" id="admin-logout-btn">Esci</button>
+            <a class="ghost-link toolbar-quick-link" href="${escapeHtml(baseUrl)}/">Home</a>
+            <a class="ghost-link toolbar-quick-link" href="${escapeHtml(baseUrl)}/tickets">Ticket pubblici</a>
+            <button type="button" id="admin-refresh-btn">Refresh all</button>
+            <button type="button" id="admin-logout-btn">Logout</button>
           </div>
         </div>
         <div id="admin-status" class="status info">Caricamento dashboard...</div>
-        <section style="margin-top:18px;">
+
+        <section class="console-section" id="overview-section">
+          <div class="section-heading">
+            <div class="section-heading-copy">
+              <h3>Overview</h3>
+              <p>Segnali rapidi per release, provider e coda ticket. La parte alta resta panoramica, il workspace operativo vive sotto come nell altra admin.</p>
+            </div>
+          </div>
           <div class="stats" id="admin-stats"></div>
         </section>
-        <section class="dashboard-grid">
-          <aside class="card" style="padding:16px;">
-            <div class="toolbar">
-              <h3 style="margin-bottom:0;">Ticket</h3>
-              <button type="button" id="admin-refresh-tickets-btn">Aggiorna</button>
+
+        <section class="console-section" id="tickets-section">
+          <div class="section-heading">
+            <div class="section-heading-copy">
+              <h3>Support Inbox</h3>
+              <p>Workspace allineato alla logica di AutoCaptionServer: riepilogo laterale, lista ticket e dettaglio operativo affiancati.</p>
             </div>
-            <div class="ticket-list" id="admin-ticket-list" style="margin-top:14px;"></div>
-          </aside>
-          <section class="card" style="padding:18px;" id="admin-ticket-detail"></section>
+          </div>
+          <div class="admin-console-layout">
+            <aside class="card workspace-nav" aria-label="Admin workspace">
+              <h4>Workspace</h4>
+              <div class="workspace-stack">
+                <article class="workspace-card">
+                  <div class="mini-label">Profilo</div>
+                  <div class="workspace-value" id="admin-session-email">Sessione non caricata</div>
+                  <p class="lede" id="admin-generated-at">Ultimo aggiornamento: -</p>
+                </article>
+                <article class="workspace-card">
+                  <div class="mini-label">Ambiente</div>
+                  <div class="workspace-value" id="admin-service-label">work-hours-backend</div>
+                  <p class="lede" id="admin-provider-note">Provider dati: -</p>
+                </article>
+                <article class="workspace-card">
+                  <div class="mini-label">Link rapidi</div>
+                  <div class="quick-link-grid">
+                    <a class="ghost-link" id="admin-health-link" href="${escapeHtml(baseUrl)}/health" target="_blank" rel="noreferrer">Health</a>
+                    <a class="ghost-link" id="admin-feed-link" href="${escapeHtml(baseUrl)}/mobile-updates/latest.json" target="_blank" rel="noreferrer">Feed release</a>
+                    <a class="ghost-link" id="admin-public-tickets-link" href="${escapeHtml(baseUrl)}/tickets" target="_blank" rel="noreferrer">Ticket pubblici</a>
+                  </div>
+                </article>
+                <article class="workspace-card">
+                  <div class="mini-label">Queue ticket</div>
+                  <div class="metric-row"><span>Nuovi</span><strong id="admin-ticket-waiting">0</strong></div>
+                  <div class="metric-row"><span>In lavorazione</span><strong id="admin-ticket-progress">0</strong></div>
+                  <div class="metric-row"><span>Risposti</span><strong id="admin-ticket-answered">0</strong></div>
+                  <div class="metric-row"><span>Chiusi</span><strong id="admin-ticket-closed">0</strong></div>
+                </article>
+              </div>
+            </aside>
+
+            <div class="admin-content-grid">
+              <div class="ticket-workspace">
+                <section class="card" style="padding:16px;">
+                  <div class="toolbar">
+                    <div>
+                      <h3 style="margin-bottom:6px;">Ticket</h3>
+                      <p class="lede">Apri un ticket per vedere messaggi, screenshot e risposta admin.</p>
+                    </div>
+                    <button type="button" id="admin-refresh-tickets-btn">Aggiorna</button>
+                  </div>
+                  <div class="ticket-list" id="admin-ticket-list" style="margin-top:14px;"></div>
+                </section>
+                <section class="card" style="padding:18px;" id="admin-ticket-detail"></section>
+              </div>
+              <section class="card" style="padding:16px;">
+                <div class="toolbar">
+                  <div>
+                    <h3 style="margin-bottom:6px;">Accessi e ruoli</h3>
+                    <p class="lede">Qui registri chi puo entrare in dashboard come amministratore.</p>
+                  </div>
+                  <button type="button" id="admin-refresh-users-btn">Aggiorna utenti</button>
+                </div>
+                <div class="user-list" id="admin-user-list" style="margin-top:14px;"></div>
+              </section>
+            </div>
+          </div>
         </section>
       </section>
     </main>
     <script>
       const ADMIN_TOKEN_KEY = "work_hours_admin_session_token";
-      const baseUrl = document.body.dataset.baseUrl || "";
+      const bodyDataset = document.body.dataset || {};
+      const baseUrl = bodyDataset.baseUrl || "";
       const authPanel = document.getElementById("admin-auth-panel");
       const dashboardPanel = document.getElementById("admin-dashboard-panel");
+      const authStatusBox = document.getElementById("admin-auth-status");
+      const authCta = document.getElementById("admin-auth-cta");
+      const bootstrapCard = document.getElementById("admin-bootstrap-card");
+      const bootstrapForm = document.getElementById("admin-bootstrap-form");
+      const setupTokenInput = document.getElementById("admin-setup-token-input");
+      const bootstrapEmailInput = document.getElementById("admin-bootstrap-email-input");
+      const bootstrapPasswordInput = document.getElementById("admin-bootstrap-password-input");
+      const loginForm = document.getElementById("admin-login-form");
       const emailInput = document.getElementById("admin-email-input");
       const passwordInput = document.getElementById("admin-password-input");
-      const authStatusBox = document.getElementById("admin-auth-status");
+      const registerForm = document.getElementById("admin-register-form");
+      const registerEmailInput = document.getElementById("admin-register-email-input");
+      const registerPasswordInput = document.getElementById("admin-register-password-input");
       const statusBox = document.getElementById("admin-status");
       const statsContainer = document.getElementById("admin-stats");
       const ticketList = document.getElementById("admin-ticket-list");
       const ticketDetail = document.getElementById("admin-ticket-detail");
-      const state = { token: "", overview: null, tickets: [], selectedTicketId: null };
+      const userList = document.getElementById("admin-user-list");
+      const sessionCopy = document.getElementById("admin-session-copy");
+      const sessionEmail = document.getElementById("admin-session-email");
+      const generatedAtLabel = document.getElementById("admin-generated-at");
+      const serviceLabel = document.getElementById("admin-service-label");
+      const providerNote = document.getElementById("admin-provider-note");
+      const healthLink = document.getElementById("admin-health-link");
+      const feedLink = document.getElementById("admin-feed-link");
+      const publicTicketsLink = document.getElementById("admin-public-tickets-link");
+      const waitingCount = document.getElementById("admin-ticket-waiting");
+      const inProgressCount = document.getElementById("admin-ticket-progress");
+      const answeredCount = document.getElementById("admin-ticket-answered");
+      const closedCount = document.getElementById("admin-ticket-closed");
+      const state = {
+        token: "",
+        adminUser: null,
+        overview: null,
+        tickets: [],
+        users: [],
+        selectedTicketId: null,
+        adminSetupEnabled: bodyDataset.adminSetupEnabled === "true",
+        bootstrapRequired: bodyDataset.adminBootstrapRequired === "true",
+        hasConfiguredAdmin: bodyDataset.adminHasConfiguredAdmin === "true"
+      };
 
-      function readToken() { try { return sessionStorage.getItem(ADMIN_TOKEN_KEY) || ""; } catch (_) { return ""; } }
-      function writeToken(value) { try { value ? sessionStorage.setItem(ADMIN_TOKEN_KEY, value) : sessionStorage.removeItem(ADMIN_TOKEN_KEY); } catch (_) {} }
+      function readToken() {
+        try {
+          return sessionStorage.getItem(ADMIN_TOKEN_KEY) || "";
+        } catch (_) {
+          return "";
+        }
+      }
+      function writeToken(value) {
+        try {
+          value
+            ? sessionStorage.setItem(ADMIN_TOKEN_KEY, value)
+            : sessionStorage.removeItem(ADMIN_TOKEN_KEY);
+        } catch (_) {}
+      }
       function escapeHtml(value) {
-        return String(value ?? "").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#39;");
+        return String(value ?? "")
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#39;");
       }
       function formatDateTime(value) {
-        if (!value) return "—";
-        try { return new Date(value).toLocaleString("it-IT", { dateStyle: "medium", timeStyle: "short" }); }
-        catch (_) { return value; }
+        if (!value) return "-";
+        try {
+          return new Date(value).toLocaleString("it-IT", {
+            dateStyle: "medium",
+            timeStyle: "short"
+          });
+        } catch (_) {
+          return value;
+        }
       }
-      function setStatus(message, tone = "info") {
-        [authStatusBox, statusBox].filter(Boolean).forEach((element) => {
+      function formatBytes(value) {
+        const size = Number(value || 0);
+        if (!Number.isFinite(size) || size <= 0) return "0 KB";
+        if (size >= 1024 * 1024) return (size / (1024 * 1024)).toFixed(1) + " MB";
+        return Math.ceil(size / 1024) + " KB";
+      }
+      function defaultAuthMessage() {
+        if (state.bootstrapRequired && state.adminSetupEnabled) {
+          return "Nessun admin e configurato: crea il primo amministratore con il setup token.";
+        }
+        if (!state.hasConfiguredAdmin && !state.adminSetupEnabled) {
+          return "Nessun admin configurato. Imposta ADMIN_SETUP_TOKEN nel backend per creare il primo amministratore.";
+        }
+        return "Accedi con un profilo admin per aprire la dashboard.";
+      }
+      function updateAuthPanel() {
+        if (bootstrapCard) {
+          bootstrapCard.classList.toggle(
+            "hidden",
+            !(state.adminSetupEnabled && state.bootstrapRequired)
+          );
+        }
+
+        if (authCta) {
+          if (state.bootstrapRequired && state.adminSetupEnabled) {
+            authCta.innerHTML =
+              'Primo accesso: inserisci <code>ADMIN_SETUP_TOKEN</code> per creare il primo profilo admin. Da quel momento potrai promuovere altri utenti dalla dashboard.';
+          } else if (!state.hasConfiguredAdmin && !state.adminSetupEnabled) {
+            authCta.innerHTML =
+              'Non esiste ancora nessun admin e il bootstrap e disattivato. Imposta <code>ADMIN_SETUP_TOKEN</code> nel backend, poi ricarica questa pagina.';
+          } else {
+            authCta.innerHTML =
+              'La registrazione non rende admin in automatico. Un amministratore gia attivo deve promuoverti dalla sezione <code>Accessi e ruoli</code>.';
+          }
+        }
+      }
+      function setStatus(message, tone = "info", scope = "both") {
+        const targets = scope === "auth"
+          ? [authStatusBox]
+          : scope === "dashboard"
+            ? [statusBox]
+            : [authStatusBox, statusBox];
+        targets.filter(Boolean).forEach((element) => {
           element.textContent = message;
           element.className = "status " + tone;
         });
@@ -1973,36 +2360,76 @@ function renderAdminPage(options: { baseUrl: string }) {
         const labels = { bug: "Bug", feature: "Feature", support: "Supporto" };
         return '<span class="badge category-' + escapeHtml(category) + '">' + (labels[category] || category) + '</span>';
       }
+      function renderWorkspaceSummary() {
+        const overview = state.overview;
+        const user = state.adminUser;
+        if (sessionEmail) sessionEmail.textContent = user && user.email ? user.email : "Sessione non caricata";
+        if (generatedAtLabel) generatedAtLabel.textContent = "Ultimo aggiornamento: " + (overview ? formatDateTime(overview.generatedAt) : "-");
+        if (serviceLabel) serviceLabel.textContent = overview ? String(overview.service || "work-hours-backend") : "work-hours-backend";
+        if (providerNote) providerNote.textContent = "Provider dati: " + (overview ? String(overview.dataProvider || "-") : "-");
+        if (sessionCopy) {
+          const currentVersion = overview && overview.release && overview.release.current
+            ? String(overview.release.current.version || overview.release.current.tag || "n/d")
+            : "nessuna release";
+          sessionCopy.textContent = user && user.email
+            ? "Sessione admin attiva per " + user.email + ". Release live: " + currentVersion + "."
+            : "Monitoraggio release, data provider e thread ticket.";
+        }
+        if (healthLink && overview && overview.links) healthLink.href = String(overview.links.health || healthLink.href);
+        if (feedLink && overview && overview.links) feedLink.href = String(overview.links.releaseFeed || feedLink.href);
+        if (publicTicketsLink && overview && overview.links) publicTicketsLink.href = String(overview.links.publicTickets || publicTicketsLink.href);
+        if (waitingCount) waitingCount.textContent = overview ? String(overview.tickets.waiting || 0) : "0";
+        if (inProgressCount) inProgressCount.textContent = overview ? String(overview.tickets.inProgress || 0) : "0";
+        if (answeredCount) answeredCount.textContent = overview ? String(overview.tickets.answered || 0) : "0";
+        if (closedCount) closedCount.textContent = overview ? String(overview.tickets.closed || 0) : "0";
+      }
       function renderStats() {
         if (!state.overview) { statsContainer.innerHTML = ""; return; }
+        const currentRelease = state.overview.release.current;
+        const publishingRelease = state.overview.release.publishing;
+        const openTickets = state.overview.tickets.waiting + state.overview.tickets.inProgress;
         const cards = [
           {
-            label: "Release corrente",
-            value: state.overview.release.current ? escapeHtml(state.overview.release.current.version) : "Nessuna",
-            note: state.overview.release.current ? "Tag " + escapeHtml(state.overview.release.current.tag) : "Ancora nessuna release pubblicata",
+            label: "Release live",
+            value: currentRelease ? escapeHtml(currentRelease.version) : "Nessuna",
+            note: currentRelease ? "Tag " + escapeHtml(currentRelease.tag) + " - " + formatDateTime(currentRelease.publishedAt) : "Ancora nessuna release pubblicata",
+            tone: "tone-info",
           },
           {
-            label: "Release in corso",
-            value: state.overview.release.publishing ? escapeHtml(state.overview.release.publishing.version) : "No",
-            note: state.overview.release.publishing ? "Da " + formatDateTime(state.overview.release.publishing.startedAt) : "Nessun rilascio in pubblicazione",
+            label: "Pipeline",
+            value: publishingRelease ? escapeHtml(publishingRelease.version) : "Idle",
+            note: publishingRelease ? "Pubblicazione iniziata " + formatDateTime(publishingRelease.startedAt) : "Nessun rilascio in corso",
+            tone: publishingRelease ? "tone-warning" : "",
           },
           {
             label: "Ticket aperti",
-            value: String(state.overview.tickets.waiting + state.overview.tickets.inProgress),
-            note: state.overview.tickets.total + " ticket totali",
+            value: String(openTickets),
+            note: state.overview.tickets.waiting + " nuovi, " + state.overview.tickets.inProgress + " in lavorazione",
+            tone: openTickets > 0 ? "tone-warning" : "",
           },
           {
-            label: "Provider dati",
+            label: "Ticket chiusi",
+            value: String(state.overview.tickets.closed),
+            note: state.overview.tickets.answered + " risposti, ultimo update " + formatDateTime(state.overview.tickets.latestUpdatedAt),
+            tone: "tone-success",
+          },
+          {
+            label: "Storage",
             value: escapeHtml(state.overview.dataProvider),
-            note: "Health e release feed disponibili dalla dashboard",
+            note: "Service " + escapeHtml(state.overview.service) + ", overview generata " + formatDateTime(state.overview.generatedAt),
+            tone: "",
           },
         ];
-        statsContainer.innerHTML = cards.map((card) => '<article class="stat"><div class="stat-label">' + card.label + '</div><div class="stat-value">' + card.value + '</div><div class="stat-note">' + card.note + '</div></article>').join("");
+        statsContainer.innerHTML = cards.map((card) => '<article class="stat ' + escapeHtml(card.tone || "") + '"><div class="stat-label">' + card.label + '</div><div class="stat-value">' + card.value + '</div><div class="stat-note">' + card.note + '</div></article>').join("");
       }
       function selectTicket(ticketId) { state.selectedTicketId = ticketId; renderTicketList(); renderTicketDetail(); }
       function renderTicketList() {
         if (!state.tickets.length) { ticketList.innerHTML = '<div class="empty-state">Nessun ticket trovato.</div>'; return; }
-        ticketList.innerHTML = state.tickets.map((ticket) => '<article class="ticket-card ' + (ticket.id === state.selectedTicketId ? "is-active" : "") + '" data-ticket-id="' + escapeHtml(ticket.id) + '"><div class="ticket-card-head"><div class="ticket-badges">' + categoryBadge(ticket.category) + statusBadge(ticket.status) + '</div><span class="muted">' + formatDateTime(ticket.updatedAt) + '</span></div><div class="ticket-title">' + escapeHtml(ticket.subject) + '</div><div class="ticket-meta">' + escapeHtml(ticket.name || ticket.email || "Ticket anonimo") + '</div><div class="ticket-meta" style="margin-top:6px;">' + escapeHtml(ticket.message.slice(0, 120)) + (ticket.message.length > 120 ? "..." : "") + '</div></article>').join("");
+        ticketList.innerHTML = state.tickets.map((ticket) => {
+          const attachments = Array.isArray(ticket.attachments) ? ticket.attachments.length : 0;
+          const replies = Array.isArray(ticket.replies) ? ticket.replies.length : 0;
+          return '<article class="ticket-card ' + (ticket.id === state.selectedTicketId ? "is-active" : "") + '" data-ticket-id="' + escapeHtml(ticket.id) + '"><div class="ticket-card-head"><div class="ticket-badges">' + categoryBadge(ticket.category) + statusBadge(ticket.status) + '</div><span class="muted">' + formatDateTime(ticket.updatedAt) + '</span></div><div class="ticket-title">' + escapeHtml(ticket.subject) + '</div><div class="ticket-meta">' + escapeHtml(ticket.name || ticket.email || "Ticket anonimo") + '</div><div class="ticket-meta" style="margin-top:6px;">' + escapeHtml(ticket.message.slice(0, 120)) + (ticket.message.length > 120 ? "..." : "") + '</div><div class="ticket-card-summary"><span>' + replies + ' risposte</span><span>' + attachments + ' screenshot</span></div></article>';
+        }).join("");
         ticketList.querySelectorAll("[data-ticket-id]").forEach((node) => node.addEventListener("click", () => selectTicket(node.getAttribute("data-ticket-id"))));
       }
       function renderTicketDetail() {
@@ -2012,70 +2439,141 @@ function renderAdminPage(options: { baseUrl: string }) {
         const attachments = Array.isArray(ticket.attachments) ? ticket.attachments : [];
         const replies = Array.isArray(ticket.replies) ? ticket.replies : [];
         const attachmentsSection = attachments.length
-          ? '<article class="message-card"><div class="field-label">Screenshot allegati</div><div class="attachment-gallery">' + attachments.map((attachment) => '<a class="attachment-card" target="_blank" rel="noreferrer" href="' + escapeHtml(attachment.downloadPath || "#") + '"><img class="attachment-preview" loading="lazy" src="' + escapeHtml(attachment.downloadPath || "#") + '" alt="' + escapeHtml(attachment.fileName || "Screenshot ticket") + '" /><div class="attachment-name">' + escapeHtml(attachment.fileName) + '</div><div class="attachment-meta">' + escapeHtml(attachment.contentType || "immagine") + ' · ' + escapeHtml(formatBytes(attachment.sizeBytes)) + '</div></a>').join("") + '</div></article>'
+          ? '<article class="message-card"><div class="field-label">Screenshot allegati</div><div class="attachment-gallery">' + attachments.map((attachment) => '<a class="attachment-card" target="_blank" rel="noreferrer" href="' + escapeHtml(attachment.downloadPath || "#") + '"><img class="attachment-preview" loading="lazy" src="' + escapeHtml(attachment.downloadPath || "#") + '" alt="' + escapeHtml(attachment.fileName || "Screenshot ticket") + '" /><div class="attachment-name">' + escapeHtml(attachment.fileName) + '</div><div class="attachment-meta">' + escapeHtml(attachment.contentType || "immagine") + ' - ' + escapeHtml(formatBytes(attachment.sizeBytes)) + '</div></a>').join("") + '</div></article>'
           : '';
-        ticketDetail.innerHTML = '<div class="toolbar"><div><h3 style="margin-bottom:6px;">' + escapeHtml(ticket.subject) + '</h3><div class="reply-meta">' + categoryBadge(ticket.category) + statusBadge(ticket.status) + '</div></div></div><div class="detail-grid" style="margin-top:14px;"><div class="field"><div class="field-label">Creato</div><div>' + formatDateTime(ticket.createdAt) + '</div></div><div class="field"><div class="field-label">Aggiornato</div><div>' + formatDateTime(ticket.updatedAt) + '</div></div><div class="field"><div class="field-label">Contatto</div><div>' + escapeHtml(ticket.name || "—") + (ticket.email ? " (" + escapeHtml(ticket.email) + ")" : "") + '</div></div><div class="field"><div class="field-label">Versione app</div><div>' + escapeHtml(ticket.appVersion || "—") + '</div></div></div><section class="thread"><article class="message-card"><div class="field-label">Messaggio utente</div><div style="margin-top:8px; white-space:pre-wrap;">' + escapeHtml(ticket.message) + '</div></article>' + attachmentsSection + (replies.map((reply) => '<article class="message-card reply"><div class="field-label">' + (reply.author === "admin" ? "Risposta admin" : "Replica utente") + ' · ' + formatDateTime(reply.createdAt) + '</div><div style="margin-top:8px; white-space:pre-wrap;">' + escapeHtml(reply.message) + '</div></article>').join("") || '<div class="empty-state">Ancora nessuna risposta nel thread.</div>') + '</section><form id="admin-reply-form" class="reply-form"><label class="field"><span class="field-label">Nuova risposta</span><textarea name="message" required placeholder="Scrivi la risposta che vuoi salvare nel thread del ticket"></textarea></label><label class="field"><span class="field-label">Nuovo stato</span><select name="status"><option value="answered">Risposto</option><option value="in_progress">In lavorazione</option><option value="closed">Chiuso</option></select></label><div class="reply-actions"><button type="submit" class="primary">Salva risposta</button></div></form>';
+        ticketDetail.innerHTML = '<div class="detail-shell"><div class="toolbar"><div><div class="reply-meta">' + categoryBadge(ticket.category) + statusBadge(ticket.status) + '</div><h3 class="detail-title">' + escapeHtml(ticket.subject) + '</h3><p class="lede">' + escapeHtml(ticket.name || ticket.email || "Ticket anonimo") + '</p></div></div><div class="detail-grid"><div class="field"><div class="field-label">Creato</div><div>' + formatDateTime(ticket.createdAt) + '</div></div><div class="field"><div class="field-label">Aggiornato</div><div>' + formatDateTime(ticket.updatedAt) + '</div></div><div class="field"><div class="field-label">Contatto</div><div>' + escapeHtml(ticket.name || "-") + (ticket.email ? " (" + escapeHtml(ticket.email) + ")" : "") + '</div></div><div class="field"><div class="field-label">Versione app</div><div>' + escapeHtml(ticket.appVersion || "-") + '</div></div></div><section class="thread"><article class="message-card"><div class="field-label">Messaggio utente</div><div style="margin-top:8px; white-space:pre-wrap;">' + escapeHtml(ticket.message) + '</div></article>' + attachmentsSection + (replies.map((reply) => '<article class="message-card reply"><div class="field-label">' + (reply.author === "admin" ? "Risposta admin" : "Replica utente") + ' - ' + formatDateTime(reply.createdAt) + '</div><div style="margin-top:8px; white-space:pre-wrap;">' + escapeHtml(reply.message) + '</div></article>').join("") || '<div class="empty-state">Ancora nessuna risposta nel thread.</div>') + '</section><form id="admin-reply-form" class="reply-form"><label class="field"><span class="field-label">Nuova risposta</span><textarea name="message" required placeholder="Scrivi la risposta che vuoi salvare nel thread del ticket"></textarea></label><label class="field"><span class="field-label">Nuovo stato</span><select name="status"><option value="answered">Risposto</option><option value="in_progress">In lavorazione</option><option value="closed">Chiuso</option></select></label><div class="reply-actions"><button type="submit" class="primary">Salva risposta</button></div></form></div>';
         const form = document.getElementById("admin-reply-form");
         form?.addEventListener("submit", async (event) => {
           event.preventDefault();
           const formData = new FormData(form);
           const message = String(formData.get("message") || "").trim();
           const status = String(formData.get("status") || "").trim();
-          if (!message) { setStatus("Scrivi una risposta prima di salvare.", "error"); return; }
+          if (!message) { setStatus("Scrivi una risposta prima di salvare.", "error", "dashboard"); return; }
           try {
-            setStatus("Salvataggio risposta...", "info");
+            setStatus("Salvataggio risposta...", "info", "dashboard");
             await api(baseUrl + "/admin/api/tickets/" + encodeURIComponent(ticket.id) + "/replies", { method: "POST", body: JSON.stringify({ message, status }) });
             form.reset();
             await loadDashboard();
-            setStatus("Risposta ticket salvata.", "success");
+            setStatus("Risposta ticket salvata.", "success", "dashboard");
           } catch (error) {
-            setStatus(error.message || "Errore durante il salvataggio della risposta.", "error");
+            setStatus(error.message || "Errore durante il salvataggio della risposta.", "error", "dashboard");
           }
         });
       }
-      function formatBytes(value) {
-        const size = Number(value || 0);
-        if (!Number.isFinite(size) || size <= 0) return "0 KB";
-        if (size >= 1024 * 1024) return (size / (1024 * 1024)).toFixed(1) + " MB";
-        return Math.ceil(size / 1024) + " KB";
+      function renderUserList() {
+        if (!state.users.length) {
+          userList.innerHTML = '<div class="empty-state">Nessun profilo registrato.</div>';
+          return;
+        }
+
+        userList.innerHTML = state.users.map((user) => {
+          const isCurrentUser = Boolean(state.adminUser && state.adminUser.id === user.id);
+          const roleLabel = user.isAdmin ? "Admin" : "Utente";
+          const roleTone = user.isAdmin ? "success" : "info";
+          const actionButton = user.isAdmin
+            ? '<button type="button" data-user-id="' + escapeHtml(user.id) + '" data-next-admin="false">Rimuovi admin</button>'
+            : '<button type="button" class="primary" data-user-id="' + escapeHtml(user.id) + '" data-next-admin="true">Rendi admin</button>';
+
+          return '<article class="user-row"><div class="user-row-main"><div class="user-row-email">' + escapeHtml(user.email) + '</div><div class="user-row-meta"><span class="pill ' + roleTone + '">' + roleLabel + '</span>' + (isCurrentUser ? '<span class="pill info">Sessione corrente</span>' : "") + '<span>Creato ' + formatDateTime(user.createdAt) + '</span><span>Aggiornato ' + formatDateTime(user.updatedAt) + '</span></div></div><div class="user-actions">' + actionButton + '</div></article>';
+        }).join("");
+
+        userList.querySelectorAll("[data-user-id]").forEach((node) => {
+          node.addEventListener("click", async () => {
+            const userId = node.getAttribute("data-user-id");
+            const nextAdmin = node.getAttribute("data-next-admin") === "true";
+            if (!userId) return;
+
+            try {
+              setStatus("Aggiornamento ruolo in corso...", "info", "dashboard");
+              await api(
+                baseUrl + "/admin/api/users/" + encodeURIComponent(userId) + "/admin",
+                {
+                  method: "POST",
+                  body: JSON.stringify({ isAdmin: nextAdmin })
+                }
+              );
+              await loadDashboard();
+              setStatus("Ruolo aggiornato.", "success", "dashboard");
+            } catch (error) {
+              setStatus(
+                error.message || "Impossibile aggiornare il ruolo.",
+                "error",
+                "dashboard"
+              );
+            }
+          });
+        });
       }
-      async function loadDashboard() {
-        state.overview = await api(baseUrl + "/admin/api/overview");
-        state.tickets = (await api(baseUrl + "/admin/api/tickets")).items || [];
-        if (!state.selectedTicketId && state.tickets[0]) state.selectedTicketId = state.tickets[0].id;
+      function resetDashboardState() {
+        state.adminUser = null;
+        state.overview = null;
+        state.tickets = [];
+        state.users = [];
+        state.selectedTicketId = null;
+        renderWorkspaceSummary();
         renderStats();
         renderTicketList();
         renderTicketDetail();
+        renderUserList();
+      }
+      async function loadDashboard() {
+        const [adminUser, overview, ticketsResponse, usersResponse] = await Promise.all([
+          api(baseUrl + "/auth/me"),
+          api(baseUrl + "/admin/api/overview"),
+          api(baseUrl + "/admin/api/tickets"),
+          api(baseUrl + "/admin/api/users")
+        ]);
+        state.adminUser = adminUser;
+        state.overview = overview;
+        state.tickets = Array.isArray(ticketsResponse.items) ? ticketsResponse.items : [];
+        state.users = Array.isArray(usersResponse.items) ? usersResponse.items : [];
+        state.hasConfiguredAdmin = state.users.some((user) => user.isAdmin === true);
+        state.bootstrapRequired = false;
+        if (!state.selectedTicketId || !state.tickets.some((ticket) => ticket.id === state.selectedTicketId)) {
+          state.selectedTicketId = state.tickets[0] ? state.tickets[0].id : null;
+        }
+        renderWorkspaceSummary();
+        renderStats();
+        renderTicketList();
+        renderTicketDetail();
+        renderUserList();
+        updateAuthPanel();
       }
       async function bootstrapDashboard() {
         if (!state.token) {
           authPanel.classList.remove("hidden");
           dashboardPanel.classList.add("hidden");
-          setStatus("Accedi con un profilo admin per aprire la dashboard.", "info");
+          resetDashboardState();
+          updateAuthPanel();
+          setStatus(defaultAuthMessage(), "info", "auth");
           return;
         }
         try {
-          setStatus("Caricamento dashboard...", "info");
+          setStatus("Caricamento dashboard...", "info", "dashboard");
           await loadDashboard();
           authPanel.classList.add("hidden");
           dashboardPanel.classList.remove("hidden");
-          setStatus("Dashboard aggiornata.", "success");
+          setStatus("Dashboard aggiornata.", "success", "dashboard");
         } catch (error) {
+          resetDashboardState();
           authPanel.classList.remove("hidden");
           dashboardPanel.classList.add("hidden");
-          setStatus(error.message || "Impossibile caricare la dashboard.", "error");
+          state.token = "";
+          writeToken("");
+          updateAuthPanel();
+          setStatus(error.message || "Impossibile caricare la dashboard.", "error", "auth");
         }
       }
       async function loginAdmin() {
         const email = String(emailInput?.value || "").trim();
         const password = String(passwordInput?.value || "").trim();
         if (!email || !password) {
-          setStatus("Inserisci email e password del profilo admin.", "error");
+          setStatus("Inserisci email e password del profilo admin.", "error", "auth");
           return;
         }
 
         try {
-          setStatus("Verifica profilo admin...", "info");
+          setStatus("Verifica profilo admin...", "info", "auth");
           const response = await api(baseUrl + "/auth/login", {
             method: "POST",
             body: JSON.stringify({ email, password })
@@ -2093,23 +2591,115 @@ function renderAdminPage(options: { baseUrl: string }) {
           }
 
           state.token = String(response.token || "");
+          state.adminUser = response.user || null;
+          state.hasConfiguredAdmin = true;
+          state.bootstrapRequired = false;
           writeToken(state.token);
           if (emailInput) emailInput.value = response.user.email || email;
           if (passwordInput) passwordInput.value = "";
           await bootstrapDashboard();
         } catch (error) {
           state.token = "";
+          state.adminUser = null;
           writeToken("");
-          setStatus(error.message || "Accesso admin non riuscito.", "error");
+          setStatus(error.message || "Accesso admin non riuscito.", "error", "auth");
         }
       }
-      document.getElementById("admin-login-btn")?.addEventListener("click", loginAdmin);
-      passwordInput?.addEventListener("keydown", (event) => {
-        if (event.key === "Enter") loginAdmin();
+      async function registerAccount() {
+        const email = String(registerEmailInput?.value || "").trim();
+        const password = String(registerPasswordInput?.value || "").trim();
+        if (!email || !password) {
+          setStatus("Inserisci email e password per creare il profilo.", "error", "auth");
+          return;
+        }
+
+        try {
+          setStatus("Creazione profilo in corso...", "info", "auth");
+          const response = await api(baseUrl + "/auth/register", {
+            method: "POST",
+            body: JSON.stringify({ email, password })
+          });
+
+          if (registerForm) registerForm.reset();
+          if (emailInput) emailInput.value = response.user?.email || email;
+
+          if (response.user && response.user.isAdmin === true) {
+            state.token = String(response.token || "");
+            state.adminUser = response.user || null;
+            state.hasConfiguredAdmin = true;
+            state.bootstrapRequired = false;
+            writeToken(state.token);
+            await bootstrapDashboard();
+            return;
+          }
+
+          try {
+            if (response.token) {
+              await fetch(baseUrl + "/auth/session", {
+                method: "DELETE",
+                headers: {
+                  Authorization: "Bearer " + response.token
+                }
+              });
+            }
+          } catch (_) {}
+
+          setStatus(
+            "Profilo creato. Ora un admin esistente deve promuoverti dalla sezione Accessi e ruoli.",
+            "success",
+            "auth"
+          );
+        } catch (error) {
+          setStatus(error.message || "Registrazione non riuscita.", "error", "auth");
+        }
+      }
+      async function bootstrapFirstAdmin() {
+        const setupToken = String(setupTokenInput?.value || "").trim();
+        const email = String(bootstrapEmailInput?.value || "").trim();
+        const password = String(bootstrapPasswordInput?.value || "").trim();
+        if (!setupToken || !email || !password) {
+          setStatus(
+            "Inserisci setup token, email e password del primo admin.",
+            "error",
+            "auth"
+          );
+          return;
+        }
+
+        try {
+          setStatus("Creazione del primo admin...", "info", "auth");
+          const response = await api(baseUrl + "/admin/api/bootstrap", {
+            method: "POST",
+            body: JSON.stringify({ setupToken, email, password })
+          });
+          state.token = String(response.token || "");
+          state.adminUser = response.user || null;
+          state.hasConfiguredAdmin = true;
+          state.bootstrapRequired = false;
+          writeToken(state.token);
+          if (bootstrapForm) bootstrapForm.reset();
+          if (emailInput) emailInput.value = response.user?.email || email;
+          await bootstrapDashboard();
+        } catch (error) {
+          setStatus(error.message || "Bootstrap admin non riuscito.", "error", "auth");
+        }
+      }
+      loginForm?.addEventListener("submit", (event) => {
+        event.preventDefault();
+        loginAdmin();
+      });
+      registerForm?.addEventListener("submit", (event) => {
+        event.preventDefault();
+        registerAccount();
+      });
+      bootstrapForm?.addEventListener("submit", (event) => {
+        event.preventDefault();
+        bootstrapFirstAdmin();
       });
       document.getElementById("admin-logout-btn")?.addEventListener("click", async () => {
         const currentToken = state.token;
         state.token = "";
+        state.adminUser = null;
         writeToken("");
         if (passwordInput) passwordInput.value = "";
         try {
@@ -2124,15 +2714,21 @@ function renderAdminPage(options: { baseUrl: string }) {
         } catch (_) {}
         dashboardPanel.classList.add("hidden");
         authPanel.classList.remove("hidden");
-        setStatus("Sessione admin chiusa.", "info");
+        resetDashboardState();
+        updateAuthPanel();
+        setStatus("Sessione admin chiusa.", "info", "auth");
       });
       document.getElementById("admin-refresh-btn")?.addEventListener("click", bootstrapDashboard);
       document.getElementById("admin-refresh-tickets-btn")?.addEventListener("click", bootstrapDashboard);
+      document.getElementById("admin-refresh-users-btn")?.addEventListener("click", bootstrapDashboard);
+      updateAuthPanel();
       state.token = readToken();
       if (state.token) {
         bootstrapDashboard();
       } else {
-        setStatus("Accedi con un profilo admin per aprire la dashboard.", "info");
+        resetDashboardState();
+        updateAuthPanel();
+        setStatus(defaultAuthMessage(), "info", "auth");
       }
     </script>
   </body>
@@ -2545,10 +3141,19 @@ export function buildApp(options: BuildAppOptions = {}) {
 
   app.get("/admin", async (request, reply) => {
     const baseUrl = getPublicBaseUrl(request);
+    const adminSetupEnabled = getAdminSetupToken() !== null;
+    const hasConfiguredAdmin = await hasAnyConfiguredAdmin(store);
 
     return reply
       .type("text/html; charset=utf-8")
-      .send(renderAdminPage({ baseUrl }));
+      .send(
+        renderAdminPage({
+          baseUrl,
+          adminSetupEnabled,
+          bootstrapRequired: adminSetupEnabled && !hasConfiguredAdmin,
+          hasConfiguredAdmin
+        })
+      );
   });
 
   app.get("/admin/api/overview", async (request, reply) => {
@@ -2583,6 +3188,128 @@ export function buildApp(options: BuildAppOptions = {}) {
     return {
       items: (await listSupportTickets()).map(serializeSupportTicket)
     };
+  });
+
+  app.get("/admin/api/users", async (request, reply) => {
+    const adminAccess = await authorizeAdminProfileRequest(request, store);
+    if (!adminAccess.authorized) {
+      return reply
+        .code(adminAccess.statusCode ?? 401)
+        .send({ error: adminAccess.error ?? "Unauthorized" });
+    }
+
+    return {
+      items: (await store.listAuthUsers()).map((user) => serializeAuthUser(user))
+    };
+  });
+
+  app.post("/admin/api/bootstrap", async (request, reply) => {
+    const setupToken = getAdminSetupToken();
+    if (!setupToken) {
+      return reply.code(403).send({ error: "Admin setup is disabled" });
+    }
+
+    if (await hasAnyConfiguredAdmin(store)) {
+      return reply.code(409).send({ error: "Admin account already configured" });
+    }
+
+    const parsedPayload = parseAdminBootstrapPayload(request.body);
+    if (!parsedPayload.value) {
+      return reply.code(400).send({
+        error: parsedPayload.error ?? "Invalid bootstrap payload"
+      });
+    }
+
+    if (parsedPayload.value.setupToken !== setupToken) {
+      return reply.code(403).send({ error: "Invalid setup token" });
+    }
+
+    const existingUser = await store.findAuthUserByEmail(parsedPayload.value.email);
+    if (existingUser) {
+      return reply.code(409).send({ error: "email already registered" });
+    }
+
+    const now = new Date().toISOString();
+    const passwordDigest = createPasswordDigest(parsedPayload.value.password);
+    const createdUser = await store.createAuthUser({
+      id: randomUUID(),
+      email: parsedPayload.value.email,
+      passwordHash: passwordDigest.hash,
+      passwordSalt: passwordDigest.salt,
+      isAdmin: true,
+      createdAt: now,
+      updatedAt: now
+    });
+
+    const token = createSessionToken();
+    await store.saveAuthSession({
+      tokenHash: hashSessionToken(token),
+      userId: createdUser.id,
+      createdAt: now,
+      updatedAt: now
+    });
+
+    const response: AuthResponse = {
+      token,
+      user: serializeAuthUser(createdUser)
+    };
+
+    return reply.code(201).send(response);
+  });
+
+  app.post("/admin/api/users/:userId/admin", async (request, reply) => {
+    const adminAccess = await authorizeAdminProfileRequest(request, store);
+    if (!adminAccess.authorized || !adminAccess.user) {
+      return reply
+        .code(adminAccess.statusCode ?? 401)
+        .send({ error: adminAccess.error ?? "Unauthorized" });
+    }
+
+    const params = request.params as { userId?: unknown };
+    if (typeof params.userId !== "string" || params.userId.length === 0) {
+      return reply.code(400).send({ error: "userId is required" });
+    }
+
+    const parsedPayload = parseAdminRolePayload(request.body);
+    if (!parsedPayload.value) {
+      return reply.code(400).send({
+        error: parsedPayload.error ?? "Invalid role payload"
+      });
+    }
+
+    const users = await store.listAuthUsers();
+    const targetUser = users.find((user) => user.id === params.userId) ?? null;
+    if (!targetUser) {
+      return reply.code(404).send({ error: "User not found" });
+    }
+
+    if (!parsedPayload.value.isAdmin && isLegacyAdminProfileEmail(targetUser.email)) {
+      return reply.code(409).send({
+        error:
+          "This admin is granted via ADMIN_EMAILS. Remove the email from ADMIN_EMAILS to revoke access."
+      });
+    }
+
+    if (!parsedPayload.value.isAdmin && isAdminUser(targetUser)) {
+      const otherAdmins = users.filter(
+        (user) => user.id !== targetUser.id && isAdminUser(user)
+      );
+      if (otherAdmins.length === 0) {
+        return reply.code(409).send({
+          error: "At least one admin profile must remain active"
+        });
+      }
+    }
+
+    const updatedUser = await store.updateAuthUserAdminStatus(
+      targetUser.id,
+      parsedPayload.value.isAdmin
+    );
+    if (!updatedUser) {
+      return reply.code(404).send({ error: "User not found" });
+    }
+
+    return serializeAuthUser(updatedUser);
   });
 
   app.post("/admin/api/tickets/:ticketId/replies", async (request, reply) => {
@@ -2658,6 +3385,7 @@ export function buildApp(options: BuildAppOptions = {}) {
       email: parsedCredentials.value.email,
       passwordHash: passwordDigest.hash,
       passwordSalt: passwordDigest.salt,
+      isAdmin: isLegacyAdminProfileEmail(parsedCredentials.value.email),
       createdAt: now,
       updatedAt: now
     });

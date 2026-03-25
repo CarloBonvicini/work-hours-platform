@@ -63,6 +63,7 @@ type ScheduleOverrideRow = {
 type AuthUserRow = {
   id: string;
   email: string;
+  is_admin: boolean;
   password_hash: string;
   password_salt: string;
   created_at: string;
@@ -72,6 +73,7 @@ type AuthUserRow = {
 type AuthSessionUserRow = {
   id: string;
   email: string;
+  is_admin: boolean;
   created_at: string;
   updated_at: string;
 };
@@ -152,12 +154,14 @@ function sanitizeWeekdaySchedule(
 function toAuthUser(row: {
   id: string;
   email: string;
+  is_admin: boolean;
   created_at: string;
   updated_at: string;
 }): AuthUser {
   return {
     id: row.id,
     email: row.email,
+    isAdmin: row.is_admin,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
@@ -289,9 +293,13 @@ export class PostgresStore implements AppStore {
         email TEXT NOT NULL UNIQUE,
         password_hash TEXT NOT NULL,
         password_salt TEXT NOT NULL,
+        is_admin BOOLEAN NOT NULL DEFAULT FALSE,
         created_at TIMESTAMPTZ NOT NULL,
         updated_at TIMESTAMPTZ NOT NULL
       );
+
+      ALTER TABLE auth_users
+        ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT FALSE;
 
       CREATE TABLE IF NOT EXISTS auth_sessions (
         token_hash TEXT PRIMARY KEY,
@@ -614,6 +622,7 @@ export class PostgresStore implements AppStore {
         SELECT
           id,
           email,
+          is_admin,
           password_hash,
           password_salt,
           TO_CHAR(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS created_at,
@@ -633,6 +642,7 @@ export class PostgresStore implements AppStore {
     return {
       id: row.id,
       email: row.email,
+      isAdmin: row.is_admin,
       passwordHash: row.password_hash,
       passwordSalt: row.password_salt,
       createdAt: row.created_at,
@@ -648,13 +658,15 @@ export class PostgresStore implements AppStore {
           email,
           password_hash,
           password_salt,
+          is_admin,
           created_at,
           updated_at
         )
-        VALUES ($1, $2, $3, $4, $5::timestamptz, $6::timestamptz)
+        VALUES ($1, $2, $3, $4, $5, $6::timestamptz, $7::timestamptz)
         RETURNING
           id,
           email,
+          is_admin,
           TO_CHAR(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS created_at,
           TO_CHAR(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS updated_at
       `,
@@ -663,10 +675,56 @@ export class PostgresStore implements AppStore {
         user.email.trim().toLowerCase(),
         user.passwordHash,
         user.passwordSalt,
+        user.isAdmin,
         user.createdAt,
         user.updatedAt
       ]
     );
+
+    return toAuthUser(result.rows[0]);
+  }
+
+  async listAuthUsers(): Promise<AuthUser[]> {
+    const result = await this.pool.query<AuthSessionUserRow>(
+      `
+        SELECT
+          id,
+          email,
+          is_admin,
+          TO_CHAR(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS created_at,
+          TO_CHAR(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS updated_at
+        FROM auth_users
+        ORDER BY email ASC
+      `
+    );
+
+    return result.rows.map(toAuthUser);
+  }
+
+  async updateAuthUserAdminStatus(
+    userId: string,
+    isAdmin: boolean
+  ): Promise<AuthUser | null> {
+    const result = await this.pool.query<AuthSessionUserRow>(
+      `
+        UPDATE auth_users
+        SET
+          is_admin = $2,
+          updated_at = NOW()
+        WHERE id = $1
+        RETURNING
+          id,
+          email,
+          is_admin,
+          TO_CHAR(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS created_at,
+          TO_CHAR(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS updated_at
+      `,
+      [userId, isAdmin]
+    );
+
+    if (result.rowCount === 0) {
+      return null;
+    }
 
     return toAuthUser(result.rows[0]);
   }
@@ -677,6 +735,7 @@ export class PostgresStore implements AppStore {
         SELECT
           auth_users.id,
           auth_users.email,
+          auth_users.is_admin,
           TO_CHAR(auth_users.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS created_at,
           TO_CHAR(auth_users.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS updated_at
         FROM auth_sessions

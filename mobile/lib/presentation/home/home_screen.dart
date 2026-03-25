@@ -1941,6 +1941,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _CalendarTimeField.end => 'Uscita',
       },
       initialMinutes: initialMinutes,
+      helperTextBuilder: (pickedMinutes) =>
+          _buildScheduleOverrideWorkedMinutesPreviewLabel(
+            field: field,
+            pickedMinutes: pickedMinutes,
+          ),
     );
     if (pickedMinutes == null) {
       return;
@@ -1963,6 +1968,28 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
     _pushCurrentScheduleOverrideDraftToHistory();
     await _autosaveScheduleOverride();
+  }
+
+  String _buildScheduleOverrideWorkedMinutesPreviewLabel({
+    required _CalendarTimeField field,
+    required int pickedMinutes,
+  }) {
+    final currentSchedule = _displayedScheduleStateForSelectedDate().schedule;
+    final previewSchedule = _buildFlexibleDayScheduleInput(
+      targetText: _scheduleOverrideTargetController.text,
+      startTimeText: field == _CalendarTimeField.start
+          ? formatTimeInput(pickedMinutes)
+          : _scheduleOverrideStartTimeController.text,
+      endTimeText: field == _CalendarTimeField.end
+          ? formatTimeInput(pickedMinutes)
+          : _scheduleOverrideEndTimeController.text,
+      breakText: _scheduleOverrideBreakController.text,
+      fallbackSchedule: currentSchedule,
+    );
+    final workedMinutes = previewSchedule?.targetMinutes;
+    return workedMinutes == null
+        ? 'Ore di lavoro: --'
+        : 'Ore di lavoro: ${_formatHoursInput(workedMinutes)}';
   }
 
   Future<void> _pickScheduleOverrideBreakMinutes() async {
@@ -2200,6 +2227,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Future<int?> _showScheduleTimeWheelPicker({
     required String title,
     required int initialMinutes,
+    String? Function(int pickedMinutes)? helperTextBuilder,
   }) async {
     final initialDateTime = DateTime(
       2026,
@@ -2216,12 +2244,35 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         initialValue: initialDateTime,
         valueBuilder: (controller) => ValueListenableBuilder<DateTime>(
           valueListenable: controller,
-          builder: (context, value, _) => Text(
-            formatTimeInput((value.hour * 60) + value.minute),
-            style: Theme.of(
-              context,
-            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
-          ),
+          builder: (context, value, _) {
+            final pickedMinutes = (value.hour * 60) + value.minute;
+            final helperText = helperTextBuilder?.call(pickedMinutes);
+            final theme = Theme.of(context);
+
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  formatTimeInput(pickedMinutes),
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                if (helperText != null) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    helperText,
+                    key: const ValueKey('schedule-time-wheel-helper-text'),
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: theme.colorScheme.secondary,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ],
+            );
+          },
         ),
         pickerBuilder: (controller) => SizedBox(
           height: 220,
@@ -5485,18 +5536,17 @@ class _WorkdaySessionCard extends StatelessWidget {
     );
 
     if (!isExpanded) {
-      return SizedBox(
-        height: 30,
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 2),
         child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             Expanded(
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: _TodayStatusBadge(
-                  label: statusMeta.label,
-                  color: statusMeta.color,
-                  icon: statusMeta.icon,
-                  dense: true,
+              child: Text(
+                'Qui registri entrata, pausa e uscita di oggi.',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
             ),
@@ -12639,24 +12689,18 @@ class _TodayStatusBadge extends StatelessWidget {
     required this.label,
     required this.color,
     required this.icon,
-    this.dense = false,
   });
 
   final String label;
   final Color color;
   final IconData icon;
-  final bool dense;
 
   @override
   Widget build(BuildContext context) {
-    final horizontalPadding = dense ? 10.0 : 14.0;
-    final verticalPadding = dense ? 7.0 : 10.0;
-    final iconSize = dense ? 16.0 : 18.0;
-
     return Container(
       padding: EdgeInsets.symmetric(
-        horizontal: horizontalPadding,
-        vertical: verticalPadding,
+        horizontal: 14,
+        vertical: 10,
       ),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.12),
@@ -12665,15 +12709,16 @@ class _TodayStatusBadge extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: iconSize, color: color),
-          SizedBox(width: dense ? 6 : 8),
+          Icon(icon, size: 18, color: color),
+          const SizedBox(width: 8),
           Text(
             label,
-            style:
-                (dense
-                        ? Theme.of(context).textTheme.labelMedium
-                        : Theme.of(context).textTheme.labelLarge)
-                    ?.copyWith(color: color, fontWeight: FontWeight.w700),
+            style: Theme.of(
+              context,
+            ).textTheme.labelLarge?.copyWith(
+              color: color,
+              fontWeight: FontWeight.w700,
+            ),
           ),
         ],
       ),

@@ -9,6 +9,7 @@ let tempDirectory: string | null = null;
 const originalTicketsDir = process.env.TICKETS_DIR;
 const originalAdminToken = process.env.ADMIN_DASHBOARD_TOKEN;
 const originalAdminEmails = process.env.ADMIN_EMAILS;
+const originalAdminSetupToken = process.env.ADMIN_SETUP_TOKEN;
 
 afterEach(async () => {
   await app.close();
@@ -36,6 +37,12 @@ afterEach(async () => {
   } else {
     process.env.ADMIN_EMAILS = originalAdminEmails;
   }
+
+  if (originalAdminSetupToken === undefined) {
+    delete process.env.ADMIN_SETUP_TOKEN;
+  } else {
+    process.env.ADMIN_SETUP_TOKEN = originalAdminSetupToken;
+  }
 });
 
 describe("Admin dashboard", () => {
@@ -48,9 +55,8 @@ describe("Admin dashboard", () => {
     expect(response.statusCode).toBe(200);
     expect(response.headers["content-type"]).toContain("text/html");
     expect(response.body).toContain("Admin Dashboard");
-    expect(response.body).toContain(
-      "Accedi con email e password di un profilo admin autorizzato."
-    );
+    expect(response.body).toContain("Configura il primo admin");
+    expect(response.body).toContain("Crea profilo");
   });
 
   it("protects the overview api when an admin token is configured", async () => {
@@ -151,33 +157,44 @@ describe("Admin dashboard", () => {
     });
   });
 
-  it("allows admin api access for authenticated admin profiles", async () => {
-    process.env.ADMIN_EMAILS = "admin@example.com";
+  it("bootstraps the first admin with a setup token", async () => {
+    process.env.ADMIN_SETUP_TOKEN = "setup-secret";
     app = buildApp();
 
-    const registerResponse = await app.inject({
+    const bootstrapResponse = await app.inject({
       method: "POST",
-      url: "/auth/register",
+      url: "/admin/api/bootstrap",
       headers: {
         "content-type": "application/json"
       },
       payload: {
+        setupToken: "setup-secret",
         email: "admin@example.com",
         password: "super-segreta"
       }
     });
 
-    expect(registerResponse.statusCode).toBe(201);
-    expect(registerResponse.json().user).toMatchObject({
+    expect(bootstrapResponse.statusCode).toBe(201);
+    expect(bootstrapResponse.json().user).toMatchObject({
       email: "admin@example.com",
       isAdmin: true
     });
+
+    const usersResponse = await app.inject({
+      method: "GET",
+      url: "/admin/api/users",
+      headers: {
+        authorization: `Bearer ${bootstrapResponse.json().token as string}`
+      }
+    });
+    expect(usersResponse.statusCode).toBe(200);
+    expect(usersResponse.json().items).toHaveLength(1);
 
     const overviewResponse = await app.inject({
       method: "GET",
       url: "/admin/api/overview",
       headers: {
-        authorization: `Bearer ${registerResponse.json().token as string}`
+        authorization: `Bearer ${bootstrapResponse.json().token as string}`
       }
     });
 
@@ -218,5 +235,67 @@ describe("Admin dashboard", () => {
     expect(overviewResponse.json()).toEqual({
       error: "Admin profile required"
     });
+  });
+
+  it("allows an admin to promote another registered user", async () => {
+    process.env.ADMIN_SETUP_TOKEN = "setup-secret";
+    app = buildApp();
+
+    const bootstrapResponse = await app.inject({
+      method: "POST",
+      url: "/admin/api/bootstrap",
+      headers: {
+        "content-type": "application/json"
+      },
+      payload: {
+        setupToken: "setup-secret",
+        email: "admin@example.com",
+        password: "super-segreta"
+      }
+    });
+    expect(bootstrapResponse.statusCode).toBe(201);
+
+    const registerResponse = await app.inject({
+      method: "POST",
+      url: "/auth/register",
+      headers: {
+        "content-type": "application/json"
+      },
+      payload: {
+        email: "user@example.com",
+        password: "super-segreta"
+      }
+    });
+    expect(registerResponse.statusCode).toBe(201);
+    expect(registerResponse.json().user).toMatchObject({
+      email: "user@example.com",
+      isAdmin: false
+    });
+
+    const promoteResponse = await app.inject({
+      method: "POST",
+      url: `/admin/api/users/${registerResponse.json().user.id as string}/admin`,
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${bootstrapResponse.json().token as string}`
+      },
+      payload: {
+        isAdmin: true
+      }
+    });
+    expect(promoteResponse.statusCode).toBe(200);
+    expect(promoteResponse.json()).toMatchObject({
+      email: "user@example.com",
+      isAdmin: true
+    });
+
+    const promotedOverviewResponse = await app.inject({
+      method: "GET",
+      url: "/admin/api/overview",
+      headers: {
+        authorization: `Bearer ${registerResponse.json().token as string}`
+      }
+    });
+    expect(promotedOverviewResponse.statusCode).toBe(200);
   });
 });
