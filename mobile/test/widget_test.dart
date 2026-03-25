@@ -484,8 +484,13 @@ void main() {
     final themePreferenceStore = _FakeThemePreferenceStore();
 
     Future<void> openWorkSettings() async {
-      await tester.tap(find.byKey(const ValueKey('navigation-menu-button')));
-      await tester.pumpAndSettle();
+      final menuButtonFinder = find.byKey(
+        const ValueKey('navigation-menu-button'),
+      );
+      if (menuButtonFinder.evaluate().isNotEmpty) {
+        await tester.tap(menuButtonFinder);
+        await tester.pumpAndSettle();
+      }
       await tester.tap(
         find.byKey(const ValueKey('navigation-option-workSettings')),
       );
@@ -1230,20 +1235,18 @@ void main() {
     expect(find.text('Installa'), findsOneWidget);
   });
 
-  testWidgets('shows initial setup wizard only on first launch', (
+  testWidgets('skips initial setup wizard and marks first launch completed', (
     tester,
   ) async {
     final onboardingStore = _FakeOnboardingPreferenceStore(hasCompleted: false);
-    final themePreferenceStore = _FakeThemePreferenceStore();
-    final repository = _FakeDashboardRepository();
 
     await tester.pumpWidget(
       WorkHoursApp(
-        dashboardService: DashboardService(repository: repository),
+        dashboardService: DashboardService(repository: _FakeDashboardRepository()),
         appUpdateService: _CountingAppUpdateService(),
         updateReminderStore: _FakeUpdateReminderStore(),
         onboardingPreferenceStore: onboardingStore,
-        themePreferenceStore: themePreferenceStore,
+        themePreferenceStore: _FakeThemePreferenceStore(),
         workdayStartStore: _FakeWorkdayStartStore(),
         supportTicketStore: _FakeSupportTicketStore(),
         hasCompletedInitialSetup: false,
@@ -1252,56 +1255,10 @@ void main() {
 
     await tester.pumpAndSettle();
 
-    expect(find.text('Configurazione iniziale 1/3'), findsOneWidget);
-    await tester.tap(find.text('Scuro'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Continua'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('Configurazione iniziale 2/3'), findsOneWidget);
-    final nameField = find.byWidgetPredicate(
-      (widget) =>
-          widget is TextField &&
-          widget.decoration?.labelText == 'Come ti chiami?',
-    );
-    expect(nameField, findsOneWidget);
-    await tester.enterText(nameField, 'Carlo');
-    await tester.tap(find.text('Continua'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('Configurazione iniziale 3/3'), findsOneWidget);
-    await tester.tap(find.text('Stesse ore ogni giorno lavorativo'));
-    await tester.pumpAndSettle();
-    expect(
-      find.byWidgetPredicate(
-        (widget) =>
-            widget is TextField &&
-            widget.decoration?.labelText == 'Ore lun-ven',
-      ),
-      findsOneWidget,
-    );
-    await tester.enterText(
-      find.byWidgetPredicate(
-        (widget) =>
-            widget is TextField &&
-            widget.decoration?.labelText == 'Ore lun-ven',
-      ),
-      '8',
-    );
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Inizia'));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 200));
-    await tester.pumpAndSettle();
-
     expect(find.text('Configurazione iniziale 1/3'), findsNothing);
+    expect(find.text('Configurazione iniziale 2/3'), findsNothing);
+    expect(find.text('Configurazione iniziale 3/3'), findsNothing);
     expect(onboardingStore.markCompletedCalls, 1);
-    expect(themePreferenceStore.savedThemeModes, [ThemeMode.dark]);
-    expect(repository.savedFullName, 'Carlo');
-    expect(repository.savedDailyTargetMinutes, 480);
-    expect(repository.savedWeekdaySchedule?.monday.targetMinutes, 480);
-    expect(repository.savedWorkRules?.expectedDailyMinutes, 480);
-    expect(repository.savedWorkRules?.minimumBreakMinutes, 30);
   });
 
   testWidgets('submits a support ticket from the app', (tester) async {

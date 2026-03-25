@@ -76,6 +76,8 @@ void main() {
       maximumDailyDebitMinutes: 60,
       maximumMonthlyCreditMinutes: 600,
       maximumMonthlyDebitMinutes: 480,
+      implicitCreditEnabled: true,
+      implicitCreditDailyCapMinutes: 30,
     );
 
     final workday = WorkingDay.fromTimeRange(
