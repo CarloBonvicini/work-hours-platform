@@ -23,12 +23,14 @@ export interface CloudBackupRecord {
   updatedAt: string;
 }
 
+export type AuthRole = "user" | "admin" | "super_admin";
+
 export interface StoredAuthUser {
   id: string;
   email: string;
   passwordHash: string;
   passwordSalt: string;
-  isAdmin: boolean;
+  role: AuthRole;
   createdAt: string;
   updatedAt: string;
 }
@@ -36,7 +38,7 @@ export interface StoredAuthUser {
 export interface AuthUser {
   id: string;
   email: string;
-  isAdmin: boolean;
+  role: AuthRole;
   createdAt: string;
   updatedAt: string;
 }
@@ -56,10 +58,11 @@ export interface AppStore {
   findAuthUserByEmail(email: string): Promise<StoredAuthUser | null> | StoredAuthUser | null;
   createAuthUser(user: StoredAuthUser): Promise<AuthUser> | AuthUser;
   listAuthUsers(): Promise<AuthUser[]> | AuthUser[];
-  updateAuthUserAdminStatus(
+  updateAuthUserRole(
     userId: string,
-    isAdmin: boolean
+    role: AuthRole
   ): Promise<AuthUser | null> | AuthUser | null;
+  updateStoredAuthUser(user: StoredAuthUser): Promise<AuthUser | null> | AuthUser | null;
   findAuthUserByTokenHash(
     tokenHash: string
   ): Promise<AuthUser | null> | AuthUser | null;

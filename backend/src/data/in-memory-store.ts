@@ -120,7 +120,7 @@ export class InMemoryStore implements AppStore {
     return {
       id: user.id,
       email: user.email,
-      isAdmin: user.isAdmin,
+      role: user.role,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt
     };
@@ -131,25 +131,41 @@ export class InMemoryStore implements AppStore {
       .map((user) => ({
         id: user.id,
         email: user.email,
-        isAdmin: user.isAdmin,
+        role: user.role,
         createdAt: user.createdAt,
         updatedAt: user.updatedAt
       }))
       .sort((left, right) => left.email.localeCompare(right.email));
   }
 
-  updateAuthUserAdminStatus(userId: string, isAdmin: boolean): AuthUser | null {
+  updateAuthUserRole(userId: string, role: StoredAuthUser["role"]): AuthUser | null {
     const user = this.authUsers.find((entry) => entry.id === userId);
     if (!user) {
       return null;
     }
 
-    user.isAdmin = isAdmin;
+    user.role = role;
     user.updatedAt = new Date().toISOString();
     return {
       id: user.id,
       email: user.email,
-      isAdmin: user.isAdmin,
+      role: user.role,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt
+    };
+  }
+
+  updateStoredAuthUser(user: StoredAuthUser): AuthUser | null {
+    const index = this.authUsers.findIndex((entry) => entry.id === user.id);
+    if (index === -1) {
+      return null;
+    }
+
+    this.authUsers[index] = { ...user };
+    return {
+      id: user.id,
+      email: user.email,
+      role: user.role,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt
     };
@@ -169,7 +185,7 @@ export class InMemoryStore implements AppStore {
     return {
       id: user.id,
       email: user.email,
-      isAdmin: user.isAdmin,
+      role: user.role,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt
     };

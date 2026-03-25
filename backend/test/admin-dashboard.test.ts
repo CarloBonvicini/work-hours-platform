@@ -9,7 +9,8 @@ let tempDirectory: string | null = null;
 const originalTicketsDir = process.env.TICKETS_DIR;
 const originalAdminToken = process.env.ADMIN_DASHBOARD_TOKEN;
 const originalAdminEmails = process.env.ADMIN_EMAILS;
-const originalAdminSetupToken = process.env.ADMIN_SETUP_TOKEN;
+const originalSuperAdminEmail = process.env.SUPER_ADMIN_EMAIL;
+const originalSuperAdminPassword = process.env.SUPER_ADMIN_PASSWORD;
 
 afterEach(async () => {
   await app.close();
@@ -38,10 +39,16 @@ afterEach(async () => {
     process.env.ADMIN_EMAILS = originalAdminEmails;
   }
 
-  if (originalAdminSetupToken === undefined) {
-    delete process.env.ADMIN_SETUP_TOKEN;
+  if (originalSuperAdminEmail === undefined) {
+    delete process.env.SUPER_ADMIN_EMAIL;
   } else {
-    process.env.ADMIN_SETUP_TOKEN = originalAdminSetupToken;
+    process.env.SUPER_ADMIN_EMAIL = originalSuperAdminEmail;
+  }
+
+  if (originalSuperAdminPassword === undefined) {
+    delete process.env.SUPER_ADMIN_PASSWORD;
+  } else {
+    process.env.SUPER_ADMIN_PASSWORD = originalSuperAdminPassword;
   }
 });
 
@@ -55,8 +62,9 @@ describe("Admin dashboard", () => {
     expect(response.statusCode).toBe(200);
     expect(response.headers["content-type"]).toContain("text/html");
     expect(response.body).toContain("Admin Dashboard");
-    expect(response.body).toContain("Configura il primo admin");
+    expect(response.body).toContain("Il super admin viene definito dai secret di deploy");
     expect(response.body).toContain("Crea profilo");
+    expect(response.body).toContain("SUPER_ADMIN_EMAIL");
   });
 
   it("protects the overview api when an admin token is configured", async () => {
@@ -157,44 +165,51 @@ describe("Admin dashboard", () => {
     });
   });
 
-  it("bootstraps the first admin with a setup token", async () => {
-    process.env.ADMIN_SETUP_TOKEN = "setup-secret";
+  it("seeds the super admin from env and allows access to user management", async () => {
+    process.env.SUPER_ADMIN_EMAIL = "owner@example.com";
+    process.env.SUPER_ADMIN_PASSWORD = "super-segreta";
     app = buildApp();
 
-    const bootstrapResponse = await app.inject({
+    const loginResponse = await app.inject({
       method: "POST",
-      url: "/admin/api/bootstrap",
+      url: "/auth/login",
       headers: {
         "content-type": "application/json"
       },
       payload: {
-        setupToken: "setup-secret",
-        email: "admin@example.com",
+        email: "owner@example.com",
         password: "super-segreta"
       }
     });
 
-    expect(bootstrapResponse.statusCode).toBe(201);
-    expect(bootstrapResponse.json().user).toMatchObject({
-      email: "admin@example.com",
-      isAdmin: true
+    expect(loginResponse.statusCode).toBe(200);
+    expect(loginResponse.json().user).toMatchObject({
+      email: "owner@example.com",
+      role: "super_admin",
+      isAdmin: true,
+      isSuperAdmin: true
     });
 
     const usersResponse = await app.inject({
       method: "GET",
       url: "/admin/api/users",
       headers: {
-        authorization: `Bearer ${bootstrapResponse.json().token as string}`
+        authorization: `Bearer ${loginResponse.json().token as string}`
       }
     });
     expect(usersResponse.statusCode).toBe(200);
     expect(usersResponse.json().items).toHaveLength(1);
+    expect(usersResponse.json().items[0]).toMatchObject({
+      email: "owner@example.com",
+      role: "super_admin",
+      isSuperAdmin: true
+    });
 
     const overviewResponse = await app.inject({
       method: "GET",
       url: "/admin/api/overview",
       headers: {
-        authorization: `Bearer ${bootstrapResponse.json().token as string}`
+        authorization: `Bearer ${loginResponse.json().token as string}`
       }
     });
 
@@ -202,7 +217,6 @@ describe("Admin dashboard", () => {
   });
 
   it("rejects authenticated profiles without admin access", async () => {
-    process.env.ADMIN_EMAILS = "admin@example.com";
     app = buildApp();
 
     const registerResponse = await app.inject({
@@ -220,6 +234,7 @@ describe("Admin dashboard", () => {
     expect(registerResponse.statusCode).toBe(201);
     expect(registerResponse.json().user).toMatchObject({
       email: "user@example.com",
+      role: "user",
       isAdmin: false
     });
 
@@ -237,23 +252,23 @@ describe("Admin dashboard", () => {
     });
   });
 
-  it("allows an admin to promote another registered user", async () => {
-    process.env.ADMIN_SETUP_TOKEN = "setup-secret";
+  it("allows only the super admin to promote other admins", async () => {
+    process.env.SUPER_ADMIN_EMAIL = "owner@example.com";
+    process.env.SUPER_ADMIN_PASSWORD = "super-segreta";
     app = buildApp();
 
-    const bootstrapResponse = await app.inject({
+    const superAdminLoginResponse = await app.inject({
       method: "POST",
-      url: "/admin/api/bootstrap",
+      url: "/auth/login",
       headers: {
         "content-type": "application/json"
       },
       payload: {
-        setupToken: "setup-secret",
-        email: "admin@example.com",
+        email: "owner@example.com",
         password: "super-segreta"
       }
     });
-    expect(bootstrapResponse.statusCode).toBe(201);
+    expect(superAdminLoginResponse.statusCode).toBe(200);
 
     const registerResponse = await app.inject({
       method: "POST",
@@ -269,6 +284,7 @@ describe("Admin dashboard", () => {
     expect(registerResponse.statusCode).toBe(201);
     expect(registerResponse.json().user).toMatchObject({
       email: "user@example.com",
+      role: "user",
       isAdmin: false
     });
 
@@ -277,7 +293,7 @@ describe("Admin dashboard", () => {
       url: `/admin/api/users/${registerResponse.json().user.id as string}/admin`,
       headers: {
         "content-type": "application/json",
-        authorization: `Bearer ${bootstrapResponse.json().token as string}`
+        authorization: `Bearer ${superAdminLoginResponse.json().token as string}`
       },
       payload: {
         isAdmin: true
@@ -286,6 +302,7 @@ describe("Admin dashboard", () => {
     expect(promoteResponse.statusCode).toBe(200);
     expect(promoteResponse.json()).toMatchObject({
       email: "user@example.com",
+      role: "admin",
       isAdmin: true
     });
 
@@ -297,5 +314,46 @@ describe("Admin dashboard", () => {
       }
     });
     expect(promotedOverviewResponse.statusCode).toBe(200);
+
+    const promotedUsersResponse = await app.inject({
+      method: "GET",
+      url: "/admin/api/users",
+      headers: {
+        authorization: `Bearer ${registerResponse.json().token as string}`
+      }
+    });
+    expect(promotedUsersResponse.statusCode).toBe(403);
+    expect(promotedUsersResponse.json()).toEqual({
+      error: "Super admin required"
+    });
+
+    const secondUserResponse = await app.inject({
+      method: "POST",
+      url: "/auth/register",
+      headers: {
+        "content-type": "application/json"
+      },
+      payload: {
+        email: "second@example.com",
+        password: "super-segreta"
+      }
+    });
+    expect(secondUserResponse.statusCode).toBe(201);
+
+    const forbiddenPromoteResponse = await app.inject({
+      method: "POST",
+      url: `/admin/api/users/${secondUserResponse.json().user.id as string}/admin`,
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${registerResponse.json().token as string}`
+      },
+      payload: {
+        isAdmin: true
+      }
+    });
+    expect(forbiddenPromoteResponse.statusCode).toBe(403);
+    expect(forbiddenPromoteResponse.json()).toEqual({
+      error: "Super admin required"
+    });
   });
 });

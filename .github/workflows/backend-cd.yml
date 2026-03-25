@@ -100,6 +100,15 @@ jobs:
         run: |
           set -eu
 
+          super_admin_email="$(grep '^SUPER_ADMIN_EMAIL=' infra/.env | cut -d= -f2- || true)"
+          super_admin_password="$(grep '^SUPER_ADMIN_PASSWORD=' infra/.env | cut -d= -f2- || true)"
+          if [ -n "$super_admin_email" ] || [ -n "$super_admin_password" ]; then
+            if [ -z "$super_admin_email" ] || [ -z "$super_admin_password" ]; then
+              echo "SUPER_ADMIN_EMAIL e SUPER_ADMIN_PASSWORD devono essere configurati insieme."
+              exit 1
+            fi
+          fi
+
           data_provider="$(grep '^DATA_PROVIDER=' infra/.env | cut -d= -f2- || true)"
           if [ "$data_provider" != "postgres" ]; then
             exit 0

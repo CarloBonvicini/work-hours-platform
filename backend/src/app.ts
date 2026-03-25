@@ -8,6 +8,7 @@ import { InMemoryStore } from "./data/in-memory-store.js";
 import type {
   AppStore,
   AppearanceSettingsRecord,
+  AuthRole,
   AuthUser,
   CloudBackupRecord,
   StoredAuthUser
@@ -106,7 +107,7 @@ interface SupportTicketAttachment {
 
 interface AuthResponse {
   token: string;
-  user: AuthUser & { isAdmin: boolean };
+  user: AuthUser & { isAdmin: boolean; isSuperAdmin: boolean };
 }
 
 function parseMonthQuery(query: unknown): string | null | undefined {
@@ -565,13 +566,61 @@ function isLegacyAdminProfileEmail(email: string) {
   return getLegacyAdminProfileEmails().has(normalizeEmail(email));
 }
 
-function isAdminUser(user: Pick<AuthUser, "email" | "isAdmin">) {
-  return user.isAdmin || isLegacyAdminProfileEmail(user.email);
+function isAuthRole(value: unknown): value is AuthRole {
+  return value === "user" || value === "admin" || value === "super_admin";
 }
 
-function getAdminSetupToken() {
-  const token = process.env.ADMIN_SETUP_TOKEN?.trim();
-  return token && token.length > 0 ? token : null;
+function isAdminRole(role: AuthRole) {
+  return role === "admin" || role === "super_admin";
+}
+
+function isSuperAdminRole(role: AuthRole) {
+  return role === "super_admin";
+}
+
+function getEffectiveAuthRole(user: Pick<AuthUser, "email" | "role">): AuthRole {
+  if (isAuthRole(user.role)) {
+    return user.role;
+  }
+
+  return isLegacyAdminProfileEmail(user.email) ? "admin" : "user";
+}
+
+function isAdminUser(user: Pick<AuthUser, "email" | "role">) {
+  return isAdminRole(getEffectiveAuthRole(user));
+}
+
+function isSuperAdminUser(user: Pick<AuthUser, "email" | "role">) {
+  return isSuperAdminRole(getEffectiveAuthRole(user));
+}
+
+function getConfiguredSuperAdminCredentials() {
+  const emailValue = process.env.SUPER_ADMIN_EMAIL?.trim();
+  const passwordValue = process.env.SUPER_ADMIN_PASSWORD;
+
+  if (!emailValue && (!passwordValue || passwordValue.length === 0)) {
+    return null;
+  }
+
+  if (!emailValue || !passwordValue) {
+    throw new Error(
+      "SUPER_ADMIN_EMAIL and SUPER_ADMIN_PASSWORD must both be configured"
+    );
+  }
+
+  const email = normalizeEmail(emailValue);
+  if (!isValidEmail(email)) {
+    throw new Error("SUPER_ADMIN_EMAIL is not a valid email");
+  }
+
+  if (passwordValue.trim().length < 8) {
+    throw new Error("SUPER_ADMIN_PASSWORD must be at least 8 characters");
+  }
+
+  return {
+    email,
+    password: passwordValue
+  };
 }
 
 async function hasAnyConfiguredAdmin(store: AppStore) {
@@ -580,42 +629,73 @@ async function hasAnyConfiguredAdmin(store: AppStore) {
 }
 
 function serializeAuthUser(
-  user: Pick<AuthUser, "id" | "email" | "isAdmin" | "createdAt" | "updatedAt">
+  user: Pick<AuthUser, "id" | "email" | "role" | "createdAt" | "updatedAt">
 ) {
+  const role = getEffectiveAuthRole(user);
   return {
     id: user.id,
     email: user.email,
     createdAt: user.createdAt,
     updatedAt: user.updatedAt,
-    isAdmin: isAdminUser(user)
+    role,
+    isAdmin: isAdminRole(role),
+    isSuperAdmin: isSuperAdminRole(role)
   };
 }
 
-function parseAdminBootstrapPayload(payload: unknown) {
-  const parsedCredentials = parseAuthCredentials(payload);
-  if (!parsedCredentials.value) {
-    return {
-      value: null,
-      error: parsedCredentials.error ?? "Invalid credentials"
-    };
+async function syncConfiguredSuperAdmin(store: AppStore) {
+  const configuredSuperAdmin = getConfiguredSuperAdminCredentials();
+  if (!configuredSuperAdmin) {
+    return;
   }
 
-  if (!payload || typeof payload !== "object") {
-    return { value: null, error: "Invalid body" as const };
-  }
+  const now = new Date().toISOString();
+  const users = await store.listAuthUsers();
 
-  const body = payload as Record<string, unknown>;
-  const setupToken = normalizeRequiredText(body.setupToken, 200);
-  if (!setupToken) {
-    return { value: null, error: "setupToken is required" as const };
-  }
-
-  return {
-    value: {
-      ...parsedCredentials.value,
-      setupToken
+  for (const user of users) {
+    if (
+      user.email !== configuredSuperAdmin.email &&
+      getEffectiveAuthRole(user) === "super_admin"
+    ) {
+      await store.updateAuthUserRole(user.id, "admin");
     }
-  };
+  }
+
+  const existingUser = await store.findAuthUserByEmail(configuredSuperAdmin.email);
+  if (!existingUser) {
+    const passwordDigest = createPasswordDigest(configuredSuperAdmin.password);
+    await store.createAuthUser({
+      id: randomUUID(),
+      email: configuredSuperAdmin.email,
+      passwordHash: passwordDigest.hash,
+      passwordSalt: passwordDigest.salt,
+      role: "super_admin",
+      createdAt: now,
+      updatedAt: now
+    });
+    return;
+  }
+
+  const needsPasswordRefresh = !verifyPasswordDigest(
+    configuredSuperAdmin.password,
+    existingUser
+  );
+  const effectiveRole = getEffectiveAuthRole(existingUser);
+  if (!needsPasswordRefresh && effectiveRole === "super_admin") {
+    return;
+  }
+
+  const passwordDigest = needsPasswordRefresh
+    ? createPasswordDigest(configuredSuperAdmin.password)
+    : null;
+
+  await store.updateStoredAuthUser({
+    ...existingUser,
+    passwordHash: passwordDigest?.hash ?? existingUser.passwordHash,
+    passwordSalt: passwordDigest?.salt ?? existingUser.passwordSalt,
+    role: "super_admin",
+    updatedAt: now
+  });
 }
 
 function parseAdminRolePayload(payload: unknown) {
@@ -1400,6 +1480,31 @@ async function authorizeAdminProfileRequest(
   return { authorized: true, user };
 }
 
+async function authorizeSuperAdminProfileRequest(
+  request: FastifyRequest,
+  store: AppStore
+): Promise<{
+  authorized: boolean;
+  user?: AuthUser;
+  statusCode?: number;
+  error?: string;
+}> {
+  const adminAccess = await authorizeAdminProfileRequest(request, store);
+  if (!adminAccess.authorized || !adminAccess.user) {
+    return adminAccess;
+  }
+
+  if (!isSuperAdminUser(adminAccess.user)) {
+    return {
+      authorized: false,
+      statusCode: 403,
+      error: "Super admin required"
+    };
+  }
+
+  return adminAccess;
+}
+
 function buildAdminOverview(options: {
   baseUrl: string;
   latestRelease: MobileReleaseMetadata | null;
@@ -1848,12 +1953,9 @@ function renderTicketPage(options: { baseUrl: string }) {
 
 function renderAdminPage(options: {
   baseUrl: string;
-  adminSetupEnabled: boolean;
-  bootstrapRequired: boolean;
-  hasConfiguredAdmin: boolean;
+  superAdminConfigured: boolean;
 }) {
-  const { baseUrl, adminSetupEnabled, bootstrapRequired, hasConfiguredAdmin } =
-    options;
+  const { baseUrl, superAdminConfigured } = options;
 
   return `<!DOCTYPE html>
 <html lang="it">
@@ -2031,9 +2133,7 @@ function renderAdminPage(options: {
   </head>
   <body
     data-base-url="${escapeHtml(baseUrl)}"
-    data-admin-setup-enabled="${adminSetupEnabled ? "true" : "false"}"
-    data-admin-bootstrap-required="${bootstrapRequired ? "true" : "false"}"
-    data-admin-has-configured-admin="${hasConfiguredAdmin ? "true" : "false"}"
+    data-super-admin-configured="${superAdminConfigured ? "true" : "false"}"
   >
     <main class="shell">
       <section class="hero">
@@ -2054,36 +2154,14 @@ function renderAdminPage(options: {
         <div class="card auth-shell">
           <section class="auth-view">
             <h2>Accesso admin</h2>
-            <p class="lede">Qui puoi entrare come admin, creare un profilo normale oppure configurare il primo amministratore del sistema.</p>
+            <p class="lede">Il super admin viene definito dai secret di deploy. Qui puoi fare login oppure creare un profilo normale da promuovere in seguito.</p>
             <div id="admin-auth-status" class="status info">Accedi con un profilo admin per aprire la dashboard.</div>
             <div class="auth-grid">
-              <article class="workspace-card auth-card" id="admin-bootstrap-card">
-                <span class="pill warning">Primo accesso</span>
-                <div>
-                  <h3>Configura il primo admin</h3>
-                  <p class="lede">Usa il token di setup del backend solo una volta per creare il primo profilo amministratore.</p>
-                </div>
-                <form id="admin-bootstrap-form">
-                  <label>Setup token
-                    <input id="admin-setup-token-input" type="password" autocomplete="off" placeholder="ADMIN_SETUP_TOKEN" />
-                  </label>
-                  <label>Email admin
-                    <input id="admin-bootstrap-email-input" type="email" autocomplete="username" placeholder="admin@example.com" />
-                  </label>
-                  <label>Password
-                    <input id="admin-bootstrap-password-input" type="password" autocomplete="new-password" placeholder="Almeno 8 caratteri" />
-                  </label>
-                  <div class="toolbar-actions" style="justify-content:flex-start;">
-                    <button class="primary" type="submit">Crea primo admin</button>
-                  </div>
-                </form>
-              </article>
-
               <article class="workspace-card auth-card">
                 <span class="pill info">Login</span>
                 <div>
                   <h3>Entra in dashboard</h3>
-                  <p class="lede">Accedi con email e password di un profilo gia abilitato come admin.</p>
+                  <p class="lede">Accedi con email e password del super admin o di un admin gia promosso.</p>
                 </div>
                 <form id="admin-login-form">
                   <label>Email
@@ -2102,7 +2180,7 @@ function renderAdminPage(options: {
                 <span class="pill success">Registrazione</span>
                 <div>
                   <h3>Crea profilo</h3>
-                  <p class="lede">La registrazione crea un account normale. Un admin esistente deve poi promuoverti dalla dashboard.</p>
+                  <p class="lede">La registrazione crea un account normale. Solo il super admin puo promuoverti ad admin.</p>
                 </div>
                 <form id="admin-register-form">
                   <label>Email
@@ -2117,7 +2195,7 @@ function renderAdminPage(options: {
                 </form>
               </article>
             </div>
-            <p class="auth-cta" id="admin-auth-cta">La registrazione non rende admin in automatico. Il primo admin si crea solo con <code>ADMIN_SETUP_TOKEN</code>, poi gli altri admin vengono promossi da un admin gia attivo.</p>
+            <p class="auth-cta" id="admin-auth-cta">Configura <code>SUPER_ADMIN_EMAIL</code> e <code>SUPER_ADMIN_PASSWORD</code> nel secret runtime del backend. Quel profilo potra poi creare e gestire gli altri admin.</p>
           </section>
         </div>
       </section>
@@ -2201,11 +2279,11 @@ function renderAdminPage(options: {
                 </section>
                 <section class="card" style="padding:18px;" id="admin-ticket-detail"></section>
               </div>
-              <section class="card" style="padding:16px;">
+              <section class="card" style="padding:16px;" id="admin-user-management-section">
                 <div class="toolbar">
                   <div>
                     <h3 style="margin-bottom:6px;">Accessi e ruoli</h3>
-                    <p class="lede">Qui registri chi puo entrare in dashboard come amministratore.</p>
+                    <p class="lede">Solo il super admin puo promuovere o revocare gli accessi admin.</p>
                   </div>
                   <button type="button" id="admin-refresh-users-btn">Aggiorna utenti</button>
                 </div>
@@ -2224,11 +2302,6 @@ function renderAdminPage(options: {
       const dashboardPanel = document.getElementById("admin-dashboard-panel");
       const authStatusBox = document.getElementById("admin-auth-status");
       const authCta = document.getElementById("admin-auth-cta");
-      const bootstrapCard = document.getElementById("admin-bootstrap-card");
-      const bootstrapForm = document.getElementById("admin-bootstrap-form");
-      const setupTokenInput = document.getElementById("admin-setup-token-input");
-      const bootstrapEmailInput = document.getElementById("admin-bootstrap-email-input");
-      const bootstrapPasswordInput = document.getElementById("admin-bootstrap-password-input");
       const loginForm = document.getElementById("admin-login-form");
       const emailInput = document.getElementById("admin-email-input");
       const passwordInput = document.getElementById("admin-password-input");
@@ -2240,6 +2313,7 @@ function renderAdminPage(options: {
       const ticketList = document.getElementById("admin-ticket-list");
       const ticketDetail = document.getElementById("admin-ticket-detail");
       const userList = document.getElementById("admin-user-list");
+      const userManagementSection = document.getElementById("admin-user-management-section");
       const sessionCopy = document.getElementById("admin-session-copy");
       const sessionEmail = document.getElementById("admin-session-email");
       const generatedAtLabel = document.getElementById("admin-generated-at");
@@ -2259,9 +2333,7 @@ function renderAdminPage(options: {
         tickets: [],
         users: [],
         selectedTicketId: null,
-        adminSetupEnabled: bodyDataset.adminSetupEnabled === "true",
-        bootstrapRequired: bodyDataset.adminBootstrapRequired === "true",
-        hasConfiguredAdmin: bodyDataset.adminHasConfiguredAdmin === "true"
+        superAdminConfigured: bodyDataset.superAdminConfigured === "true"
       };
 
       function readToken() {
@@ -2304,32 +2376,19 @@ function renderAdminPage(options: {
         return Math.ceil(size / 1024) + " KB";
       }
       function defaultAuthMessage() {
-        if (state.bootstrapRequired && state.adminSetupEnabled) {
-          return "Nessun admin e configurato: crea il primo amministratore con il setup token.";
-        }
-        if (!state.hasConfiguredAdmin && !state.adminSetupEnabled) {
-          return "Nessun admin configurato. Imposta ADMIN_SETUP_TOKEN nel backend per creare il primo amministratore.";
+        if (!state.superAdminConfigured) {
+          return "Configura SUPER_ADMIN_EMAIL e SUPER_ADMIN_PASSWORD nel runtime env del backend per abilitare il super admin.";
         }
         return "Accedi con un profilo admin per aprire la dashboard.";
       }
       function updateAuthPanel() {
-        if (bootstrapCard) {
-          bootstrapCard.classList.toggle(
-            "hidden",
-            !(state.adminSetupEnabled && state.bootstrapRequired)
-          );
-        }
-
         if (authCta) {
-          if (state.bootstrapRequired && state.adminSetupEnabled) {
+          if (!state.superAdminConfigured) {
             authCta.innerHTML =
-              'Primo accesso: inserisci <code>ADMIN_SETUP_TOKEN</code> per creare il primo profilo admin. Da quel momento potrai promuovere altri utenti dalla dashboard.';
-          } else if (!state.hasConfiguredAdmin && !state.adminSetupEnabled) {
-            authCta.innerHTML =
-              'Non esiste ancora nessun admin e il bootstrap e disattivato. Imposta <code>ADMIN_SETUP_TOKEN</code> nel backend, poi ricarica questa pagina.';
+              'Nessun super admin configurato. Aggiungi <code>SUPER_ADMIN_EMAIL</code> e <code>SUPER_ADMIN_PASSWORD</code> al secret <code>RUNTIME_ENV_FILE</code> del deploy backend, poi ridistribuisci.';
           } else {
             authCta.innerHTML =
-              'La registrazione non rende admin in automatico. Un amministratore gia attivo deve promuoverti dalla sezione <code>Accessi e ruoli</code>.';
+              'La registrazione non rende admin in automatico. Solo il <code>super_admin</code> puo promuovere o revocare gli altri admin.';
           }
         }
       }
@@ -2371,8 +2430,13 @@ function renderAdminPage(options: {
           const currentVersion = overview && overview.release && overview.release.current
             ? String(overview.release.current.version || overview.release.current.tag || "n/d")
             : "nessuna release";
+          const roleLabel = user && user.isSuperAdmin
+            ? "super admin"
+            : user && user.isAdmin
+              ? "admin"
+              : "utente";
           sessionCopy.textContent = user && user.email
-            ? "Sessione admin attiva per " + user.email + ". Release live: " + currentVersion + "."
+            ? "Sessione " + roleLabel + " attiva per " + user.email + ". Release live: " + currentVersion + "."
             : "Monitoraggio release, data provider e thread ticket.";
         }
         if (healthLink && overview && overview.links) healthLink.href = String(overview.links.health || healthLink.href);
@@ -2461,6 +2525,15 @@ function renderAdminPage(options: {
         });
       }
       function renderUserList() {
+        const canManageUsers = Boolean(state.adminUser && state.adminUser.isSuperAdmin === true);
+        if (userManagementSection) {
+          userManagementSection.classList.toggle("hidden", !canManageUsers);
+        }
+        if (!canManageUsers) {
+          userList.innerHTML = "";
+          return;
+        }
+
         if (!state.users.length) {
           userList.innerHTML = '<div class="empty-state">Nessun profilo registrato.</div>';
           return;
@@ -2468,11 +2541,21 @@ function renderAdminPage(options: {
 
         userList.innerHTML = state.users.map((user) => {
           const isCurrentUser = Boolean(state.adminUser && state.adminUser.id === user.id);
-          const roleLabel = user.isAdmin ? "Admin" : "Utente";
-          const roleTone = user.isAdmin ? "success" : "info";
-          const actionButton = user.isAdmin
-            ? '<button type="button" data-user-id="' + escapeHtml(user.id) + '" data-next-admin="false">Rimuovi admin</button>'
-            : '<button type="button" class="primary" data-user-id="' + escapeHtml(user.id) + '" data-next-admin="true">Rendi admin</button>';
+          const roleLabel = user.isSuperAdmin
+            ? "Super admin"
+            : user.isAdmin
+              ? "Admin"
+              : "Utente";
+          const roleTone = user.isSuperAdmin
+            ? "warning"
+            : user.isAdmin
+              ? "success"
+              : "info";
+          const actionButton = user.isSuperAdmin
+            ? ""
+            : user.isAdmin
+              ? '<button type="button" data-user-id="' + escapeHtml(user.id) + '" data-next-admin="false">Rimuovi admin</button>'
+              : '<button type="button" class="primary" data-user-id="' + escapeHtml(user.id) + '" data-next-admin="true">Rendi admin</button>';
 
           return '<article class="user-row"><div class="user-row-main"><div class="user-row-email">' + escapeHtml(user.email) + '</div><div class="user-row-meta"><span class="pill ' + roleTone + '">' + roleLabel + '</span>' + (isCurrentUser ? '<span class="pill info">Sessione corrente</span>' : "") + '<span>Creato ' + formatDateTime(user.createdAt) + '</span><span>Aggiornato ' + formatDateTime(user.updatedAt) + '</span></div></div><div class="user-actions">' + actionButton + '</div></article>';
         }).join("");
@@ -2517,18 +2600,20 @@ function renderAdminPage(options: {
         renderUserList();
       }
       async function loadDashboard() {
-        const [adminUser, overview, ticketsResponse, usersResponse] = await Promise.all([
+        const [adminUser, overview, ticketsResponse] = await Promise.all([
           api(baseUrl + "/auth/me"),
           api(baseUrl + "/admin/api/overview"),
-          api(baseUrl + "/admin/api/tickets"),
-          api(baseUrl + "/admin/api/users")
+          api(baseUrl + "/admin/api/tickets")
         ]);
         state.adminUser = adminUser;
         state.overview = overview;
         state.tickets = Array.isArray(ticketsResponse.items) ? ticketsResponse.items : [];
-        state.users = Array.isArray(usersResponse.items) ? usersResponse.items : [];
-        state.hasConfiguredAdmin = state.users.some((user) => user.isAdmin === true);
-        state.bootstrapRequired = false;
+        if (adminUser && adminUser.isSuperAdmin === true) {
+          const usersResponse = await api(baseUrl + "/admin/api/users");
+          state.users = Array.isArray(usersResponse.items) ? usersResponse.items : [];
+        } else {
+          state.users = [];
+        }
         if (!state.selectedTicketId || !state.tickets.some((ticket) => ticket.id === state.selectedTicketId)) {
           state.selectedTicketId = state.tickets[0] ? state.tickets[0].id : null;
         }
@@ -2592,8 +2677,6 @@ function renderAdminPage(options: {
 
           state.token = String(response.token || "");
           state.adminUser = response.user || null;
-          state.hasConfiguredAdmin = true;
-          state.bootstrapRequired = false;
           writeToken(state.token);
           if (emailInput) emailInput.value = response.user.email || email;
           if (passwordInput) passwordInput.value = "";
@@ -2626,8 +2709,6 @@ function renderAdminPage(options: {
           if (response.user && response.user.isAdmin === true) {
             state.token = String(response.token || "");
             state.adminUser = response.user || null;
-            state.hasConfiguredAdmin = true;
-            state.bootstrapRequired = false;
             writeToken(state.token);
             await bootstrapDashboard();
             return;
@@ -2645,43 +2726,12 @@ function renderAdminPage(options: {
           } catch (_) {}
 
           setStatus(
-            "Profilo creato. Ora un admin esistente deve promuoverti dalla sezione Accessi e ruoli.",
+            "Profilo creato. Ora il super admin deve promuoverti dalla sezione Accessi e ruoli.",
             "success",
             "auth"
           );
         } catch (error) {
           setStatus(error.message || "Registrazione non riuscita.", "error", "auth");
-        }
-      }
-      async function bootstrapFirstAdmin() {
-        const setupToken = String(setupTokenInput?.value || "").trim();
-        const email = String(bootstrapEmailInput?.value || "").trim();
-        const password = String(bootstrapPasswordInput?.value || "").trim();
-        if (!setupToken || !email || !password) {
-          setStatus(
-            "Inserisci setup token, email e password del primo admin.",
-            "error",
-            "auth"
-          );
-          return;
-        }
-
-        try {
-          setStatus("Creazione del primo admin...", "info", "auth");
-          const response = await api(baseUrl + "/admin/api/bootstrap", {
-            method: "POST",
-            body: JSON.stringify({ setupToken, email, password })
-          });
-          state.token = String(response.token || "");
-          state.adminUser = response.user || null;
-          state.hasConfiguredAdmin = true;
-          state.bootstrapRequired = false;
-          writeToken(state.token);
-          if (bootstrapForm) bootstrapForm.reset();
-          if (emailInput) emailInput.value = response.user?.email || email;
-          await bootstrapDashboard();
-        } catch (error) {
-          setStatus(error.message || "Bootstrap admin non riuscito.", "error", "auth");
         }
       }
       loginForm?.addEventListener("submit", (event) => {
@@ -2691,10 +2741,6 @@ function renderAdminPage(options: {
       registerForm?.addEventListener("submit", (event) => {
         event.preventDefault();
         registerAccount();
-      });
-      bootstrapForm?.addEventListener("submit", (event) => {
-        event.preventDefault();
-        bootstrapFirstAdmin();
       });
       document.getElementById("admin-logout-btn")?.addEventListener("click", async () => {
         const currentToken = state.token;
@@ -3010,6 +3056,10 @@ export function buildApp(options: BuildAppOptions = {}) {
     origin: corsOrigin ? corsOrigin.split(",").map((value) => value.trim()) : true
   });
 
+  app.addHook("onReady", async () => {
+    await syncConfiguredSuperAdmin(store);
+  });
+
   app.get("/", async (request, reply) => {
     const latestRelease = await loadReleaseMetadata();
     const releaseStatus = await loadReleaseStatus();
@@ -3141,17 +3191,14 @@ export function buildApp(options: BuildAppOptions = {}) {
 
   app.get("/admin", async (request, reply) => {
     const baseUrl = getPublicBaseUrl(request);
-    const adminSetupEnabled = getAdminSetupToken() !== null;
-    const hasConfiguredAdmin = await hasAnyConfiguredAdmin(store);
+    const superAdminConfigured = getConfiguredSuperAdminCredentials() !== null;
 
     return reply
       .type("text/html; charset=utf-8")
       .send(
         renderAdminPage({
           baseUrl,
-          adminSetupEnabled,
-          bootstrapRequired: adminSetupEnabled && !hasConfiguredAdmin,
-          hasConfiguredAdmin
+          superAdminConfigured
         })
       );
   });
@@ -3191,7 +3238,7 @@ export function buildApp(options: BuildAppOptions = {}) {
   });
 
   app.get("/admin/api/users", async (request, reply) => {
-    const adminAccess = await authorizeAdminProfileRequest(request, store);
+    const adminAccess = await authorizeSuperAdminProfileRequest(request, store);
     if (!adminAccess.authorized) {
       return reply
         .code(adminAccess.statusCode ?? 401)
@@ -3203,62 +3250,8 @@ export function buildApp(options: BuildAppOptions = {}) {
     };
   });
 
-  app.post("/admin/api/bootstrap", async (request, reply) => {
-    const setupToken = getAdminSetupToken();
-    if (!setupToken) {
-      return reply.code(403).send({ error: "Admin setup is disabled" });
-    }
-
-    if (await hasAnyConfiguredAdmin(store)) {
-      return reply.code(409).send({ error: "Admin account already configured" });
-    }
-
-    const parsedPayload = parseAdminBootstrapPayload(request.body);
-    if (!parsedPayload.value) {
-      return reply.code(400).send({
-        error: parsedPayload.error ?? "Invalid bootstrap payload"
-      });
-    }
-
-    if (parsedPayload.value.setupToken !== setupToken) {
-      return reply.code(403).send({ error: "Invalid setup token" });
-    }
-
-    const existingUser = await store.findAuthUserByEmail(parsedPayload.value.email);
-    if (existingUser) {
-      return reply.code(409).send({ error: "email already registered" });
-    }
-
-    const now = new Date().toISOString();
-    const passwordDigest = createPasswordDigest(parsedPayload.value.password);
-    const createdUser = await store.createAuthUser({
-      id: randomUUID(),
-      email: parsedPayload.value.email,
-      passwordHash: passwordDigest.hash,
-      passwordSalt: passwordDigest.salt,
-      isAdmin: true,
-      createdAt: now,
-      updatedAt: now
-    });
-
-    const token = createSessionToken();
-    await store.saveAuthSession({
-      tokenHash: hashSessionToken(token),
-      userId: createdUser.id,
-      createdAt: now,
-      updatedAt: now
-    });
-
-    const response: AuthResponse = {
-      token,
-      user: serializeAuthUser(createdUser)
-    };
-
-    return reply.code(201).send(response);
-  });
-
   app.post("/admin/api/users/:userId/admin", async (request, reply) => {
-    const adminAccess = await authorizeAdminProfileRequest(request, store);
+    const adminAccess = await authorizeSuperAdminProfileRequest(request, store);
     if (!adminAccess.authorized || !adminAccess.user) {
       return reply
         .code(adminAccess.statusCode ?? 401)
@@ -3290,6 +3283,13 @@ export function buildApp(options: BuildAppOptions = {}) {
       });
     }
 
+    if (isSuperAdminUser(targetUser)) {
+      return reply.code(409).send({
+        error:
+          "The super admin role is managed from SUPER_ADMIN_EMAIL and cannot be changed here."
+      });
+    }
+
     if (!parsedPayload.value.isAdmin && isAdminUser(targetUser)) {
       const otherAdmins = users.filter(
         (user) => user.id !== targetUser.id && isAdminUser(user)
@@ -3301,9 +3301,9 @@ export function buildApp(options: BuildAppOptions = {}) {
       }
     }
 
-    const updatedUser = await store.updateAuthUserAdminStatus(
+    const updatedUser = await store.updateAuthUserRole(
       targetUser.id,
-      parsedPayload.value.isAdmin
+      parsedPayload.value.isAdmin ? "admin" : "user"
     );
     if (!updatedUser) {
       return reply.code(404).send({ error: "User not found" });
@@ -3385,7 +3385,9 @@ export function buildApp(options: BuildAppOptions = {}) {
       email: parsedCredentials.value.email,
       passwordHash: passwordDigest.hash,
       passwordSalt: passwordDigest.salt,
-      isAdmin: isLegacyAdminProfileEmail(parsedCredentials.value.email),
+      role: isLegacyAdminProfileEmail(parsedCredentials.value.email)
+        ? "admin"
+        : "user",
       createdAt: now,
       updatedAt: now
     });

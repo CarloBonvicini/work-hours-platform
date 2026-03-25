@@ -1,6 +1,7 @@
 import { Pool } from "pg";
 import type {
   AppearanceSettingsRecord,
+  AuthRole,
   AuthUser,
   CloudBackupRecord,
   StoredAuthUser,
@@ -63,7 +64,7 @@ type ScheduleOverrideRow = {
 type AuthUserRow = {
   id: string;
   email: string;
-  is_admin: boolean;
+  role: AuthRole;
   password_hash: string;
   password_salt: string;
   created_at: string;
@@ -73,7 +74,7 @@ type AuthUserRow = {
 type AuthSessionUserRow = {
   id: string;
   email: string;
-  is_admin: boolean;
+  role: AuthRole;
   created_at: string;
   updated_at: string;
 };
@@ -154,14 +155,14 @@ function sanitizeWeekdaySchedule(
 function toAuthUser(row: {
   id: string;
   email: string;
-  is_admin: boolean;
+  role: AuthRole;
   created_at: string;
   updated_at: string;
 }): AuthUser {
   return {
     id: row.id,
     email: row.email,
-    isAdmin: row.is_admin,
+    role: row.role,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
@@ -293,13 +294,26 @@ export class PostgresStore implements AppStore {
         email TEXT NOT NULL UNIQUE,
         password_hash TEXT NOT NULL,
         password_salt TEXT NOT NULL,
+        role TEXT NOT NULL DEFAULT 'user',
         is_admin BOOLEAN NOT NULL DEFAULT FALSE,
         created_at TIMESTAMPTZ NOT NULL,
         updated_at TIMESTAMPTZ NOT NULL
       );
 
       ALTER TABLE auth_users
+        ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'user',
         ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT FALSE;
+
+      UPDATE auth_users
+      SET role = CASE WHEN is_admin THEN 'admin' ELSE 'user' END
+      WHERE
+        role IS NULL
+        OR role NOT IN ('user', 'admin', 'super_admin')
+        OR (role = 'user' AND is_admin = TRUE);
+
+      UPDATE auth_users
+      SET is_admin = CASE WHEN role IN ('admin', 'super_admin') THEN TRUE ELSE FALSE END
+      WHERE is_admin IS DISTINCT FROM CASE WHEN role IN ('admin', 'super_admin') THEN TRUE ELSE FALSE END;
 
       CREATE TABLE IF NOT EXISTS auth_sessions (
         token_hash TEXT PRIMARY KEY,
@@ -622,7 +636,7 @@ export class PostgresStore implements AppStore {
         SELECT
           id,
           email,
-          is_admin,
+          role,
           password_hash,
           password_salt,
           TO_CHAR(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS created_at,
@@ -642,7 +656,7 @@ export class PostgresStore implements AppStore {
     return {
       id: row.id,
       email: row.email,
-      isAdmin: row.is_admin,
+      role: row.role,
       passwordHash: row.password_hash,
       passwordSalt: row.password_salt,
       createdAt: row.created_at,
@@ -658,15 +672,16 @@ export class PostgresStore implements AppStore {
           email,
           password_hash,
           password_salt,
+          role,
           is_admin,
           created_at,
           updated_at
         )
-        VALUES ($1, $2, $3, $4, $5, $6::timestamptz, $7::timestamptz)
+        VALUES ($1, $2, $3, $4, $5, $6, $7::timestamptz, $8::timestamptz)
         RETURNING
           id,
           email,
-          is_admin,
+          role,
           TO_CHAR(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS created_at,
           TO_CHAR(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS updated_at
       `,
@@ -675,7 +690,8 @@ export class PostgresStore implements AppStore {
         user.email.trim().toLowerCase(),
         user.passwordHash,
         user.passwordSalt,
-        user.isAdmin,
+        user.role,
+        user.role !== "user",
         user.createdAt,
         user.updatedAt
       ]
@@ -690,7 +706,7 @@ export class PostgresStore implements AppStore {
         SELECT
           id,
           email,
-          is_admin,
+          role,
           TO_CHAR(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS created_at,
           TO_CHAR(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS updated_at
         FROM auth_users
@@ -701,25 +717,62 @@ export class PostgresStore implements AppStore {
     return result.rows.map(toAuthUser);
   }
 
-  async updateAuthUserAdminStatus(
+  async updateAuthUserRole(
     userId: string,
-    isAdmin: boolean
+    role: AuthRole
   ): Promise<AuthUser | null> {
     const result = await this.pool.query<AuthSessionUserRow>(
       `
         UPDATE auth_users
         SET
-          is_admin = $2,
+          role = $2,
+          is_admin = CASE WHEN $2 IN ('admin', 'super_admin') THEN TRUE ELSE FALSE END,
           updated_at = NOW()
         WHERE id = $1
         RETURNING
           id,
           email,
-          is_admin,
+          role,
           TO_CHAR(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS created_at,
           TO_CHAR(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS updated_at
       `,
-      [userId, isAdmin]
+      [userId, role]
+    );
+
+    if (result.rowCount === 0) {
+      return null;
+    }
+
+    return toAuthUser(result.rows[0]);
+  }
+
+  async updateStoredAuthUser(user: StoredAuthUser): Promise<AuthUser | null> {
+    const result = await this.pool.query<AuthSessionUserRow>(
+      `
+        UPDATE auth_users
+        SET
+          email = $2,
+          password_hash = $3,
+          password_salt = $4,
+          role = $5,
+          is_admin = CASE WHEN $5 IN ('admin', 'super_admin') THEN TRUE ELSE FALSE END,
+          updated_at = $6::timestamptz
+        WHERE id = $1
+        RETURNING
+          id,
+          email,
+          role,
+          TO_CHAR(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS created_at,
+          TO_CHAR(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS updated_at
+      `,
+      [
+        user.id,
+        user.email.trim().toLowerCase(),
+        user.passwordHash,
+        user.passwordSalt,
+        user.role,
+        user.updatedAt
+      ]
     );
 
     if (result.rowCount === 0) {
@@ -735,7 +788,7 @@ export class PostgresStore implements AppStore {
         SELECT
           auth_users.id,
           auth_users.email,
-          auth_users.is_admin,
+          auth_users.role,
           TO_CHAR(auth_users.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS created_at,
           TO_CHAR(auth_users.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS updated_at
         FROM auth_sessions
