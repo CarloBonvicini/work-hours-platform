@@ -8,6 +8,7 @@ let app = buildApp();
 let tempDirectory: string | null = null;
 const originalTicketsDir = process.env.TICKETS_DIR;
 const originalAdminToken = process.env.ADMIN_DASHBOARD_TOKEN;
+const originalAdminEmails = process.env.ADMIN_EMAILS;
 
 afterEach(async () => {
   await app.close();
@@ -29,6 +30,12 @@ afterEach(async () => {
   } else {
     process.env.ADMIN_DASHBOARD_TOKEN = originalAdminToken;
   }
+
+  if (originalAdminEmails === undefined) {
+    delete process.env.ADMIN_EMAILS;
+  } else {
+    process.env.ADMIN_EMAILS = originalAdminEmails;
+  }
 });
 
 describe("Admin dashboard", () => {
@@ -41,7 +48,9 @@ describe("Admin dashboard", () => {
     expect(response.statusCode).toBe(200);
     expect(response.headers["content-type"]).toContain("text/html");
     expect(response.body).toContain("Admin Dashboard");
-    expect(response.body).toContain("Panoramica rapida per manutenzione, release e ticket.");
+    expect(response.body).toContain(
+      "Accedi con email e password di un profilo admin autorizzato."
+    );
   });
 
   it("protects the overview api when an admin token is configured", async () => {
@@ -139,6 +148,75 @@ describe("Admin dashboard", () => {
     expect((storedTicket.replies as Array<Record<string, string>>)[0]).toMatchObject({
       author: "admin",
       message: "Ricevuto. Lo stiamo implementando."
+    });
+  });
+
+  it("allows admin api access for authenticated admin profiles", async () => {
+    process.env.ADMIN_EMAILS = "admin@example.com";
+    app = buildApp();
+
+    const registerResponse = await app.inject({
+      method: "POST",
+      url: "/auth/register",
+      headers: {
+        "content-type": "application/json"
+      },
+      payload: {
+        email: "admin@example.com",
+        password: "super-segreta"
+      }
+    });
+
+    expect(registerResponse.statusCode).toBe(201);
+    expect(registerResponse.json().user).toMatchObject({
+      email: "admin@example.com",
+      isAdmin: true
+    });
+
+    const overviewResponse = await app.inject({
+      method: "GET",
+      url: "/admin/api/overview",
+      headers: {
+        authorization: `Bearer ${registerResponse.json().token as string}`
+      }
+    });
+
+    expect(overviewResponse.statusCode).toBe(200);
+  });
+
+  it("rejects authenticated profiles without admin access", async () => {
+    process.env.ADMIN_EMAILS = "admin@example.com";
+    app = buildApp();
+
+    const registerResponse = await app.inject({
+      method: "POST",
+      url: "/auth/register",
+      headers: {
+        "content-type": "application/json"
+      },
+      payload: {
+        email: "user@example.com",
+        password: "super-segreta"
+      }
+    });
+
+    expect(registerResponse.statusCode).toBe(201);
+    expect(registerResponse.json().user).toMatchObject({
+      email: "user@example.com",
+      isAdmin: false
+    });
+
+    const overviewResponse = await app.inject({
+      method: "GET",
+      url: "/admin/api/overview",
+      headers: {
+        authorization: `Bearer ${registerResponse.json().token as string}`
+      }
+    });
+
+    expect(overviewResponse.statusCode).toBe(403);
+    expect(overviewResponse.json()).toEqual({
+      error: "Admin profile required"
     });
   });
 });

@@ -106,7 +106,7 @@ interface SupportTicketAttachment {
 
 interface AuthResponse {
   token: string;
-  user: AuthUser;
+  user: AuthUser & { isAdmin: boolean };
 }
 
 function parseMonthQuery(query: unknown): string | null | undefined {
@@ -549,6 +549,30 @@ function createSessionToken() {
 
 function hashSessionToken(token: string) {
   return createHash("sha256").update(token).digest("hex");
+}
+
+function getAdminProfileEmails() {
+  return new Set(
+    (process.env.ADMIN_EMAILS ?? "")
+      .split(",")
+      .map((value) => value.trim())
+      .filter((value) => value.length > 0)
+      .map(normalizeEmail)
+  );
+}
+
+function isAdminProfileEmail(email: string) {
+  return getAdminProfileEmails().has(normalizeEmail(email));
+}
+
+function serializeAuthUser(user: Pick<AuthUser, "id" | "email" | "createdAt" | "updatedAt">) {
+  return {
+    id: user.id,
+    email: user.email,
+    createdAt: user.createdAt,
+    updatedAt: user.updatedAt,
+    isAdmin: isAdminProfileEmail(user.email)
+  };
 }
 
 function parseAuthCredentials(payload: unknown) {
@@ -1249,10 +1273,10 @@ function getAdminDashboardToken() {
   return token && token.length > 0 ? token : null;
 }
 
-function isAdminDashboardAuthorized(request: FastifyRequest) {
+function isAdminDashboardTokenAuthorized(request: FastifyRequest) {
   const configuredToken = getAdminDashboardToken();
   if (!configuredToken) {
-    return true;
+    return false;
   }
 
   const authorization = request.headers.authorization;
@@ -1265,6 +1289,30 @@ function isAdminDashboardAuthorized(request: FastifyRequest) {
 
   const headerToken = request.headers["x-admin-token"];
   return typeof headerToken === "string" && headerToken === configuredToken;
+}
+
+async function authorizeAdminRequest(
+  request: FastifyRequest,
+  store: AppStore
+): Promise<{ authorized: boolean; statusCode?: number; error?: string }> {
+  if (isAdminDashboardTokenAuthorized(request)) {
+    return { authorized: true };
+  }
+
+  const { user } = await readAuthenticatedUser(request, store);
+  if (!user) {
+    return { authorized: false, statusCode: 401, error: "Unauthorized" };
+  }
+
+  if (!isAdminProfileEmail(user.email)) {
+    return {
+      authorized: false,
+      statusCode: 403,
+      error: "Admin profile required"
+    };
+  }
+
+  return { authorized: true };
 }
 
 function buildAdminOverview(options: {
@@ -1713,8 +1761,8 @@ function renderTicketPage(options: { baseUrl: string }) {
 </html>`;
 }
 
-function renderAdminPage(options: { baseUrl: string; authRequired: boolean }) {
-  const { baseUrl, authRequired } = options;
+function renderAdminPage(options: { baseUrl: string }) {
+  const { baseUrl } = options;
 
   return `<!DOCTYPE html>
 <html lang="it">
@@ -1827,7 +1875,7 @@ function renderAdminPage(options: { baseUrl: string; authRequired: boolean }) {
       @media (max-width: 720px) { .shell { padding: 20px 14px 40px; } .stats, .detail-grid { grid-template-columns: 1fr; } }
     </style>
   </head>
-  <body data-base-url="${escapeHtml(baseUrl)}" data-auth-required="${authRequired ? "true" : "false"}">
+  <body data-base-url="${escapeHtml(baseUrl)}">
     <main class="shell">
       <section class="hero">
         <div class="hero-actions">
@@ -1841,11 +1889,13 @@ function renderAdminPage(options: { baseUrl: string; authRequired: boolean }) {
 
       <section class="panel" id="admin-auth-panel">
         <h2>Accesso admin</h2>
-        <p class="lede">Inserisci il token admin per aprire la dashboard.</p>
+        <p class="lede">Accedi con email e password di un profilo admin autorizzato.</p>
         <div style="display:grid; gap:12px; margin-top:16px; max-width:420px;">
-          <input id="admin-token-input" type="password" placeholder="Token admin" />
+          <input id="admin-email-input" type="email" placeholder="Email admin" />
+          <input id="admin-password-input" type="password" placeholder="Password" />
+          <div id="admin-auth-status" class="status info">Accedi con un profilo admin per aprire la dashboard.</div>
           <div class="toolbar-actions" style="justify-content:flex-start;">
-            <button class="primary" id="admin-login-btn" type="button">Entra</button>
+            <button class="primary" id="admin-login-btn" type="button">Accedi</button>
           </div>
         </div>
       </section>
@@ -1878,12 +1928,13 @@ function renderAdminPage(options: { baseUrl: string; authRequired: boolean }) {
       </section>
     </main>
     <script>
-      const ADMIN_TOKEN_KEY = "work_hours_admin_token";
+      const ADMIN_TOKEN_KEY = "work_hours_admin_session_token";
       const baseUrl = document.body.dataset.baseUrl || "";
-      const authRequired = document.body.dataset.authRequired === "true";
       const authPanel = document.getElementById("admin-auth-panel");
       const dashboardPanel = document.getElementById("admin-dashboard-panel");
-      const tokenInput = document.getElementById("admin-token-input");
+      const emailInput = document.getElementById("admin-email-input");
+      const passwordInput = document.getElementById("admin-password-input");
+      const authStatusBox = document.getElementById("admin-auth-status");
       const statusBox = document.getElementById("admin-status");
       const statsContainer = document.getElementById("admin-stats");
       const ticketList = document.getElementById("admin-ticket-list");
@@ -1901,8 +1952,10 @@ function renderAdminPage(options: { baseUrl: string; authRequired: boolean }) {
         catch (_) { return value; }
       }
       function setStatus(message, tone = "info") {
-        statusBox.textContent = message;
-        statusBox.className = "status " + tone;
+        [authStatusBox, statusBox].filter(Boolean).forEach((element) => {
+          element.textContent = message;
+          element.className = "status " + tone;
+        });
       }
       async function api(path, options = {}) {
         const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
@@ -1995,6 +2048,12 @@ function renderAdminPage(options: { baseUrl: string; authRequired: boolean }) {
         renderTicketDetail();
       }
       async function bootstrapDashboard() {
+        if (!state.token) {
+          authPanel.classList.remove("hidden");
+          dashboardPanel.classList.add("hidden");
+          setStatus("Accedi con un profilo admin per aprire la dashboard.", "info");
+          return;
+        }
         try {
           setStatus("Caricamento dashboard...", "info");
           await loadDashboard();
@@ -2002,30 +2061,79 @@ function renderAdminPage(options: { baseUrl: string; authRequired: boolean }) {
           dashboardPanel.classList.remove("hidden");
           setStatus("Dashboard aggiornata.", "success");
         } catch (error) {
-          if (authRequired) {
-            authPanel.classList.remove("hidden");
-            dashboardPanel.classList.add("hidden");
-          }
+          authPanel.classList.remove("hidden");
+          dashboardPanel.classList.add("hidden");
           setStatus(error.message || "Impossibile caricare la dashboard.", "error");
         }
       }
-      document.getElementById("admin-login-btn")?.addEventListener("click", () => {
-        state.token = String(tokenInput.value || "").trim();
-        writeToken(state.token);
-        bootstrapDashboard();
+      async function loginAdmin() {
+        const email = String(emailInput?.value || "").trim();
+        const password = String(passwordInput?.value || "").trim();
+        if (!email || !password) {
+          setStatus("Inserisci email e password del profilo admin.", "error");
+          return;
+        }
+
+        try {
+          setStatus("Verifica profilo admin...", "info");
+          const response = await api(baseUrl + "/auth/login", {
+            method: "POST",
+            body: JSON.stringify({ email, password })
+          });
+          if (!response.user || response.user.isAdmin !== true) {
+            try {
+              await fetch(baseUrl + "/auth/session", {
+                method: "DELETE",
+                headers: {
+                  Authorization: "Bearer " + response.token
+                }
+              });
+            } catch (_) {}
+            throw new Error("Questo profilo non ha accesso admin.");
+          }
+
+          state.token = String(response.token || "");
+          writeToken(state.token);
+          if (emailInput) emailInput.value = response.user.email || email;
+          if (passwordInput) passwordInput.value = "";
+          await bootstrapDashboard();
+        } catch (error) {
+          state.token = "";
+          writeToken("");
+          setStatus(error.message || "Accesso admin non riuscito.", "error");
+        }
+      }
+      document.getElementById("admin-login-btn")?.addEventListener("click", loginAdmin);
+      passwordInput?.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") loginAdmin();
       });
-      document.getElementById("admin-logout-btn")?.addEventListener("click", () => {
-        state.token = ""; writeToken(""); tokenInput.value = "";
+      document.getElementById("admin-logout-btn")?.addEventListener("click", async () => {
+        const currentToken = state.token;
+        state.token = "";
+        writeToken("");
+        if (passwordInput) passwordInput.value = "";
+        try {
+          if (currentToken) {
+            await fetch(baseUrl + "/auth/session", {
+              method: "DELETE",
+              headers: {
+                Authorization: "Bearer " + currentToken
+              }
+            });
+          }
+        } catch (_) {}
         dashboardPanel.classList.add("hidden");
-        if (authRequired) { authPanel.classList.remove("hidden"); setStatus("Token rimosso.", "info"); }
-        else { bootstrapDashboard(); }
+        authPanel.classList.remove("hidden");
+        setStatus("Sessione admin chiusa.", "info");
       });
       document.getElementById("admin-refresh-btn")?.addEventListener("click", bootstrapDashboard);
       document.getElementById("admin-refresh-tickets-btn")?.addEventListener("click", bootstrapDashboard);
       state.token = readToken();
-      if (state.token) tokenInput.value = state.token;
-      if (!authRequired) authPanel.classList.add("hidden");
-      bootstrapDashboard();
+      if (state.token) {
+        bootstrapDashboard();
+      } else {
+        setStatus("Accedi con un profilo admin per aprire la dashboard.", "info");
+      }
     </script>
   </body>
 </html>`;
@@ -2440,17 +2548,15 @@ export function buildApp(options: BuildAppOptions = {}) {
 
     return reply
       .type("text/html; charset=utf-8")
-      .send(
-        renderAdminPage({
-          baseUrl,
-          authRequired: getAdminDashboardToken() !== null
-        })
-      );
+      .send(renderAdminPage({ baseUrl }));
   });
 
   app.get("/admin/api/overview", async (request, reply) => {
-    if (!isAdminDashboardAuthorized(request)) {
-      return reply.code(401).send({ error: "Unauthorized" });
+    const adminAccess = await authorizeAdminRequest(request, store);
+    if (!adminAccess.authorized) {
+      return reply
+        .code(adminAccess.statusCode ?? 401)
+        .send({ error: adminAccess.error ?? "Unauthorized" });
     }
 
     const baseUrl = getPublicBaseUrl(request);
@@ -2467,8 +2573,11 @@ export function buildApp(options: BuildAppOptions = {}) {
   });
 
   app.get("/admin/api/tickets", async (request, reply) => {
-    if (!isAdminDashboardAuthorized(request)) {
-      return reply.code(401).send({ error: "Unauthorized" });
+    const adminAccess = await authorizeAdminRequest(request, store);
+    if (!adminAccess.authorized) {
+      return reply
+        .code(adminAccess.statusCode ?? 401)
+        .send({ error: adminAccess.error ?? "Unauthorized" });
     }
 
     return {
@@ -2477,8 +2586,11 @@ export function buildApp(options: BuildAppOptions = {}) {
   });
 
   app.post("/admin/api/tickets/:ticketId/replies", async (request, reply) => {
-    if (!isAdminDashboardAuthorized(request)) {
-      return reply.code(401).send({ error: "Unauthorized" });
+    const adminAccess = await authorizeAdminRequest(request, store);
+    if (!adminAccess.authorized) {
+      return reply
+        .code(adminAccess.statusCode ?? 401)
+        .send({ error: adminAccess.error ?? "Unauthorized" });
     }
 
     const params = request.params as { ticketId?: unknown };
@@ -2560,7 +2672,7 @@ export function buildApp(options: BuildAppOptions = {}) {
 
     const response: AuthResponse = {
       token,
-      user: createdUser
+      user: serializeAuthUser(createdUser)
     };
 
     return reply.code(201).send(response);
@@ -2590,12 +2702,7 @@ export function buildApp(options: BuildAppOptions = {}) {
 
     const response: AuthResponse = {
       token,
-      user: {
-        id: user.id,
-        email: user.email,
-        createdAt: user.createdAt,
-        updatedAt: user.updatedAt
-      }
+      user: serializeAuthUser(user)
     };
 
     return response;
@@ -2607,7 +2714,7 @@ export function buildApp(options: BuildAppOptions = {}) {
       return reply.code(401).send({ error: "Unauthorized" });
     }
 
-    return user;
+    return serializeAuthUser(user);
   });
 
   app.delete("/auth/session", async (request, reply) => {
