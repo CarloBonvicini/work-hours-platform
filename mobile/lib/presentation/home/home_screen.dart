@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:work_hours_mobile/application/services/account_service.dart';
@@ -2995,7 +2996,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     ),
                     const SizedBox(height: 12),
                     DropdownButtonFormField<WorkAllowancePeriod>(
-                      value: selectedPeriod,
+                      initialValue: selectedPeriod,
                       decoration: const InputDecoration(labelText: 'Periodo'),
                       items: WorkAllowancePeriod.values
                           .map(
