@@ -484,17 +484,37 @@ void main() {
     final themePreferenceStore = _FakeThemePreferenceStore();
 
     Future<void> openWorkSettings() async {
-      final menuButtonFinder = find.byKey(
-        const ValueKey('navigation-menu-button'),
+      final workSettingsOptionFinder = find.byKey(
+        const ValueKey('navigation-option-workSettings'),
       );
-      if (menuButtonFinder.evaluate().isNotEmpty) {
-        await tester.tap(menuButtonFinder);
+
+      for (var attempt = 0; attempt < 3; attempt += 1) {
+        if (workSettingsOptionFinder.evaluate().isNotEmpty) {
+          await tester.tap(workSettingsOptionFinder.first);
+          await tester.pumpAndSettle();
+          return;
+        }
+
+        final menuButtonFinder = find.byKey(
+          const ValueKey('navigation-menu-button'),
+        );
+        if (menuButtonFinder.evaluate().isEmpty) {
+          await tester.pump(const Duration(milliseconds: 120));
+          continue;
+        }
+
+        await tester.tap(menuButtonFinder.first);
         await tester.pumpAndSettle();
       }
-      await tester.tap(
-        find.byKey(const ValueKey('navigation-option-workSettings')),
-      );
-      await tester.pumpAndSettle();
+
+      final fallbackWorkSettingsLabel = find.text('Orari e permessi');
+      if (fallbackWorkSettingsLabel.evaluate().isNotEmpty) {
+        await tester.tap(fallbackWorkSettingsLabel.first);
+        await tester.pumpAndSettle();
+        return;
+      }
+
+      fail('Impossibile aprire la sezione Orari e permessi nel test widget.');
     }
 
     await tester.pumpWidget(
