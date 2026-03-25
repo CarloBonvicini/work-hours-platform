@@ -186,6 +186,184 @@ void main() {
       find.byKey(const ValueKey('calendar-week-row-2026-03-29')),
       findsOneWidget,
     );
+    expect(find.text('Ore 6:00 / Pausa 0:30'), findsWidgets);
+    expect(find.text('08:30 - 15:00'), findsNothing);
+  });
+
+  testWidgets('supports undo and redo in quick day editing', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 1400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      WorkHoursApp(
+        dashboardService: DashboardService(
+          repository: _FakeDashboardRepository(),
+        ),
+        appUpdateService: _FakeAppUpdateService(),
+        updateReminderStore: _FakeUpdateReminderStore(),
+        onboardingPreferenceStore: _FakeOnboardingPreferenceStore(
+          hasCompleted: true,
+        ),
+        themePreferenceStore: _FakeThemePreferenceStore(),
+        workdayStartStore: _FakeWorkdayStartStore(),
+        supportTicketStore: _FakeSupportTicketStore(),
+        hasCompletedInitialSetup: true,
+      ),
+    );
+
+    await tester.pumpAndSettle();
+    if (find.text('Ricordamelo piu tardi').evaluate().isNotEmpty) {
+      await tester.tap(find.text('Ricordamelo piu tardi'));
+      await tester.pumpAndSettle();
+    }
+
+    await tester.tap(find.byKey(const ValueKey('navigation-menu-button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('navigation-option-day')));
+    await tester.pumpAndSettle();
+
+    final exitPosition = tester.getTopLeft(
+      find.byKey(const ValueKey('calendar-override-end-time-button')),
+    );
+    final targetPosition = tester.getTopLeft(
+      find.byKey(const ValueKey('calendar-override-target-value')),
+    );
+    expect(exitPosition.dy, targetPosition.dy);
+    expect(exitPosition.dx, lessThan(targetPosition.dx));
+
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('calendar-override-target-value')),
+        matching: find.text('6:00'),
+      ),
+      findsOneWidget,
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey('calendar-override-day-off-button')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('calendar-override-target-value')),
+        matching: find.text('0:00'),
+      ),
+      findsOneWidget,
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey('calendar-override-undo-button')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('calendar-override-target-value')),
+        matching: find.text('6:00'),
+      ),
+      findsOneWidget,
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey('calendar-override-redo-button')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('calendar-override-target-value')),
+        matching: find.text('0:00'),
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('persists collapsed state for quick day editor', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 1400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final themePreferenceStore = _FakeThemePreferenceStore();
+
+    Future<void> openDaySection() async {
+      await tester.tap(find.byKey(const ValueKey('navigation-menu-button')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('navigation-option-day')));
+      await tester.pumpAndSettle();
+    }
+
+    await tester.pumpWidget(
+      WorkHoursApp(
+        dashboardService: DashboardService(
+          repository: _FakeDashboardRepository(),
+        ),
+        appUpdateService: _FakeAppUpdateService(),
+        updateReminderStore: _FakeUpdateReminderStore(),
+        onboardingPreferenceStore: _FakeOnboardingPreferenceStore(
+          hasCompleted: true,
+        ),
+        themePreferenceStore: themePreferenceStore,
+        workdayStartStore: _FakeWorkdayStartStore(),
+        supportTicketStore: _FakeSupportTicketStore(),
+        hasCompletedInitialSetup: true,
+      ),
+    );
+
+    await tester.pumpAndSettle();
+    if (find.text('Ricordamelo piu tardi').evaluate().isNotEmpty) {
+      await tester.tap(find.text('Ricordamelo piu tardi'));
+      await tester.pumpAndSettle();
+    }
+    await openDaySection();
+
+    expect(
+      find.byKey(const ValueKey('calendar-override-start-time-button')),
+      findsOneWidget,
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey('calendar-quick-editor-toggle-button')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('calendar-override-start-time-button')),
+      findsNothing,
+    );
+    expect(themePreferenceStore.settings.expandDayQuickEditor, isFalse);
+
+    await tester.pumpWidget(
+      WorkHoursApp(
+        dashboardService: DashboardService(
+          repository: _FakeDashboardRepository(),
+        ),
+        appUpdateService: _FakeAppUpdateService(),
+        updateReminderStore: _FakeUpdateReminderStore(),
+        onboardingPreferenceStore: _FakeOnboardingPreferenceStore(
+          hasCompleted: true,
+        ),
+        themePreferenceStore: themePreferenceStore,
+        workdayStartStore: _FakeWorkdayStartStore(),
+        supportTicketStore: _FakeSupportTicketStore(),
+        initialAppearanceSettings: themePreferenceStore.settings,
+        hasCompletedInitialSetup: true,
+      ),
+    );
+
+    await tester.pumpAndSettle();
+    if (find.text('Ricordamelo piu tardi').evaluate().isNotEmpty) {
+      await tester.tap(find.text('Ricordamelo piu tardi'));
+      await tester.pumpAndSettle();
+    }
+    await openDaySection();
+
+    expect(
+      find.byKey(const ValueKey('calendar-quick-editor-toggle-button')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('calendar-override-start-time-button')),
+      findsNothing,
+    );
   });
 
   testWidgets('persists collapsed state for the today workday card', (
@@ -238,6 +416,7 @@ void main() {
       find.byKey(const ValueKey('calendar-record-start-button')),
       findsNothing,
     );
+    expect(find.text('Giornata di oggi'), findsNothing);
     expect(themePreferenceStore.settings.expandDayWorkdayCard, isFalse);
 
     await tester.pumpWidget(
@@ -273,6 +452,7 @@ void main() {
       find.byKey(const ValueKey('calendar-record-start-button')),
       findsNothing,
     );
+    expect(find.text('Giornata di oggi'), findsNothing);
   });
 
   testWidgets('checks for updates again when app resumes', (tester) async {

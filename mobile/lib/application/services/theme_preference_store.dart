@@ -16,6 +16,7 @@ class AppAppearanceSettings {
     required this.dayCalendarLayoutMode,
     required this.showDayWorkdayCard,
     required this.expandDayWorkdayCard,
+    required this.expandDayQuickEditor,
     required this.showDayTargetMinutes,
     required this.showDayEndTime,
     required this.showDayBreakMinutes,
@@ -30,6 +31,7 @@ class AppAppearanceSettings {
   final DayCalendarLayoutMode dayCalendarLayoutMode;
   final bool showDayWorkdayCard;
   final bool expandDayWorkdayCard;
+  final bool expandDayQuickEditor;
   final bool showDayTargetMinutes;
   final bool showDayEndTime;
   final bool showDayBreakMinutes;
@@ -43,6 +45,7 @@ class AppAppearanceSettings {
     dayCalendarLayoutMode: DayCalendarLayoutMode.quickEditorFirst,
     showDayWorkdayCard: true,
     expandDayWorkdayCard: true,
+    expandDayQuickEditor: true,
     showDayTargetMinutes: false,
     showDayEndTime: true,
     showDayBreakMinutes: true,
@@ -59,6 +62,7 @@ class AppAppearanceSettings {
     DayCalendarLayoutMode? dayCalendarLayoutMode,
     bool? showDayWorkdayCard,
     bool? expandDayWorkdayCard,
+    bool? expandDayQuickEditor,
     bool? showDayTargetMinutes,
     bool? showDayEndTime,
     bool? showDayBreakMinutes,
@@ -74,6 +78,7 @@ class AppAppearanceSettings {
           dayCalendarLayoutMode ?? this.dayCalendarLayoutMode,
       showDayWorkdayCard: showDayWorkdayCard ?? this.showDayWorkdayCard,
       expandDayWorkdayCard: expandDayWorkdayCard ?? this.expandDayWorkdayCard,
+      expandDayQuickEditor: expandDayQuickEditor ?? this.expandDayQuickEditor,
       showDayTargetMinutes: showDayTargetMinutes ?? this.showDayTargetMinutes,
       showDayEndTime: showDayEndTime ?? this.showDayEndTime,
       showDayBreakMinutes: showDayBreakMinutes ?? this.showDayBreakMinutes,
@@ -118,6 +123,9 @@ class AppAppearanceSettings {
       expandDayWorkdayCard:
           json['expandDayWorkdayCard'] as bool? ??
           AppAppearanceSettings.defaults.expandDayWorkdayCard,
+      expandDayQuickEditor:
+          json['expandDayQuickEditor'] as bool? ??
+          AppAppearanceSettings.defaults.expandDayQuickEditor,
       showDayTargetMinutes:
           json['showDayTargetMinutes'] as bool? ??
           AppAppearanceSettings.defaults.showDayTargetMinutes,
@@ -145,6 +153,7 @@ class AppAppearanceSettings {
       'dayCalendarLayoutMode': dayCalendarLayoutMode.name,
       'showDayWorkdayCard': showDayWorkdayCard,
       'expandDayWorkdayCard': expandDayWorkdayCard,
+      'expandDayQuickEditor': expandDayQuickEditor,
       'showDayTargetMinutes': showDayTargetMinutes,
       'showDayEndTime': showDayEndTime,
       'showDayBreakMinutes': showDayBreakMinutes,
@@ -182,6 +191,7 @@ class SharedPreferencesThemePreferenceStore implements ThemePreferenceStore {
       'appearance.day_calendar_layout_mode';
   static const _showDayWorkdayCardKey = 'appearance.show_day_workday_card';
   static const _expandDayWorkdayCardKey = 'appearance.expand_day_workday_card';
+  static const _expandDayQuickEditorKey = 'appearance.expand_day_quick_editor';
   static const _showDayTargetMinutesKey = 'appearance.show_day_target_minutes';
   static const _showDayEndTimeKey = 'appearance.show_day_end_time';
   static const _showDayBreakMinutesKey = 'appearance.show_day_break_minutes';
@@ -248,6 +258,9 @@ class SharedPreferencesThemePreferenceStore implements ThemePreferenceStore {
       expandDayWorkdayCard:
           preferences.getBool(_expandDayWorkdayCardKey) ??
           AppAppearanceSettings.defaults.expandDayWorkdayCard,
+      expandDayQuickEditor:
+          preferences.getBool(_expandDayQuickEditorKey) ??
+          AppAppearanceSettings.defaults.expandDayQuickEditor,
       showDayTargetMinutes:
           preferences.getBool(_showDayTargetMinutesKey) ??
           AppAppearanceSettings.defaults.showDayTargetMinutes,
@@ -295,6 +308,10 @@ class SharedPreferencesThemePreferenceStore implements ThemePreferenceStore {
     await preferences.setBool(
       _expandDayWorkdayCardKey,
       settings.expandDayWorkdayCard,
+    );
+    await preferences.setBool(
+      _expandDayQuickEditorKey,
+      settings.expandDayQuickEditor,
     );
     await preferences.setBool(
       _showDayTargetMinutesKey,
