@@ -90,7 +90,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Calendario'), findsWidgets);
-    expect(find.byKey(const ValueKey('calendar-record-start-button')), findsNothing);
+    expect(
+      find.byKey(const ValueKey('calendar-record-start-button')),
+      findsNothing,
+    );
     await tester.tap(find.text('Giorno').last);
     await tester.pumpAndSettle();
     expect(
@@ -115,6 +118,10 @@ void main() {
       findsOneWidget,
     );
     expect(
+      find.byKey(const ValueKey('calendar-override-target-value')),
+      findsOneWidget,
+    );
+    expect(
       find.byKey(const ValueKey('calendar-override-end-time-button')),
       findsOneWidget,
     );
@@ -127,6 +134,41 @@ void main() {
       findsNothing,
     );
     expect(find.text('Ore previste per questo giorno'), findsNothing);
+  });
+
+  testWidgets('uses a compact week layout on narrow screens', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(390, 1800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      WorkHoursApp(
+        dashboardService: DashboardService(
+          repository: _FakeDashboardRepository(),
+        ),
+        appUpdateService: _FakeAppUpdateService(),
+        updateReminderStore: _FakeUpdateReminderStore(),
+        onboardingPreferenceStore: _FakeOnboardingPreferenceStore(
+          hasCompleted: true,
+        ),
+        themePreferenceStore: _FakeThemePreferenceStore(),
+        workdayStartStore: _FakeWorkdayStartStore(),
+        supportTicketStore: _FakeSupportTicketStore(),
+        hasCompletedInitialSetup: true,
+      ),
+    );
+
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Ricordamelo piu tardi'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('navigation-menu-button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('navigation-option-calendar')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Settimana').last);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Tocca un giorno per vederlo in grande.'), findsOneWidget);
+    expect(find.text('Giorno selezionato'), findsOneWidget);
   });
 
   testWidgets('checks for updates again when app resumes', (tester) async {
@@ -261,7 +303,10 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const ValueKey('settings-update-button')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('settings-update-button')),
+      findsOneWidget,
+    );
     await tester.tap(find.byKey(const ValueKey('settings-update-button')));
     await tester.pumpAndSettle();
 
@@ -815,7 +860,9 @@ class _FakeDashboardRepository implements DashboardRepository {
   }
 
   @override
-  Future<SupportTicketThread> fetchSupportTicket({required String ticketId}) async {
+  Future<SupportTicketThread> fetchSupportTicket({
+    required String ticketId,
+  }) async {
     return _ticketThreadsById[ticketId] ??
         SupportTicketThread(
           id: 'ticket-1',

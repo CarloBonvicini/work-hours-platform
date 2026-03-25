@@ -2641,7 +2641,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   bool get _usesTargetDrivenDayQuickEditor =>
-      widget.appearanceSettings.showDayTargetMinutes &&
       !widget.appearanceSettings.showDayEndTime;
 
   void _syncScheduleOverrideEndFromTarget() {
@@ -4547,7 +4546,6 @@ class _CalendarCard extends StatelessWidget {
             startTimeText: effectiveQuickEditorStartTime,
             endTimeText: effectiveQuickEditorEndTime,
             breakMinutes: effectiveQuickEditorBreakMinutes,
-            showTargetMinutes: appearanceSettings.showDayTargetMinutes,
             showEndTime: appearanceSettings.showDayEndTime,
             showBreakMinutes: appearanceSettings.showDayBreakMinutes,
             onPickTargetMinutes: onPickOverrideTargetMinutes,
@@ -4602,12 +4600,11 @@ class _CalendarCard extends StatelessWidget {
         spacing: 8,
         crossAxisAlignment: WrapCrossAlignment.center,
         children: [
-          IconButton.outlined(
-            key: const ValueKey('calendar-prev-month'),
-            onPressed: () => onPreviousPeriod(),
-            icon: const Icon(Icons.chevron_left),
+          _CalendarPeriodSwitcher(
+            periodLabel: periodLabel,
+            onPreviousPeriod: onPreviousPeriod,
+            onNextPeriod: onNextPeriod,
           ),
-          Chip(label: Text(periodLabel)),
           if (calendarView == _CalendarView.day)
             Chip(
               avatar: Icon(
@@ -4618,11 +4615,6 @@ class _CalendarCard extends StatelessWidget {
               label: Text(selectedDayInfo.label),
               side: BorderSide(color: selectedDayInfo.color),
             ),
-          IconButton.outlined(
-            key: const ValueKey('calendar-next-month'),
-            onPressed: () => onNextPeriod(),
-            icon: const Icon(Icons.chevron_right),
-          ),
           if (isLoadingCalendarData)
             const SizedBox(
               width: 18,
@@ -4707,13 +4699,80 @@ class _CalendarCard extends StatelessWidget {
   }
 }
 
+class _CalendarPeriodSwitcher extends StatelessWidget {
+  const _CalendarPeriodSwitcher({
+    required this.periodLabel,
+    required this.onPreviousPeriod,
+    required this.onNextPeriod,
+  });
+
+  final String periodLabel;
+  final VoidCallback onPreviousPeriod;
+  final VoidCallback onNextPeriod;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 320),
+      child: Container(
+        decoration: BoxDecoration(
+          color: colorScheme.surfaceContainerLow,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: colorScheme.outlineVariant),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.max,
+          children: [
+            IconButton(
+              key: const ValueKey('calendar-prev-month'),
+              onPressed: onPreviousPeriod,
+              icon: const Icon(Icons.chevron_left),
+              visualDensity: VisualDensity.compact,
+              iconSize: 20,
+              splashRadius: 18,
+              constraints: const BoxConstraints.tightFor(width: 36, height: 36),
+              padding: EdgeInsets.zero,
+            ),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: Text(
+                  periodLabel,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.labelLarge?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ),
+            IconButton(
+              key: const ValueKey('calendar-next-month'),
+              onPressed: onNextPeriod,
+              icon: const Icon(Icons.chevron_right),
+              visualDensity: VisualDensity.compact,
+              iconSize: 20,
+              splashRadius: 18,
+              constraints: const BoxConstraints.tightFor(width: 36, height: 36),
+              padding: EdgeInsets.zero,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _CalendarQuickScheduleEditor extends StatelessWidget {
   const _CalendarQuickScheduleEditor({
     required this.targetText,
     required this.startTimeText,
     required this.endTimeText,
     required this.breakMinutes,
-    required this.showTargetMinutes,
     required this.showEndTime,
     required this.showBreakMinutes,
     required this.onPickTargetMinutes,
@@ -4728,7 +4787,6 @@ class _CalendarQuickScheduleEditor extends StatelessWidget {
   final String startTimeText;
   final String endTimeText;
   final int breakMinutes;
-  final bool showTargetMinutes;
   final bool showEndTime;
   final bool showBreakMinutes;
   final Future<void> Function() onPickTargetMinutes;
@@ -4748,13 +4806,12 @@ class _CalendarQuickScheduleEditor extends StatelessWidget {
         valueKey: const ValueKey('calendar-override-start-time-button'),
         onTap: onPickStartTime,
       ),
-      if (showTargetMinutes)
-        _QuickScheduleValue(
-          label: 'Ore',
-          value: targetText.isEmpty ? '--' : targetText,
-          valueKey: const ValueKey('calendar-override-target-value'),
-          onTap: onPickTargetMinutes,
-        ),
+      _QuickScheduleValue(
+        label: 'Ore',
+        value: targetText.isEmpty ? '--' : targetText,
+        valueKey: const ValueKey('calendar-override-target-value'),
+        onTap: onPickTargetMinutes,
+      ),
       if (showEndTime)
         _QuickScheduleValue(
           label: 'Uscita',
@@ -5313,23 +5370,376 @@ class _CalendarWeekSummary extends StatelessWidget {
   Widget build(BuildContext context) {
     final agendaRange = _resolveAgendaRange(metrics);
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Agenda settimanale',
-          style: Theme.of(
-            context,
-          ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final useCompactLayout = constraints.maxWidth < 760;
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Agenda settimanale',
+              style: Theme.of(
+                context,
+              ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 10),
+            if (useCompactLayout)
+              _AgendaWeekCompactOverview(
+                metrics: metrics,
+                selectedDate: selectedDate,
+                onSelectDate: onSelectDate,
+              )
+            else
+              _AgendaWeekTimeline(
+                metrics: metrics,
+                selectedDate: selectedDate,
+                onSelectDate: onSelectDate,
+                range: agendaRange,
+              ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _AgendaWeekCompactOverview extends StatelessWidget {
+  const _AgendaWeekCompactOverview({
+    required this.metrics,
+    required this.selectedDate,
+    required this.onSelectDate,
+  });
+
+  final List<_DayMetrics> metrics;
+  final DateTime selectedDate;
+  final ValueChanged<DateTime> onSelectDate;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final selectedMetrics = metrics.firstWhere(
+      (day) => _isSameDay(day.date, selectedDate),
+      orElse: () => metrics.first,
+    );
+    final focusRange = _resolveStableAgendaRangeForSchedule(
+      selectedMetrics.schedule,
+    );
+    final timelineHeight = focusRange.timelineHeight(
+      pixelsPerHour: 24,
+      minHeight: 260,
+    );
+    final now = DateTime.now();
+    final nowMinutes = (now.hour * 60) + now.minute;
+    final measurementSegments = _buildAgendaMeasurementSegments(
+      schedule: selectedMetrics.schedule,
+      session: null,
+      nowMinutes: nowMinutes,
+    );
+    final workedSummary = _buildAgendaWorkedSummary(
+      measurementSegments: measurementSegments,
+    );
+    final registeredMinutes =
+        selectedMetrics.workedMinutes + selectedMetrics.leaveMinutes;
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final columnCount = constraints.maxWidth >= 560 ? 3 : 2;
+        const spacing = 10.0;
+        final itemWidth =
+            (constraints.maxWidth - (spacing * (columnCount - 1))) /
+            columnCount;
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Tocca un giorno per vederlo in grande.',
+              style: theme.textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: spacing,
+              runSpacing: spacing,
+              children: [
+                for (final day in metrics)
+                  SizedBox(
+                    width: itemWidth,
+                    child: _CompactWeekDayCard(
+                      metrics: day,
+                      isSelected: _isSameDay(day.date, selectedMetrics.date),
+                      onTap: () => onSelectDate(day.date),
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.surfaceContainerLow,
+                borderRadius: BorderRadius.circular(22),
+                border: Border.all(color: theme.colorScheme.outlineVariant),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Giorno selezionato',
+                    style: theme.textTheme.labelLarge?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '${_formatWeekdayShortLabel(selectedMetrics.date)} ${_formatCompactDate(selectedMetrics.date)}',
+                              style: theme.textTheme.titleMedium?.copyWith(
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              _formatScheduleWindowDetails(
+                                selectedMetrics.schedule,
+                              ),
+                              style: theme.textTheme.bodyMedium,
+                            ),
+                          ],
+                        ),
+                      ),
+                      if (selectedMetrics.hasOverride)
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: theme.colorScheme.secondary.withValues(
+                              alpha: 0.14,
+                            ),
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: Text(
+                            'Modificato',
+                            style: theme.textTheme.labelMedium?.copyWith(
+                              color: theme.colorScheme.secondary,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _WeekFocusMetricChip(
+                        label: 'Previste',
+                        value: _formatHours(selectedMetrics.expectedMinutes),
+                      ),
+                      _WeekFocusMetricChip(
+                        label: 'Registrate',
+                        value: _formatHours(registeredMinutes),
+                      ),
+                      _WeekFocusMetricChip(
+                        label: 'Saldo',
+                        value: _formatHours(
+                          selectedMetrics.balanceMinutes,
+                          signed: true,
+                        ),
+                        accentColor: _balanceColor(
+                          context,
+                          selectedMetrics.balanceMinutes,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  SizedBox(
+                    height: timelineHeight,
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _AgendaHourRail(
+                          range: focusRange,
+                          height: timelineHeight,
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: _AgendaDaySurface(
+                            metrics: selectedMetrics,
+                            schedule: selectedMetrics.schedule,
+                            range: focusRange,
+                            height: timelineHeight,
+                            displayMode: _AgendaSurfaceDisplayMode.week,
+                            isSelected: true,
+                            measurementSegments: measurementSegments,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (workedSummary != null) ...[
+                    const SizedBox(height: 12),
+                    Text(
+                      workedSummary,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _CompactWeekDayCard extends StatelessWidget {
+  const _CompactWeekDayCard({
+    required this.metrics,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  final _DayMetrics metrics;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final registeredMinutes = metrics.workedMinutes + metrics.leaveMinutes;
+    final backgroundColor = isSelected
+        ? colorScheme.primary
+        : colorScheme.surfaceContainerLow;
+    final borderColor = isSelected
+        ? colorScheme.primary
+        : colorScheme.outlineVariant;
+    final primaryTextColor = isSelected
+        ? colorScheme.onPrimary
+        : colorScheme.onSurface;
+    final secondaryTextColor = isSelected
+        ? colorScheme.onPrimary.withValues(alpha: 0.82)
+        : colorScheme.onSurfaceVariant;
+
+    String subtitle() {
+      if (registeredMinutes > 0) {
+        return '${_formatHoursInput(registeredMinutes)} registrate';
+      }
+      if (metrics.expectedMinutes <= 0) {
+        return 'Giorno libero';
+      }
+      return '${_formatHoursInput(metrics.expectedMinutes)} previste';
+    }
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: onTap,
+        child: Ink(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: backgroundColor,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: borderColor, width: isSelected ? 1.4 : 1),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '${_formatWeekdayShortLabel(metrics.date)} ${_formatCompactDate(metrics.date)}',
+                style: theme.textTheme.titleSmall?.copyWith(
+                  color: primaryTextColor,
+                  fontWeight: FontWeight.w800,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              const SizedBox(height: 6),
+              Text(
+                _compactWeekScheduleLabel(metrics.schedule),
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: secondaryTextColor,
+                  fontWeight: FontWeight.w700,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                subtitle(),
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: secondaryTextColor,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+          ),
         ),
-        const SizedBox(height: 10),
-        _AgendaWeekTimeline(
-          metrics: metrics,
-          selectedDate: selectedDate,
-          onSelectDate: onSelectDate,
-          range: agendaRange,
-        ),
-      ],
+      ),
+    );
+  }
+}
+
+class _WeekFocusMetricChip extends StatelessWidget {
+  const _WeekFocusMetricChip({
+    required this.label,
+    required this.value,
+    this.accentColor,
+  });
+
+  final String label;
+  final String value;
+  final Color? accentColor;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final resolvedAccentColor = accentColor ?? theme.colorScheme.primary;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: resolvedAccentColor.withValues(alpha: 0.35)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            label,
+            style: theme.textTheme.labelMedium?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            value,
+            style: theme.textTheme.titleSmall?.copyWith(
+              color: resolvedAccentColor,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -8509,7 +8919,7 @@ class _DayCalendarSettingsCard extends StatelessWidget {
           ),
           const SizedBox(height: 6),
           Text(
-            'Entrata resta sempre visibile. Attiva solo i campi che ti servono davvero.',
+            'Entrata e ore restano sempre visibili. Attiva solo i campi opzionali che ti servono davvero.',
             style: theme.textTheme.bodyMedium,
           ),
           const SizedBox(height: 12),
@@ -8517,19 +8927,6 @@ class _DayCalendarSettingsCard extends StatelessWidget {
             spacing: 10,
             runSpacing: 10,
             children: [
-              FilterChip(
-                label: const Text('Ore'),
-                selected: appearanceSettings.showDayTargetMinutes,
-                onSelected: isUpdatingThemeMode
-                    ? null
-                    : (selected) => unawaited(
-                        updateSettings(
-                          appearanceSettings.copyWith(
-                            showDayTargetMinutes: selected,
-                          ),
-                        ),
-                      ),
-              ),
               FilterChip(
                 label: const Text('Uscita'),
                 selected: appearanceSettings.showDayEndTime,
@@ -10922,6 +11319,16 @@ String _formatDayScheduleDetails(DaySchedule schedule) {
 
 String _formatScheduleWindowDetails(DaySchedule schedule) {
   return _formatDayScheduleDetails(schedule);
+}
+
+String _compactWeekScheduleLabel(DaySchedule schedule) {
+  if (schedule.startTime != null && schedule.endTime != null) {
+    return '${schedule.startTime} - ${schedule.endTime}';
+  }
+  if (schedule.targetMinutes <= 0) {
+    return 'Nessun turno';
+  }
+  return '${_formatHoursInput(schedule.targetMinutes)} previste';
 }
 
 String _formatBreakInput(int minutes) {
