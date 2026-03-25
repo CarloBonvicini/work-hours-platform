@@ -196,6 +196,84 @@ void main() {
     );
   });
 
+  testWidgets(
+    'does not treat standard hours as worked when only the target is set',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(390, 1800));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      Future<void> openDaySection() async {
+        await tester.tap(find.byKey(const ValueKey('navigation-menu-button')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey('navigation-option-day')));
+        await tester.pumpAndSettle();
+      }
+
+      final today = DateTime.now();
+      final todayIsoDate =
+          '${today.year.toString().padLeft(4, '0')}-'
+          '${today.month.toString().padLeft(2, '0')}-'
+          '${today.day.toString().padLeft(2, '0')}';
+
+      await tester.pumpWidget(
+        WorkHoursApp(
+          dashboardService: DashboardService(
+            repository: _FakeDashboardRepository(
+              initialScheduleOverrides: {
+                todayIsoDate: ScheduleOverride(
+                  id: 'override-target-only',
+                  date: todayIsoDate,
+                  targetMinutes: 475,
+                ),
+              },
+            ),
+          ),
+          appUpdateService: _FakeAppUpdateService(),
+          updateReminderStore: _FakeUpdateReminderStore(),
+          onboardingPreferenceStore: _FakeOnboardingPreferenceStore(
+            hasCompleted: true,
+          ),
+          themePreferenceStore: _FakeThemePreferenceStore(),
+          workdayStartStore: _FakeWorkdayStartStore(),
+          supportTicketStore: _FakeSupportTicketStore(),
+          hasCompletedInitialSetup: true,
+        ),
+      );
+
+      await tester.pumpAndSettle();
+      if (find.text('Ricordamelo piu tardi').evaluate().isNotEmpty) {
+        await tester.tap(find.text('Ricordamelo piu tardi'));
+        await tester.pumpAndSettle();
+      }
+      await openDaySection();
+
+      expect(
+        tester
+            .widget<Text>(
+              find.byKey(const ValueKey('calendar-live-worked-value')),
+            )
+            .data,
+        '0:00',
+      );
+      expect(
+        tester
+            .widget<Text>(
+              find.byKey(const ValueKey('calendar-live-day-balance-value')),
+            )
+            .data,
+        'Da iniziare',
+      );
+      expect(
+        tester
+            .widget<Text>(
+              find.byKey(const ValueKey('calendar-live-suggested-exit-value')),
+            )
+            .data,
+        'Da calcolare',
+      );
+    },
+  );
+
   testWidgets('uses a compact week layout on narrow screens', (tester) async {
     await tester.binding.setSurfaceSize(const Size(390, 1800));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -882,6 +960,80 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('Agenda oraria'), findsOneWidget);
+  });
+
+  testWidgets('expands collapsible day sections when tapping the title', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(800, 1400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    Future<void> openDaySection() async {
+      await tester.tap(find.byKey(const ValueKey('navigation-menu-button')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('navigation-option-day')));
+      await tester.pumpAndSettle();
+    }
+
+    await tester.pumpWidget(
+      WorkHoursApp(
+        dashboardService: DashboardService(
+          repository: _FakeDashboardRepository(),
+        ),
+        appUpdateService: _FakeAppUpdateService(),
+        updateReminderStore: _FakeUpdateReminderStore(),
+        onboardingPreferenceStore: _FakeOnboardingPreferenceStore(
+          hasCompleted: true,
+        ),
+        themePreferenceStore: _FakeThemePreferenceStore(),
+        workdayStartStore: _FakeWorkdayStartStore(),
+        supportTicketStore: _FakeSupportTicketStore(),
+        hasCompletedInitialSetup: true,
+      ),
+    );
+
+    await tester.pumpAndSettle();
+    if (find.text('Ricordamelo piu tardi').evaluate().isNotEmpty) {
+      await tester.tap(find.text('Ricordamelo piu tardi'));
+      await tester.pumpAndSettle();
+    }
+    await openDaySection();
+
+    await tester.tap(
+      find.byKey(const ValueKey('calendar-workday-card-toggle-button')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('calendar-quick-editor-toggle-button')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('calendar-record-start-button')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('calendar-override-start-time-button')),
+      findsNothing,
+    );
+
+    await tester.tap(find.text('Entrata, pausa, uscita.'));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('calendar-record-start-button')),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.text('Modifica rapida'));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('calendar-override-start-time-button')),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.text('Agenda oraria'));
+    await tester.pumpAndSettle();
+    expect(find.text('06:00'), findsWidgets);
   });
 
   testWidgets('checks for updates again when app resumes', (tester) async {

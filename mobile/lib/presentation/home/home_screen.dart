@@ -2018,6 +2018,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     required int pickedMinutes,
   }) {
     final currentSchedule = _displayedScheduleStateForSelectedDate().schedule;
+    final minimumBreakMinutes =
+        _snapshot?.profile.workRules.minimumBreakMinutes;
     final previewSchedule = _buildFlexibleDayScheduleInput(
       targetText: _scheduleOverrideTargetController.text,
       startTimeText: field == _CalendarTimeField.start
@@ -2029,7 +2031,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       breakText: _scheduleOverrideBreakController.text,
       fallbackSchedule: currentSchedule,
     );
-    final workedMinutes = previewSchedule?.targetMinutes;
+    final workedMinutes = previewSchedule == null
+        ? null
+        : _resolveComputedWorkedMinutes(
+            schedule: previewSchedule,
+            minimumBreakMinutes: minimumBreakMinutes ?? 0,
+          );
     return workedMinutes == null
         ? 'Ore di lavoro: --'
         : 'Ore di lavoro: ${_formatHoursInput(workedMinutes)}';
@@ -5229,11 +5236,15 @@ class _CalendarCard extends StatelessWidget {
       quickEditorSchedule: quickEditorDaySchedule,
       workRules: workRules,
     );
-    final hasQuickResultContext =
+    final hasRecordedWorkContext =
         (isSelectedDateToday && workdaySession != null) ||
         dayMetrics.workedMinutes > 0 ||
-        dayMetrics.leaveMinutes > 0 ||
-        !_matchesDaySchedule(quickEditorDaySchedule, baseDaySchedule);
+        dayMetrics.leaveMinutes > 0;
+    final hasQuickWorkedOverride =
+        quickEditorDaySchedule.startTime != baseDaySchedule.startTime ||
+        quickEditorDaySchedule.endTime != baseDaySchedule.endTime;
+    final hasQuickResultContext =
+        hasRecordedWorkContext || hasQuickWorkedOverride;
     final displayedWorkedMinutes = hasQuickResultContext
         ? liveWorkedMinutes
         : 0;
@@ -5714,10 +5725,17 @@ class _CalendarQuickScheduleEditor extends StatelessWidget {
     final header = Row(
       children: [
         Expanded(
-          child: Text(
-            'Modifica rapida',
-            style: theme.textTheme.titleSmall?.copyWith(
-              fontWeight: FontWeight.w800,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: () => onToggleExpanded(!isExpanded),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Text(
+                'Modifica rapida',
+                style: theme.textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
             ),
           ),
         ),
@@ -5924,11 +5942,18 @@ class _WorkdaySessionCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             Expanded(
-              child: Text(
-                'Entrata, pausa, uscita.',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                  fontWeight: FontWeight.w600,
+              child: InkWell(
+                borderRadius: BorderRadius.circular(12),
+                onTap: () => onToggleExpanded(true),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: Text(
+                    'Entrata, pausa, uscita.',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                 ),
               ),
             ),
@@ -5951,13 +5976,32 @@ class _WorkdaySessionCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(Icons.login_rounded, color: theme.colorScheme.primary),
-              const SizedBox(width: 10),
               Expanded(
-                child: Text(
-                  'Giornata di oggi',
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w800,
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(12),
+                  onTap: () => onToggleExpanded(false),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: FittedBox(
+                      alignment: Alignment.centerLeft,
+                      fit: BoxFit.scaleDown,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.login_rounded,
+                            color: theme.colorScheme.primary,
+                          ),
+                          const SizedBox(width: 10),
+                          Text(
+                            'Giornata di oggi',
+                            style: theme.textTheme.titleSmall?.copyWith(
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -6768,11 +6812,18 @@ class _CalendarDaySummary extends StatelessWidget {
         Row(
           children: [
             Expanded(
-              child: Text(
-                'Agenda oraria',
-                style: Theme.of(
-                  context,
-                ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(12),
+                onTap: () => onToggleExpanded(!isExpanded),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: Text(
+                    'Agenda oraria',
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
               ),
             ),
             toggleButton,
@@ -12707,23 +12758,34 @@ int _resolveDisplayedExpectedMinutes({
   return effectiveSchedule.targetMinutes;
 }
 
+int? _resolveComputedWorkedMinutes({
+  required DaySchedule schedule,
+  int minimumBreakMinutes = 0,
+}) {
+  final startMinutes = parseTimeInput(schedule.startTime);
+  final endMinutes = parseTimeInput(schedule.endTime);
+  if (startMinutes == null ||
+      endMinutes == null ||
+      endMinutes <= startMinutes) {
+    return null;
+  }
+
+  final effectiveBreakMinutes = math.max(
+    schedule.breakMinutes,
+    minimumBreakMinutes,
+  );
+  return math.max(0, endMinutes - startMinutes - effectiveBreakMinutes);
+}
+
 int _resolveDisplayedWorkedMinutes({
   required DaySchedule quickEditorSchedule,
   required UserWorkRules workRules,
 }) {
-  final startMinutes = parseTimeInput(quickEditorSchedule.startTime);
-  final endMinutes = parseTimeInput(quickEditorSchedule.endTime);
-  if (startMinutes == null ||
-      endMinutes == null ||
-      endMinutes <= startMinutes) {
-    return quickEditorSchedule.targetMinutes;
-  }
-
-  final effectiveBreakMinutes = math.max(
-    quickEditorSchedule.breakMinutes,
-    workRules.minimumBreakMinutes,
-  );
-  return math.max(0, endMinutes - startMinutes - effectiveBreakMinutes);
+  return _resolveComputedWorkedMinutes(
+        schedule: quickEditorSchedule,
+        minimumBreakMinutes: workRules.minimumBreakMinutes,
+      ) ??
+      0;
 }
 
 String _resolveSuggestedExitLabel({
@@ -12963,22 +13025,18 @@ _CalendarDayDetails? _buildCalendarDayDetails({
   final pauseMinutes = session != null
       ? _currentSessionBreakMinutes(session, nowMinutes)
       : schedule.breakMinutes;
-  final usesDefaultScheduleSummary =
-      session == null &&
-      workedMinutes == 0 &&
-      leaveMinutes == 0 &&
-      schedule.targetMinutes > 0;
   final resolvedWorkedMinutes = session != null
       ? math.max(
           0,
           ((session.endMinutes ?? nowMinutes) - session.startMinutes) -
               pauseMinutes,
         )
-      : usesDefaultScheduleSummary
-      ? schedule.targetMinutes
       : relation == _CalendarDayRelation.past
-      ? workedMinutes
-      : schedule.targetMinutes;
+      ? math.max(
+          workedMinutes,
+          _resolveComputedWorkedMinutes(schedule: schedule) ?? 0,
+        )
+      : 0;
 
   if (startMinutes == null &&
       endMinutes == null &&
