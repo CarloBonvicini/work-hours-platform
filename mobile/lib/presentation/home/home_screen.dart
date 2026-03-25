@@ -35,6 +35,7 @@ enum _CalendarView { day, week, month, year }
 enum _AppearanceTab { theme, colors, typography }
 
 enum _HomeSection {
+  day,
   overview,
   quickEntry,
   calendar,
@@ -61,6 +62,7 @@ enum _CalendarTimeField { start, end }
 enum _WorkdaySessionStatus { notStarted, active, onBreak, completed }
 
 const _mainNavigationSections = [
+  _HomeSection.day,
   _HomeSection.calendar,
   _HomeSection.profile,
   _HomeSection.ticket,
@@ -763,11 +765,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
     setState(() {
       _workdaySession = session;
-      if (session != null) {
-        _applyWorkdaySessionToScheduleDraft(session);
-      } else {
-        _restoreSelectedDateScheduleDraft();
-      }
+      _syncSelectedDayPauseWindowDraftForCurrentDisplay(session: session);
     });
   }
 
@@ -1033,7 +1031,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
       setState(() {
         _isSubmittingTicketReply = false;
-        _errorMessage = _humanizeError(error);
+        _errorMessage = _humanizeError(
+          error,
+          apiBaseUrl: _snapshot?.apiBaseUrl,
+          isTicketRequest: true,
+        );
       });
     }
   }
@@ -1060,7 +1062,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
       setState(() {
         _workdaySession = session;
-        _applyWorkdaySessionToScheduleDraft(session);
+        _syncSelectedDayPauseWindowDraftForCurrentDisplay(session: session);
         _isSavingWorkdaySession = false;
       });
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1108,7 +1110,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
       setState(() {
         _workdaySession = updatedSession;
-        _applyWorkdaySessionToScheduleDraft(updatedSession);
+        _syncSelectedDayPauseWindowDraftForCurrentDisplay(
+          session: updatedSession,
+        );
         _isSavingWorkdaySession = false;
       });
     } catch (error) {
@@ -1161,7 +1165,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
       setState(() {
         _workdaySession = updatedSession;
-        _applyWorkdaySessionToScheduleDraft(updatedSession);
+        _syncSelectedDayPauseWindowDraftForCurrentDisplay(
+          session: updatedSession,
+        );
         _isSavingWorkdaySession = false;
       });
     } catch (error) {
@@ -1219,7 +1225,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
       setState(() {
         _workdaySession = updatedSession;
-        _applyWorkdaySessionToScheduleDraft(updatedSession);
+        _syncSelectedDayPauseWindowDraftForCurrentDisplay(
+          session: updatedSession,
+        );
         _isSavingWorkdaySession = false;
       });
     } catch (error) {
@@ -1248,7 +1256,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
       setState(() {
         _workdaySession = null;
-        _restoreSelectedDateScheduleDraft();
+        _syncSelectedDayPauseWindowDraftForCurrentDisplay(session: null);
         _isSavingWorkdaySession = false;
       });
     } catch (error) {
@@ -1339,6 +1347,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
     setState(() {
       _selectedSection = selectedSection;
+      if (selectedSection == _HomeSection.calendar &&
+          _calendarView == _CalendarView.day) {
+        _calendarView = _CalendarView.month;
+      }
     });
     if (selectedSection == _HomeSection.ticket) {
       unawaited(_refreshTrackedSupportTickets());
@@ -1388,12 +1400,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     });
   }
 
-  Future<void> _openCalendarForDate(DateTime date) async {
+  Future<void> _openDayForDate(DateTime date) async {
     setState(() {
-      _selectedSection = _HomeSection.calendar;
-      _calendarView = _CalendarView.day;
+      _selectedSection = _HomeSection.day;
     });
     await _setSelectedDate(date, alignToPeriod: false);
+  }
+
+  Future<void> _shiftSelectedDay(int step) async {
+    await _setSelectedDate(
+      _selectedDate.add(Duration(days: step)),
+      alignToPeriod: false,
+    );
   }
 
   Future<void> _prepareTodayOverridePreset(_TodayOverridePreset preset) async {
@@ -1422,8 +1440,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       preparedSchedule.breakMinutes,
     );
     setState(() {
-      _selectedSection = _HomeSection.calendar;
-      _calendarView = _CalendarView.day;
+      _selectedSection = _HomeSection.day;
     });
   }
 
@@ -1909,6 +1926,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       return;
     }
 
+    _seedScheduleOverrideDraftFromCurrentDisplay();
     final controller = _scheduleTimeController(field);
     controller.text = formatTimeInput(pickedMinutes);
     if (field == _CalendarTimeField.start && _usesTargetDrivenDayQuickEditor) {
@@ -1928,28 +1946,20 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   Future<void> _pickScheduleOverrideBreakMinutes() async {
     final currentBreakMinutes =
-        parseBreakDurationInput(_scheduleOverrideBreakController.text) ?? 0;
+        _displayedScheduleStateForSelectedDate().schedule.breakMinutes;
     final pickedMinutes = await _showScheduleBreakWheelPicker(
       initialMinutes: currentBreakMinutes,
     );
     if (pickedMinutes == null) {
       return;
     }
+    _seedScheduleOverrideDraftFromCurrentDisplay();
     await _setScheduleOverrideBreakMinutes(pickedMinutes);
   }
 
   Future<void> _pickScheduleOverrideTargetMinutes() async {
-    final fallbackSchedule = _snapshot == null
-        ? const DaySchedule(targetMinutes: 8 * 60, breakMinutes: 0)
-        : _resolveEffectiveDayScheduleForDate(_snapshot!, _selectedDate);
     final currentTargetMinutes =
-        _resolveDraftTargetMinutes(
-          targetText: _scheduleOverrideTargetController.text,
-          startTimeText: _scheduleOverrideStartTimeController.text,
-          endTimeText: _scheduleOverrideEndTimeController.text,
-          breakText: _scheduleOverrideBreakController.text,
-        ) ??
-        _resolveCurrentScheduleDraft(fallbackSchedule).targetMinutes;
+        _displayedScheduleStateForSelectedDate().schedule.targetMinutes;
     final pickedMinutes = await _showScheduleTargetWheelPicker(
       title: 'Ore del giorno',
       initialMinutes: currentTargetMinutes,
@@ -1958,6 +1968,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       return;
     }
 
+    _seedScheduleOverrideDraftFromCurrentDisplay();
     _scheduleOverrideTargetController.text = _formatHoursInput(pickedMinutes);
     final startMinutes = parseTimeInput(
       _scheduleOverrideStartTimeController.text,
@@ -2300,32 +2311,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     return pickedMinutes;
   }
 
-  void _resetScheduleOverrideEditorToBase() {
-    final snapshot = _snapshotForMonth(_selectedMonth) ?? _snapshot;
-    if (snapshot == null) {
-      return;
-    }
-
-    final baseSchedule = _resolveBaseDayScheduleForDate(
-      snapshot,
-      _selectedDate,
-    );
-    _applyDayScheduleDraft(
-      baseSchedule,
-      pauseWindow: _resolveCalendarPauseWindow(
-        schedule: baseSchedule,
-        startMinutes: parseTimeInput(baseSchedule.startTime),
-        endMinutes: parseTimeInput(baseSchedule.endTime),
-        session: null,
-        nowMinutes: _currentMinutesOfDay(),
-      ),
-    );
-    setState(() {
-      _errorMessage = null;
-    });
-    unawaited(_autosaveScheduleOverride());
-  }
-
   void _markSelectedDayAsDayOff() {
     _scheduleOverrideTargetController.text = _formatHoursInput(0);
     _scheduleOverrideStartTimeController.clear();
@@ -2347,16 +2332,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   int _currentScheduleOverrideTimeMinutes(_CalendarTimeField field) {
-    final controller = _scheduleTimeController(field);
-    final currentMinutes = parseTimeInput(controller.text);
-    if (currentMinutes != null) {
-      return currentMinutes;
-    }
-
-    final snapshot = _snapshotForMonth(_selectedMonth) ?? _snapshot;
-    final fallbackSchedule = snapshot == null
-        ? const DaySchedule(targetMinutes: 8 * 60)
-        : _resolveEffectiveDayScheduleForDate(snapshot, _selectedDate);
+    final fallbackSchedule = _displayedScheduleStateForSelectedDate().schedule;
     final fallbackMinutes = switch (field) {
       _CalendarTimeField.start => parseTimeInput(fallbackSchedule.startTime),
       _CalendarTimeField.end => parseTimeInput(fallbackSchedule.endTime),
@@ -2387,20 +2363,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     return (now.hour * 60) + now.minute;
   }
 
-  void _restoreSelectedDateScheduleDraft() {
-    final fallbackSchedule = _fallbackScheduleForSelectedDate();
-    _applyDayScheduleDraft(
-      fallbackSchedule,
-      pauseWindow: _resolveCalendarPauseWindow(
-        schedule: fallbackSchedule,
-        startMinutes: parseTimeInput(fallbackSchedule.startTime),
-        endMinutes: parseTimeInput(fallbackSchedule.endTime),
-        session: null,
-        nowMinutes: _currentMinutesOfDay(),
-      ),
-    );
-  }
-
   void _setSelectedDayPauseWindowDraft(_CalendarPauseWindow? pauseWindow) {
     if (pauseWindow == null ||
         pauseWindow.resumeMinutes <= pauseWindow.pauseStartMinutes) {
@@ -2429,6 +2391,57 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   void _clearAgendaPreviewState() {
     _setAgendaPreviewState();
+  }
+
+  ({DaySchedule schedule, _CalendarPauseWindow? pauseWindow})
+  _displayedScheduleStateForSelectedDate({
+    DashboardSnapshot? snapshot,
+    WorkdaySession? session,
+  }) {
+    final resolvedSnapshot =
+        snapshot ?? (_snapshotForMonth(_selectedMonth) ?? _snapshot);
+    final effectiveSchedule = resolvedSnapshot == null
+        ? const DaySchedule(targetMinutes: 8 * 60)
+        : _resolveEffectiveDayScheduleForDate(resolvedSnapshot, _selectedDate);
+    final baseSchedule = resolvedSnapshot == null
+        ? effectiveSchedule
+        : _resolveBaseDayScheduleForDate(resolvedSnapshot, _selectedDate);
+    final draftSchedule = _resolveCurrentScheduleDraft(effectiveSchedule);
+    final effectiveSession = _isSameDay(_selectedDate, _todayDate)
+        ? (session ?? _workdaySession)
+        : null;
+    final displayedSchedule = _resolveDisplayedDayScheduleForSession(
+      draftSchedule,
+      baseSchedule,
+      effectiveSession,
+      _selectedDate,
+    );
+    final pauseWindow = _resolveCalendarPauseWindow(
+      schedule: displayedSchedule,
+      startMinutes: parseTimeInput(displayedSchedule.startTime),
+      endMinutes: parseTimeInput(displayedSchedule.endTime),
+      session: effectiveSession,
+      nowMinutes: _currentMinutesOfDay(),
+    );
+
+    return (schedule: displayedSchedule, pauseWindow: pauseWindow);
+  }
+
+  void _seedScheduleOverrideDraftFromCurrentDisplay() {
+    final displayedState = _displayedScheduleStateForSelectedDate();
+    _applyDayScheduleDraft(
+      displayedState.schedule,
+      pauseWindow: displayedState.pauseWindow,
+    );
+  }
+
+  void _syncSelectedDayPauseWindowDraftForCurrentDisplay({
+    WorkdaySession? session,
+  }) {
+    final displayedState = _displayedScheduleStateForSelectedDate(
+      session: session,
+    );
+    _setSelectedDayPauseWindowDraft(displayedState.pauseWindow);
   }
 
   _CalendarPauseWindow? _agendaPreviewPauseWindow() {
@@ -2557,6 +2570,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   DaySchedule _resolveDisplayedDayScheduleForSession(
     DaySchedule schedule,
+    DaySchedule baseSchedule,
     WorkdaySession? session,
     DateTime selectedDate,
   ) {
@@ -2566,53 +2580,58 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
     final explicitStartMinutes = parseTimeInput(schedule.startTime);
     final explicitEndMinutes = parseTimeInput(schedule.endTime);
+    final baseStartMinutes = parseTimeInput(baseSchedule.startTime);
+    final baseEndMinutes = parseTimeInput(baseSchedule.endTime);
     final currentBreakMinutes = _currentSessionBreakMinutes(
       session,
       _currentMinutesOfDay(),
     );
+    final usesDefaultStart =
+        explicitStartMinutes == null ||
+        (baseStartMinutes != null && explicitStartMinutes == baseStartMinutes);
+    final usesDefaultEnd =
+        explicitEndMinutes == null ||
+        (baseEndMinutes != null && explicitEndMinutes == baseEndMinutes);
+    final displayedStartMinutes = usesDefaultStart
+        ? session.startMinutes
+        : explicitStartMinutes;
     final effectiveBreakMinutes = math.max(
       schedule.breakMinutes,
       currentBreakMinutes,
     );
-    final computedEndMinutes =
-        session.endMinutes ??
-        explicitEndMinutes ??
-        (schedule.targetMinutes > 0
-            ? session.startMinutes +
-                  schedule.targetMinutes +
-                  effectiveBreakMinutes
-            : null);
+    final computedEndMinutes = session.endMinutes != null && usesDefaultEnd
+        ? session.endMinutes
+        : explicitEndMinutes ??
+              (schedule.targetMinutes > 0
+                  ? displayedStartMinutes +
+                        schedule.targetMinutes +
+                        effectiveBreakMinutes
+                  : null);
+    final shouldDeriveTargetFromWindow =
+        session.endMinutes != null ||
+        (explicitStartMinutes != null &&
+            explicitEndMinutes != null &&
+            (explicitStartMinutes != baseStartMinutes ||
+                explicitEndMinutes != baseEndMinutes));
+    final derivedTargetMinutes =
+        shouldDeriveTargetFromWindow &&
+            computedEndMinutes != null &&
+            computedEndMinutes >= displayedStartMinutes
+        ? math.max(
+            0,
+            computedEndMinutes - displayedStartMinutes - effectiveBreakMinutes,
+          )
+        : schedule.targetMinutes;
 
     return DaySchedule(
-      targetMinutes: schedule.targetMinutes,
-      startTime: formatTimeInput(explicitStartMinutes ?? session.startMinutes),
+      targetMinutes: derivedTargetMinutes,
+      startTime: formatTimeInput(displayedStartMinutes),
       endTime: computedEndMinutes == null
           ? schedule.endTime
           : formatTimeInput(
               (computedEndMinutes % (24 * 60)).clamp(0, (23 * 60) + 59).toInt(),
             ),
       breakMinutes: effectiveBreakMinutes,
-    );
-  }
-
-  void _applyWorkdaySessionToScheduleDraft(WorkdaySession session) {
-    final baseSchedule = _resolveCurrentScheduleDraft(
-      _fallbackScheduleForSelectedDate(),
-    );
-    final displayedSchedule = _resolveDisplayedDayScheduleForSession(
-      baseSchedule,
-      session,
-      _selectedDate,
-    );
-    _applyDayScheduleDraft(
-      displayedSchedule,
-      pauseWindow: _resolveCalendarPauseWindow(
-        schedule: displayedSchedule,
-        startMinutes: parseTimeInput(displayedSchedule.startTime),
-        endMinutes: parseTimeInput(displayedSchedule.endTime),
-        session: session,
-        nowMinutes: _currentMinutesOfDay(),
-      ),
     );
   }
 
@@ -2775,8 +2794,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     DaySchedule schedule,
     DateTime selectedDate,
   ) {
+    final snapshot =
+        _snapshotForMonth(DashboardService.formatMonth(selectedDate)) ??
+        _snapshot;
+    final baseSchedule = snapshot == null
+        ? schedule
+        : _resolveBaseDayScheduleForDate(snapshot, selectedDate);
     return _resolveDisplayedDayScheduleForSession(
       schedule,
+      baseSchedule,
       _workdaySession,
       selectedDate,
     );
@@ -2998,7 +3024,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       }
 
       setState(() {
-        _errorMessage = _humanizeError(error);
+        _errorMessage = _humanizeError(
+          error,
+          apiBaseUrl: _snapshot?.apiBaseUrl,
+          isTicketRequest: true,
+        );
         _isSubmittingTicket = false;
       });
     }
@@ -3091,13 +3121,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       snapshot,
       selectedDate,
     );
+    final baseSchedule = _resolveBaseDayScheduleForDate(snapshot, selectedDate);
     final displayedSchedule = _resolveDisplayedDayScheduleForSession(
       daySchedule,
+      baseSchedule,
       _isSameDay(selectedDate, _todayDate) ? _workdaySession : null,
       selectedDate,
     );
     _applyDayScheduleDraft(
-      displayedSchedule,
+      daySchedule,
       pauseWindow: _resolveCalendarPauseWindow(
         schedule: displayedSchedule,
         startMinutes: parseTimeInput(displayedSchedule.startTime),
@@ -3561,8 +3593,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }, growable: false);
   }
 
-  String _calendarPeriodLabel() {
-    switch (_calendarView) {
+  String _calendarPeriodLabelFor(_CalendarView view) {
+    switch (view) {
       case _CalendarView.day:
         return _formatLongDate(_selectedDate);
       case _CalendarView.week:
@@ -3575,6 +3607,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         return '${_selectedDate.year}';
     }
   }
+
+  String _calendarPeriodLabel() => _calendarPeriodLabelFor(_calendarView);
 
   DateTime _resolveSelectedDateForMonth(
     String month, {
@@ -3876,7 +3910,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }, growable: false);
   }
 
-  String _humanizeError(Object error) {
+  String _humanizeError(
+    Object error, {
+    String? apiBaseUrl,
+    bool isTicketRequest = false,
+  }) {
     if (error is ApiException) {
       if (error.message.contains('weekdaySchedule must include') ||
           error.message.contains('weekdayTargetMinutes must include') ||
@@ -3888,7 +3926,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       return error.message;
     }
 
-    return 'Impossibile contattare il backend. Verifica che l API sia attiva e raggiungibile.';
+    final normalizedApiBaseUrl = apiBaseUrl?.trim();
+    if (normalizedApiBaseUrl != null && normalizedApiBaseUrl.isNotEmpty) {
+      return isTicketRequest
+          ? 'Impossibile contattare il backend ticket su $normalizedApiBaseUrl. Verifica che l API sia attiva e raggiungibile.'
+          : 'Impossibile contattare il backend su $normalizedApiBaseUrl. Verifica che l API sia attiva e raggiungibile.';
+    }
+
+    return isTicketRequest
+        ? 'Impossibile contattare il backend ticket. Verifica che l API sia attiva e raggiungibile.'
+        : 'Impossibile contattare il backend. Verifica che l API sia attiva e raggiungibile.';
   }
 
   List<int> get _minutesPresets {
@@ -3935,8 +3982,121 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     return items.take(8).toList(growable: false);
   }
 
+  Widget _buildPlannerSectionCard({
+    required DashboardSnapshot snapshot,
+    required String title,
+    required _CalendarView calendarView,
+    required String periodLabel,
+    required bool showViewSelector,
+    required Future<void> Function() onPreviousPeriod,
+    required Future<void> Function() onNextPeriod,
+  }) {
+    final monthSnapshot = _snapshotForMonth(_selectedMonth) ?? snapshot;
+    final weekMetrics = _buildWeekMetrics();
+    final baseDayMetrics = _buildDayMetrics(_selectedDate);
+    final baseDaySchedule = _resolveBaseDayScheduleForDate(
+      monthSnapshot,
+      _selectedDate,
+    );
+    final effectiveDaySchedule = _resolveEffectiveDayScheduleForDate(
+      monthSnapshot,
+      _selectedDate,
+    );
+    final draftEffectiveDaySchedule = _resolveCurrentScheduleDraft(
+      effectiveDaySchedule,
+    );
+    final displayedDaySchedule = _resolveDisplayedDaySchedule(
+      draftEffectiveDaySchedule,
+      _selectedDate,
+    );
+    final previewDaySchedule = _resolveAgendaPreviewSchedule(
+      displayedDaySchedule,
+    );
+    final selectedDayPauseWindow = _resolveSelectedDayPauseWindow(
+      schedule: displayedDaySchedule,
+      session: _isSameDay(_selectedDate, _todayDate) ? _workdaySession : null,
+    );
+    final dayMetrics = _withDisplayedDaySchedule(
+      baseDayMetrics,
+      displayedDaySchedule,
+    );
+
+    return _CalendarCard(
+      title: title,
+      showViewSelector: showViewSelector,
+      calendarView: calendarView,
+      periodLabel: periodLabel,
+      isLoadingCalendarData: _isLoadingCalendarData,
+      month: monthSnapshot.summary.month,
+      selectedDate: _selectedDate,
+      days: _buildCalendarDays(monthSnapshot),
+      baseDaySchedule: baseDaySchedule,
+      effectiveDaySchedule: displayedDaySchedule,
+      draftDaySchedule: displayedDaySchedule,
+      quickEditorDaySchedule: previewDaySchedule,
+      quickEditorPauseWindow:
+          _agendaPreviewPauseWindow() ?? selectedDayPauseWindow,
+      selectedDayPauseWindow: selectedDayPauseWindow,
+      selectedOverride: _findScheduleOverrideForDate(
+        monthSnapshot,
+        _selectedDate,
+      ),
+      overrideFormKey: _scheduleOverrideFormKey,
+      appearanceSettings: widget.appearanceSettings,
+      overrideTargetController: _scheduleOverrideTargetController,
+      overrideStartTimeController: _scheduleOverrideStartTimeController,
+      overrideEndTimeController: _scheduleOverrideEndTimeController,
+      overrideBreakController: _scheduleOverrideBreakController,
+      isSavingOverride: _isSavingScheduleOverride,
+      dayMetrics: dayMetrics,
+      weekMetrics: weekMetrics,
+      monthMetrics: _MonthMetrics(
+        month: monthSnapshot.summary.month,
+        expectedMinutes: monthSnapshot.summary.expectedMinutes,
+        workedMinutes: monthSnapshot.summary.workedMinutes,
+        leaveMinutes: monthSnapshot.summary.leaveMinutes,
+        balanceMinutes: monthSnapshot.summary.balanceMinutes,
+        overrideCount: _overrideCountForMonth(monthSnapshot),
+      ),
+      yearMetrics: _buildYearMetrics(),
+      onCalendarViewChanged: _changeCalendarView,
+      onPreviousPeriod: onPreviousPeriod,
+      onNextPeriod: onNextPeriod,
+      onSelectDate: _selectDate,
+      onOpenDay: _openDayForDate,
+      isSelectedDateToday: _isSameDay(_selectedDate, _todayDate),
+      workdaySession: _workdaySession,
+      isSavingWorkdaySession: _isSavingWorkdaySession,
+      onRecordWorkdayStartNow: _recordWorkdayStartNow,
+      onStartWorkdayBreakNow: _startWorkdayBreakNow,
+      onResumeWorkdayNow: _resumeWorkdayNow,
+      onFinishWorkdayNow: _finishWorkdayNow,
+      onClearWorkdaySession: _clearWorkdaySession,
+      onPickOverrideTargetMinutes: _pickScheduleOverrideTargetMinutes,
+      onPickOverrideTime: _pickScheduleOverrideTime,
+      onPickOverrideBreakMinutes: _pickScheduleOverrideBreakMinutes,
+      onAgendaSchedulePreviewChanged: _previewScheduleOverrideFromAgenda,
+      onAgendaSchedulePreviewCleared: _clearScheduleOverrideAgendaPreview,
+      onAgendaScheduleChanged: _updateScheduleOverrideFromAgenda,
+      onAgendaInteractionChanged: _setAgendaInteracting,
+      onAppearanceSettingsChanged: _updateAppearanceSettings,
+      onMarkDayAsOff: _markSelectedDayAsDayOff,
+      onRemoveOverride: _removeScheduleOverride,
+    );
+  }
+
   Widget _buildSelectedSection(DashboardSnapshot snapshot) {
     switch (_selectedSection) {
+      case _HomeSection.day:
+        return _buildPlannerSectionCard(
+          snapshot: snapshot,
+          title: 'Oggi',
+          calendarView: _CalendarView.day,
+          periodLabel: _formatLongDate(_selectedDate),
+          showViewSelector: false,
+          onPreviousPeriod: () => _shiftSelectedDay(-1),
+          onNextPeriod: () => _shiftSelectedDay(1),
+        );
       case _HomeSection.overview:
         final today = _todayDate;
         final todaySnapshot =
@@ -3972,7 +4132,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       .clamp(60, 24 * 60),
             leaveType: LeaveType.permit,
           ),
-          onOpenTodayCalendar: () => _openCalendarForDate(today),
+          onOpenTodayCalendar: () => _openDayForDate(today),
           onApplyPreset: _prepareTodayOverridePreset,
           onRemoveTodayOverride: todayMetrics.hasOverride
               ? _removeTodayOverride
@@ -4003,99 +4163,19 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           onSubmit: _submitQuickEntry,
         );
       case _HomeSection.calendar:
-        final monthSnapshot = _snapshotForMonth(_selectedMonth) ?? snapshot;
-        final weekMetrics = _buildWeekMetrics();
-        final baseDayMetrics = _buildDayMetrics(_selectedDate);
-        final effectiveDaySchedule = _resolveEffectiveDayScheduleForDate(
-          monthSnapshot,
-          _selectedDate,
-        );
-        final draftEffectiveDaySchedule = _resolveCurrentScheduleDraft(
-          effectiveDaySchedule,
-        );
-        final previewDaySchedule = _resolveAgendaPreviewSchedule(
-          draftEffectiveDaySchedule,
-        );
-        final displayedDaySchedule = _resolveDisplayedDaySchedule(
-          draftEffectiveDaySchedule,
-          _selectedDate,
-        );
-        final selectedDayPauseWindow = _resolveSelectedDayPauseWindow(
-          schedule: displayedDaySchedule,
-          session: _isSameDay(_selectedDate, _todayDate)
-              ? _workdaySession
-              : null,
-        );
-        final dayMetrics = _withDisplayedDaySchedule(
-          baseDayMetrics,
-          displayedDaySchedule,
-        );
-        return _CalendarCard(
+        return _buildPlannerSectionCard(
+          snapshot: snapshot,
+          title: 'Calendario',
           calendarView: _calendarView,
           periodLabel: _calendarPeriodLabel(),
-          isLoadingCalendarData: _isLoadingCalendarData,
-          month: monthSnapshot.summary.month,
-          selectedDate: _selectedDate,
-          days: _buildCalendarDays(monthSnapshot),
-          baseDaySchedule: _resolveBaseDayScheduleForDate(
-            monthSnapshot,
-            _selectedDate,
-          ),
-          effectiveDaySchedule: displayedDaySchedule,
-          draftDaySchedule: _resolveCurrentScheduleDraft(displayedDaySchedule),
-          quickEditorDaySchedule: previewDaySchedule,
-          quickEditorPauseWindow:
-              _agendaPreviewPauseWindow() ?? selectedDayPauseWindow,
-          selectedDayPauseWindow: selectedDayPauseWindow,
-          selectedOverride: _findScheduleOverrideForDate(
-            monthSnapshot,
-            _selectedDate,
-          ),
-          overrideFormKey: _scheduleOverrideFormKey,
-          appearanceSettings: widget.appearanceSettings,
-          overrideTargetController: _scheduleOverrideTargetController,
-          overrideStartTimeController: _scheduleOverrideStartTimeController,
-          overrideEndTimeController: _scheduleOverrideEndTimeController,
-          overrideBreakController: _scheduleOverrideBreakController,
-          isSavingOverride: _isSavingScheduleOverride,
-          dayMetrics: dayMetrics,
-          weekMetrics: weekMetrics,
-          monthMetrics: _MonthMetrics(
-            month: monthSnapshot.summary.month,
-            expectedMinutes: monthSnapshot.summary.expectedMinutes,
-            workedMinutes: monthSnapshot.summary.workedMinutes,
-            leaveMinutes: monthSnapshot.summary.leaveMinutes,
-            balanceMinutes: monthSnapshot.summary.balanceMinutes,
-            overrideCount: _overrideCountForMonth(monthSnapshot),
-          ),
-          yearMetrics: _buildYearMetrics(),
-          onCalendarViewChanged: _changeCalendarView,
+          showViewSelector: true,
           onPreviousPeriod: () => _shiftCalendarPeriod(-1),
           onNextPeriod: () => _shiftCalendarPeriod(1),
-          onSelectDate: _selectDate,
-          isSelectedDateToday: _isSameDay(_selectedDate, _todayDate),
-          workdaySession: _workdaySession,
-          isSavingWorkdaySession: _isSavingWorkdaySession,
-          onRecordWorkdayStartNow: _recordWorkdayStartNow,
-          onStartWorkdayBreakNow: _startWorkdayBreakNow,
-          onResumeWorkdayNow: _resumeWorkdayNow,
-          onFinishWorkdayNow: _finishWorkdayNow,
-          onClearWorkdaySession: _clearWorkdaySession,
-          onPickOverrideTargetMinutes: _pickScheduleOverrideTargetMinutes,
-          onPickOverrideTime: _pickScheduleOverrideTime,
-          onPickOverrideBreakMinutes: _pickScheduleOverrideBreakMinutes,
-          onAgendaSchedulePreviewChanged: _previewScheduleOverrideFromAgenda,
-          onAgendaSchedulePreviewCleared: _clearScheduleOverrideAgendaPreview,
-          onAgendaScheduleChanged: _updateScheduleOverrideFromAgenda,
-          onAgendaInteractionChanged: _setAgendaInteracting,
-          onResetOverrideEditor: _resetScheduleOverrideEditorToBase,
-          onMarkDayAsOff: _markSelectedDayAsDayOff,
-          onRemoveOverride: _removeScheduleOverride,
         );
       case _HomeSection.recentActivity:
         return _RecentActivityCard(
           weekPlan: _buildUpcomingWeekPlan(),
-          onOpenDay: _openCalendarForDate,
+          onOpenDay: _openDayForDate,
           onOpenWorkEntry: _openWorkQuickEntryForDate,
           onOpenLeaveEntry: _openLeaveQuickEntryForDate,
         );
@@ -4150,6 +4230,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         );
       case _HomeSection.ticket:
         return _SupportTicketCard(
+          ticketApiBaseUrl: snapshot.apiBaseUrl,
           formKey: _ticketFormKey,
           selectedCategory: _selectedTicketCategory,
           onCategoryChanged: (category) {
@@ -4373,6 +4454,8 @@ class _QuickEntryCard extends StatelessWidget {
 
 class _CalendarCard extends StatelessWidget {
   const _CalendarCard({
+    required this.title,
+    required this.showViewSelector,
     required this.calendarView,
     required this.periodLabel,
     required this.isLoadingCalendarData,
@@ -4401,6 +4484,7 @@ class _CalendarCard extends StatelessWidget {
     required this.onPreviousPeriod,
     required this.onNextPeriod,
     required this.onSelectDate,
+    required this.onOpenDay,
     required this.isSelectedDateToday,
     required this.workdaySession,
     required this.isSavingWorkdaySession,
@@ -4416,11 +4500,13 @@ class _CalendarCard extends StatelessWidget {
     required this.onAgendaSchedulePreviewCleared,
     required this.onAgendaScheduleChanged,
     required this.onAgendaInteractionChanged,
-    required this.onResetOverrideEditor,
+    required this.onAppearanceSettingsChanged,
     required this.onMarkDayAsOff,
     required this.onRemoveOverride,
   });
 
+  final String title;
+  final bool showViewSelector;
   final _CalendarView calendarView;
   final String periodLabel;
   final bool isLoadingCalendarData;
@@ -4449,6 +4535,7 @@ class _CalendarCard extends StatelessWidget {
   final Future<void> Function() onPreviousPeriod;
   final Future<void> Function() onNextPeriod;
   final ValueChanged<DateTime> onSelectDate;
+  final Future<void> Function(DateTime date) onOpenDay;
   final bool isSelectedDateToday;
   final WorkdaySession? workdaySession;
   final bool isSavingWorkdaySession;
@@ -4478,45 +4565,29 @@ class _CalendarCard extends StatelessWidget {
   })
   onAgendaScheduleChanged;
   final ValueChanged<bool> onAgendaInteractionChanged;
-  final VoidCallback onResetOverrideEditor;
+  final Future<void> Function(AppAppearanceSettings settings)
+  onAppearanceSettingsChanged;
   final VoidCallback onMarkDayAsOff;
   final Future<void> Function() onRemoveOverride;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final draftBreakMinutes = parseBreakDurationInput(
-      overrideBreakController.text,
-    );
-    final now = DateTime.now();
-    final nowMinutes = (now.hour * 60) + now.minute;
-    final liveSessionBreakMinutes = isSelectedDateToday
-        ? _currentSessionBreakMinutes(workdaySession, nowMinutes)
-        : 0;
     final effectiveQuickEditorStartTime =
-        isSelectedDateToday && workdaySession != null
-        ? formatTimeInput(workdaySession!.startMinutes)
-        : (quickEditorDaySchedule.startTime ??
-              overrideStartTimeController.text);
-    final effectiveQuickEditorTargetText =
-        overrideTargetController.text.isNotEmpty
-        ? overrideTargetController.text
-        : _formatHoursInput(quickEditorDaySchedule.targetMinutes);
+        quickEditorDaySchedule.startTime ?? overrideStartTimeController.text;
+    final effectiveQuickEditorTargetText = _formatHoursInput(
+      quickEditorDaySchedule.targetMinutes,
+    );
     final effectiveQuickEditorEndTime =
-        isSelectedDateToday && workdaySession?.endMinutes != null
-        ? formatTimeInput(workdaySession!.endMinutes!)
-        : (quickEditorDaySchedule.endTime ?? overrideEndTimeController.text);
-    final effectiveQuickEditorBreakMinutes =
-        isSelectedDateToday && workdaySession != null
-        ? liveSessionBreakMinutes
-        : (() {
-            final quickPauseWindow = quickEditorPauseWindow;
-            if (quickPauseWindow == null) {
-              return draftBreakMinutes ?? quickEditorDaySchedule.breakMinutes;
-            }
-            return quickPauseWindow.resumeMinutes -
-                quickPauseWindow.pauseStartMinutes;
-          })();
+        quickEditorDaySchedule.endTime ?? overrideEndTimeController.text;
+    final effectiveQuickEditorBreakMinutes = (() {
+      final quickPauseWindow = quickEditorPauseWindow;
+      if (quickPauseWindow == null) {
+        return quickEditorDaySchedule.breakMinutes;
+      }
+      return quickPauseWindow.resumeMinutes -
+          quickPauseWindow.pauseStartMinutes;
+    })();
     final selectedDayInfo = switch (_compareDateToToday(selectedDate)) {
       0 => (
         label: 'Oggi',
@@ -4552,7 +4623,6 @@ class _CalendarCard extends StatelessWidget {
             onPickStartTime: () => onPickOverrideTime(_CalendarTimeField.start),
             onPickEndTime: () => onPickOverrideTime(_CalendarTimeField.end),
             onPickBreakMinutes: onPickOverrideBreakMinutes,
-            onResetToBase: onResetOverrideEditor,
             onMarkDayAsOff: onMarkDayAsOff,
           ),
           const SizedBox(height: 14),
@@ -4587,6 +4657,7 @@ class _CalendarCard extends StatelessWidget {
       yearMetrics: yearMetrics,
       selectedDate: selectedDate,
       onSelectDate: onSelectDate,
+      onOpenDay: onOpenDay,
       onCalendarViewChanged: onCalendarViewChanged,
       onDaySchedulePreviewChanged: onAgendaSchedulePreviewChanged,
       onDaySchedulePreviewCleared: onAgendaSchedulePreviewCleared,
@@ -4594,80 +4665,110 @@ class _CalendarCard extends StatelessWidget {
       onAgendaInteractionChanged: onAgendaInteractionChanged,
     );
 
-    return _SectionCard(
-      title: 'Calendario',
-      trailing: Wrap(
-        spacing: 8,
-        crossAxisAlignment: WrapCrossAlignment.center,
-        children: [
-          _CalendarPeriodSwitcher(
-            periodLabel: periodLabel,
-            onPreviousPeriod: onPreviousPeriod,
-            onNextPeriod: onNextPeriod,
-          ),
-          if (calendarView == _CalendarView.day)
-            Chip(
-              avatar: Icon(
-                selectedDayInfo.icon,
-                size: 16,
-                color: selectedDayInfo.color,
+    final trailing = calendarView == _CalendarView.day
+        ? Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              _CalendarPeriodSwitcher(
+                periodLabel: periodLabel,
+                onPreviousPeriod: onPreviousPeriod,
+                onNextPeriod: onNextPeriod,
               ),
-              label: Text(selectedDayInfo.label),
-              side: BorderSide(color: selectedDayInfo.color),
-            ),
-          if (isLoadingCalendarData)
-            const SizedBox(
-              width: 18,
-              height: 18,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            ),
-        ],
-      ),
+              const SizedBox(height: 8),
+              Wrap(
+                alignment: WrapAlignment.center,
+                spacing: 8,
+                runSpacing: 8,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  Chip(
+                    avatar: Icon(
+                      selectedDayInfo.icon,
+                      size: 16,
+                      color: selectedDayInfo.color,
+                    ),
+                    label: Text(selectedDayInfo.label),
+                    side: BorderSide(color: selectedDayInfo.color),
+                  ),
+                  if (isLoadingCalendarData)
+                    const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                ],
+              ),
+            ],
+          )
+        : Wrap(
+            spacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              _CalendarPeriodSwitcher(
+                periodLabel: periodLabel,
+                onPreviousPeriod: onPreviousPeriod,
+                onNextPeriod: onNextPeriod,
+              ),
+              if (isLoadingCalendarData)
+                const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+            ],
+          );
+
+    return _SectionCard(
+      title: title,
+      trailing: trailing,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: SegmentedButton<_CalendarView>(
-              showSelectedIcon: false,
-              segments: const [
-                ButtonSegment<_CalendarView>(
-                  value: _CalendarView.day,
-                  label: Text('Giorno'),
-                  icon: Icon(Icons.today_outlined),
-                ),
-                ButtonSegment<_CalendarView>(
-                  value: _CalendarView.week,
-                  label: Text('Settimana'),
-                  icon: Icon(Icons.view_week_outlined),
-                ),
-                ButtonSegment<_CalendarView>(
-                  value: _CalendarView.month,
-                  label: Text('Mese'),
-                  icon: Icon(Icons.calendar_month_outlined),
-                ),
-                ButtonSegment<_CalendarView>(
-                  value: _CalendarView.year,
-                  label: Text('Anno'),
-                  icon: Icon(Icons.calendar_view_month_outlined),
-                ),
-              ],
-              selected: {_calendarViewOrDefault(calendarView)},
-              onSelectionChanged: (selection) {
-                if (selection.isEmpty) {
-                  return;
-                }
-                unawaited(onCalendarViewChanged(selection.first));
-              },
+          if (showViewSelector)
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: SegmentedButton<_CalendarView>(
+                showSelectedIcon: false,
+                segments: const [
+                  ButtonSegment<_CalendarView>(
+                    value: _CalendarView.week,
+                    label: Text('Settimana'),
+                    icon: Icon(Icons.view_week_outlined),
+                  ),
+                  ButtonSegment<_CalendarView>(
+                    value: _CalendarView.month,
+                    label: Text('Mese'),
+                    icon: Icon(Icons.calendar_month_outlined),
+                  ),
+                  ButtonSegment<_CalendarView>(
+                    value: _CalendarView.year,
+                    label: Text('Anno'),
+                    icon: Icon(Icons.calendar_view_month_outlined),
+                  ),
+                ],
+                selected: {_calendarViewOrDefault(calendarView)},
+                onSelectionChanged: (selection) {
+                  if (selection.isEmpty) {
+                    return;
+                  }
+                  unawaited(onCalendarViewChanged(selection.first));
+                },
+              ),
             ),
-          ),
           if (calendarView == _CalendarView.day && showWorkdaySessionCard) ...[
             const SizedBox(height: 18),
             _WorkdaySessionCard(
+              isExpanded: appearanceSettings.expandDayWorkdayCard,
               session: workdaySession,
               schedule: effectiveDaySchedule,
               pauseWindow: selectedDayPauseWindow,
               isBusy: isSavingWorkdaySession,
+              onToggleExpanded: (expanded) => unawaited(
+                onAppearanceSettingsChanged(
+                  appearanceSettings.copyWith(expandDayWorkdayCard: expanded),
+                ),
+              ),
               onRecordNow: onRecordWorkdayStartNow,
               onStartBreak: onStartWorkdayBreakNow,
               onResume: onResumeWorkdayNow,
@@ -4779,7 +4880,6 @@ class _CalendarQuickScheduleEditor extends StatelessWidget {
     required this.onPickStartTime,
     required this.onPickEndTime,
     required this.onPickBreakMinutes,
-    required this.onResetToBase,
     required this.onMarkDayAsOff,
   });
 
@@ -4793,7 +4893,6 @@ class _CalendarQuickScheduleEditor extends StatelessWidget {
   final Future<void> Function() onPickStartTime;
   final Future<void> Function() onPickEndTime;
   final Future<void> Function() onPickBreakMinutes;
-  final VoidCallback onResetToBase;
   final VoidCallback onMarkDayAsOff;
 
   @override
@@ -4868,11 +4967,6 @@ class _CalendarQuickScheduleEditor extends StatelessWidget {
           runSpacing: 10,
           children: [
             OutlinedButton.icon(
-              onPressed: onResetToBase,
-              icon: const Icon(Icons.restart_alt_rounded),
-              label: const Text('Usa orario standard'),
-            ),
-            OutlinedButton.icon(
               onPressed: onMarkDayAsOff,
               icon: const Icon(Icons.event_busy_outlined),
               label: const Text('Giornata libera'),
@@ -4886,10 +4980,12 @@ class _CalendarQuickScheduleEditor extends StatelessWidget {
 
 class _WorkdaySessionCard extends StatelessWidget {
   const _WorkdaySessionCard({
+    required this.isExpanded,
     required this.session,
     required this.schedule,
     required this.pauseWindow,
     required this.isBusy,
+    required this.onToggleExpanded,
     required this.onRecordNow,
     required this.onStartBreak,
     required this.onResume,
@@ -4897,10 +4993,12 @@ class _WorkdaySessionCard extends StatelessWidget {
     this.onClear,
   });
 
+  final bool isExpanded;
   final WorkdaySession? session;
   final DaySchedule schedule;
   final _CalendarPauseWindow? pauseWindow;
   final bool isBusy;
+  final ValueChanged<bool> onToggleExpanded;
   final Future<void> Function() onRecordNow;
   final Future<void> Function() onStartBreak;
   final Future<void> Function() onResume;
@@ -4929,6 +5027,11 @@ class _WorkdaySessionCard extends StatelessWidget {
       pauseWindow: pauseWindow,
       nowMinutes: nowMinutes,
     );
+    final displayedEndMinutes =
+        parseTimeInput(schedule.endTime) ?? session?.endMinutes;
+    final expandedIcon = isExpanded
+        ? Icons.keyboard_arrow_up_rounded
+        : Icons.keyboard_arrow_down_rounded;
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -4957,88 +5060,120 @@ class _WorkdaySessionCard extends StatelessWidget {
                 color: statusMeta.color,
                 icon: statusMeta.icon,
               ),
+              const SizedBox(width: 8),
+              IconButton(
+                key: const ValueKey('calendar-workday-card-toggle-button'),
+                onPressed: () => onToggleExpanded(!isExpanded),
+                tooltip: isExpanded ? 'Riduci riquadro' : 'Espandi riquadro',
+                visualDensity: VisualDensity.compact,
+                icon: Icon(expandedIcon),
+              ),
             ],
           ),
-          const SizedBox(height: 10),
-          Text(
-            _workdaySessionDescription(
-              session: session,
-              schedule: schedule,
-              pauseWindow: pauseWindow,
-              status: status,
-              currentBreakMinutes: currentBreakMinutes,
-            ),
-            style: theme.textTheme.bodyMedium,
-          ),
-          if (expectedEndInfo != null) ...[
-            const SizedBox(height: 10),
-            Text(
-              expectedEndInfo,
-              style: theme.textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w800,
-                color: theme.colorScheme.primary,
-              ),
-            ),
-          ],
-          if (workedSessionInfo != null) ...[
-            const SizedBox(height: 8),
-            Text(
-              workedSessionInfo,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ],
-          if (session?.endMinutes != null) ...[
-            const SizedBox(height: 10),
-            Text(
-              'Uscita registrata alle ${formatTimeInput(session!.endMinutes!)}.',
-              style: theme.textTheme.bodyMedium,
-            ),
-          ],
-          const SizedBox(height: 14),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: [
-              if (session == null || session!.isCompleted)
-                FilledButton.icon(
-                  key: const ValueKey('calendar-record-start-button'),
-                  onPressed: isBusy ? null : onRecordNow,
-                  icon: const Icon(Icons.play_arrow_rounded),
-                  label: Text(isBusy ? 'Salvo...' : 'Entrata'),
-                ),
-              if (session != null &&
-                  !session!.isCompleted &&
-                  !session!.isOnBreak)
-                FilledButton.tonalIcon(
-                  key: const ValueKey('calendar-start-break-button'),
-                  onPressed: isBusy ? null : onStartBreak,
-                  icon: const Icon(Icons.coffee_outlined),
-                  label: const Text('Inizio pausa'),
-                ),
-              if (session?.isOnBreak == true)
-                FilledButton.tonalIcon(
-                  key: const ValueKey('calendar-resume-workday-button'),
-                  onPressed: isBusy ? null : onResume,
-                  icon: const Icon(Icons.play_circle_outline_rounded),
-                  label: const Text('Fine pausa'),
-                ),
-              if (session != null && !session!.isCompleted)
-                FilledButton.icon(
-                  key: const ValueKey('calendar-end-workday-button'),
-                  onPressed: isBusy ? null : onFinish,
-                  icon: const Icon(Icons.logout_rounded),
-                  label: const Text('Uscita'),
-                ),
-              if (onClear != null)
-                OutlinedButton.icon(
-                  key: const ValueKey('calendar-clear-workday-session-button'),
-                  onPressed: isBusy ? null : onClear,
-                  icon: const Icon(Icons.delete_outline),
-                  label: const Text('Rimuovi'),
-                ),
-            ],
+          AnimatedSize(
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeOut,
+            alignment: Alignment.topCenter,
+            child: isExpanded
+                ? Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const SizedBox(height: 10),
+                      Text(
+                        _workdaySessionDescription(
+                          session: session,
+                          schedule: schedule,
+                          pauseWindow: pauseWindow,
+                          status: status,
+                          currentBreakMinutes: currentBreakMinutes,
+                        ),
+                        style: theme.textTheme.bodyMedium,
+                      ),
+                      if (expectedEndInfo != null) ...[
+                        const SizedBox(height: 10),
+                        Text(
+                          expectedEndInfo,
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w800,
+                            color: theme.colorScheme.primary,
+                          ),
+                        ),
+                      ],
+                      if (workedSessionInfo != null) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          workedSessionInfo,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                      if (displayedEndMinutes != null) ...[
+                        const SizedBox(height: 10),
+                        Text(
+                          'Uscita registrata alle ${formatTimeInput(displayedEndMinutes)}.',
+                          style: theme.textTheme.bodyMedium,
+                        ),
+                      ],
+                      const SizedBox(height: 14),
+                      Wrap(
+                        spacing: 10,
+                        runSpacing: 10,
+                        children: [
+                          if (session == null || session!.isCompleted)
+                            FilledButton.icon(
+                              key: const ValueKey(
+                                'calendar-record-start-button',
+                              ),
+                              onPressed: isBusy ? null : onRecordNow,
+                              icon: const Icon(Icons.play_arrow_rounded),
+                              label: Text(isBusy ? 'Salvo...' : 'Entrata'),
+                            ),
+                          if (session != null &&
+                              !session!.isCompleted &&
+                              !session!.isOnBreak)
+                            FilledButton.tonalIcon(
+                              key: const ValueKey(
+                                'calendar-start-break-button',
+                              ),
+                              onPressed: isBusy ? null : onStartBreak,
+                              icon: const Icon(Icons.coffee_outlined),
+                              label: const Text('Inizio pausa'),
+                            ),
+                          if (session?.isOnBreak == true)
+                            FilledButton.tonalIcon(
+                              key: const ValueKey(
+                                'calendar-resume-workday-button',
+                              ),
+                              onPressed: isBusy ? null : onResume,
+                              icon: const Icon(
+                                Icons.play_circle_outline_rounded,
+                              ),
+                              label: const Text('Fine pausa'),
+                            ),
+                          if (session != null && !session!.isCompleted)
+                            FilledButton.icon(
+                              key: const ValueKey(
+                                'calendar-end-workday-button',
+                              ),
+                              onPressed: isBusy ? null : onFinish,
+                              icon: const Icon(Icons.logout_rounded),
+                              label: const Text('Uscita'),
+                            ),
+                          if (onClear != null)
+                            OutlinedButton.icon(
+                              key: const ValueKey(
+                                'calendar-clear-workday-session-button',
+                              ),
+                              onPressed: isBusy ? null : onClear,
+                              icon: const Icon(Icons.delete_outline),
+                              label: const Text('Rimuovi'),
+                            ),
+                        ],
+                      ),
+                    ],
+                  )
+                : const SizedBox.shrink(),
           ),
         ],
       ),
@@ -5191,6 +5326,7 @@ class _CalendarPeriodSummary extends StatelessWidget {
     required this.yearMetrics,
     required this.selectedDate,
     required this.onSelectDate,
+    required this.onOpenDay,
     required this.onCalendarViewChanged,
     required this.onDaySchedulePreviewChanged,
     required this.onDaySchedulePreviewCleared,
@@ -5210,6 +5346,7 @@ class _CalendarPeriodSummary extends StatelessWidget {
   final List<_MonthMetrics> yearMetrics;
   final DateTime selectedDate;
   final ValueChanged<DateTime> onSelectDate;
+  final Future<void> Function(DateTime date) onOpenDay;
   final Future<void> Function(_CalendarView view) onCalendarViewChanged;
   final void Function({
     required int startMinutes,
@@ -5252,10 +5389,7 @@ class _CalendarPeriodSummary extends StatelessWidget {
       _CalendarView.month => _CalendarMonthSummary(
         days: days,
         monthMetrics: monthMetrics,
-        onOpenDay: (date) async {
-          onSelectDate(date);
-          await onCalendarViewChanged(_CalendarView.day);
-        },
+        onOpenDay: onOpenDay,
       ),
       _CalendarView.year => _CalendarYearSummary(
         yearMetrics: yearMetrics,
@@ -5417,329 +5551,214 @@ class _AgendaWeekCompactOverview extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final selectedMetrics = metrics.firstWhere(
-      (day) => _isSameDay(day.date, selectedDate),
-      orElse: () => metrics.first,
-    );
-    final focusRange = _resolveStableAgendaRangeForSchedule(
-      selectedMetrics.schedule,
-    );
-    final timelineHeight = focusRange.timelineHeight(
-      pixelsPerHour: 24,
-      minHeight: 260,
+    final overviewRange = _resolveAgendaRangeForSchedules(
+      metrics.map((day) => day.schedule),
     );
     final now = DateTime.now();
     final nowMinutes = (now.hour * 60) + now.minute;
-    final measurementSegments = _buildAgendaMeasurementSegments(
-      schedule: selectedMetrics.schedule,
-      session: null,
-      nowMinutes: nowMinutes,
-    );
-    final workedSummary = _buildAgendaWorkedSummary(
-      measurementSegments: measurementSegments,
-    );
-    final registeredMinutes =
-        selectedMetrics.workedMinutes + selectedMetrics.leaveMinutes;
-
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final columnCount = constraints.maxWidth >= 560 ? 3 : 2;
-        const spacing = 10.0;
-        final itemWidth =
-            (constraints.maxWidth - (spacing * (columnCount - 1))) /
-            columnCount;
-
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Tocca un giorno per vederlo in grande.',
-              style: theme.textTheme.bodyMedium,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (var index = 0; index < metrics.length; index += 1) ...[
+          _CompactWeekTimelineRow(
+            metrics: metrics[index],
+            range: overviewRange,
+            measurementSegments: _buildAgendaMeasurementSegments(
+              schedule: metrics[index].schedule,
+              session: null,
+              nowMinutes: nowMinutes,
             ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: spacing,
-              runSpacing: spacing,
-              children: [
-                for (final day in metrics)
-                  SizedBox(
-                    width: itemWidth,
-                    child: _CompactWeekDayCard(
-                      metrics: day,
-                      isSelected: _isSameDay(day.date, selectedMetrics.date),
-                      onTap: () => onSelectDate(day.date),
-                    ),
-                  ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: theme.colorScheme.surfaceContainerLow,
-                borderRadius: BorderRadius.circular(22),
-                border: Border.all(color: theme.colorScheme.outlineVariant),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Giorno selezionato',
-                    style: theme.textTheme.labelLarge?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              '${_formatWeekdayShortLabel(selectedMetrics.date)} ${_formatCompactDate(selectedMetrics.date)}',
-                              style: theme.textTheme.titleMedium?.copyWith(
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              _formatScheduleWindowDetails(
-                                selectedMetrics.schedule,
-                              ),
-                              style: theme.textTheme.bodyMedium,
-                            ),
-                          ],
-                        ),
-                      ),
-                      if (selectedMetrics.hasOverride)
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 6,
-                          ),
-                          decoration: BoxDecoration(
-                            color: theme.colorScheme.secondary.withValues(
-                              alpha: 0.14,
-                            ),
-                            borderRadius: BorderRadius.circular(999),
-                          ),
-                          child: Text(
-                            'Modificato',
-                            style: theme.textTheme.labelMedium?.copyWith(
-                              color: theme.colorScheme.secondary,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      _WeekFocusMetricChip(
-                        label: 'Previste',
-                        value: _formatHours(selectedMetrics.expectedMinutes),
-                      ),
-                      _WeekFocusMetricChip(
-                        label: 'Registrate',
-                        value: _formatHours(registeredMinutes),
-                      ),
-                      _WeekFocusMetricChip(
-                        label: 'Saldo',
-                        value: _formatHours(
-                          selectedMetrics.balanceMinutes,
-                          signed: true,
-                        ),
-                        accentColor: _balanceColor(
-                          context,
-                          selectedMetrics.balanceMinutes,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 14),
-                  SizedBox(
-                    height: timelineHeight,
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        _AgendaHourRail(
-                          range: focusRange,
-                          height: timelineHeight,
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: _AgendaDaySurface(
-                            metrics: selectedMetrics,
-                            schedule: selectedMetrics.schedule,
-                            range: focusRange,
-                            height: timelineHeight,
-                            displayMode: _AgendaSurfaceDisplayMode.week,
-                            isSelected: true,
-                            measurementSegments: measurementSegments,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  if (workedSummary != null) ...[
-                    const SizedBox(height: 12),
-                    Text(
-                      workedSummary,
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          ],
-        );
-      },
+          ),
+          if (index < metrics.length - 1) const SizedBox(height: 12),
+        ],
+      ],
     );
   }
 }
 
-class _CompactWeekDayCard extends StatelessWidget {
-  const _CompactWeekDayCard({
+class _CompactWeekTimelineRow extends StatelessWidget {
+  const _CompactWeekTimelineRow({
     required this.metrics,
-    required this.isSelected,
-    required this.onTap,
+    required this.range,
+    required this.measurementSegments,
   });
 
   final _DayMetrics metrics;
-  final bool isSelected;
-  final VoidCallback onTap;
+  final _AgendaRange range;
+  final List<_AgendaMeasurementSegment> measurementSegments;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    final registeredMinutes = metrics.workedMinutes + metrics.leaveMinutes;
-    final backgroundColor = isSelected
-        ? colorScheme.primary
-        : colorScheme.surfaceContainerLow;
-    final borderColor = isSelected
-        ? colorScheme.primary
+    final schedule = metrics.schedule;
+    final startMinutes = parseTimeInput(schedule.startTime);
+    final endMinutes = parseTimeInput(schedule.endTime);
+    final hasStructuredSchedule =
+        startMinutes != null && endMinutes != null && endMinutes > startMinutes;
+    final effectiveSegments = hasStructuredSchedule
+        ? _resolveEffectiveAgendaSegments(
+            startMinutes: startMinutes,
+            endMinutes: endMinutes,
+            measurementSegments: measurementSegments,
+          )
+        : const <_AgendaMeasurementSegment>[];
+    final workColor = metrics.hasOverride
+        ? colorScheme.secondary.withValues(alpha: 0.28)
+        : colorScheme.primary.withValues(alpha: 0.26);
+    final pauseColor = colorScheme.secondary.withValues(alpha: 0.56);
+    final rowBorderColor = metrics.hasOverride
+        ? colorScheme.secondary.withValues(alpha: 0.45)
         : colorScheme.outlineVariant;
-    final primaryTextColor = isSelected
-        ? colorScheme.onPrimary
-        : colorScheme.onSurface;
-    final secondaryTextColor = isSelected
-        ? colorScheme.onPrimary.withValues(alpha: 0.82)
-        : colorScheme.onSurfaceVariant;
+    final rowFillColor = metrics.hasOverride
+        ? Color.lerp(
+            colorScheme.surfaceContainerLow,
+            colorScheme.secondary,
+            0.1,
+          )!
+        : colorScheme.surfaceContainerLow;
+    final helperText = schedule.targetMinutes <= 0
+        ? 'Giorno libero'
+        : _compactWeekScheduleLabel(schedule);
 
-    String subtitle() {
-      if (registeredMinutes > 0) {
-        return '${_formatHoursInput(registeredMinutes)} registrate';
-      }
-      if (metrics.expectedMinutes <= 0) {
-        return 'Giorno libero';
-      }
-      return '${_formatHoursInput(metrics.expectedMinutes)} previste';
-    }
-
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(18),
-        onTap: onTap,
-        child: Ink(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: backgroundColor,
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: borderColor, width: isSelected ? 1.4 : 1),
-          ),
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        SizedBox(
+          width: 76,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                '${_formatWeekdayShortLabel(metrics.date)} ${_formatCompactDate(metrics.date)}',
+                _formatWeekdayShortLabel(metrics.date),
                 style: theme.textTheme.titleSmall?.copyWith(
-                  color: primaryTextColor,
                   fontWeight: FontWeight.w800,
                 ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
               ),
-              const SizedBox(height: 6),
+              const SizedBox(height: 2),
               Text(
-                _compactWeekScheduleLabel(metrics.schedule),
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: secondaryTextColor,
-                  fontWeight: FontWeight.w700,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-              const SizedBox(height: 4),
-              Text(
-                subtitle(),
+                _formatCompactDate(metrics.date),
                 style: theme.textTheme.bodySmall?.copyWith(
-                  color: secondaryTextColor,
+                  color: colorScheme.onSurfaceVariant,
                 ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
               ),
             ],
           ),
         ),
-      ),
-    );
-  }
-}
+        const SizedBox(width: 10),
+        Expanded(
+          child: Container(
+            key: ValueKey(
+              'calendar-week-row-${DashboardService.defaultEntryDateOf(metrics.date)}',
+            ),
+            height: 60,
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            decoration: BoxDecoration(
+              color: rowFillColor,
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: rowBorderColor),
+            ),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                double leftForMinute(int minute) {
+                  if (range.totalMinutes <= 0) {
+                    return 0;
+                  }
+                  final clamped = minute.clamp(
+                    range.startMinutes,
+                    range.endMinutes,
+                  );
+                  return ((clamped - range.startMinutes) / range.totalMinutes) *
+                      constraints.maxWidth;
+                }
 
-class _WeekFocusMetricChip extends StatelessWidget {
-  const _WeekFocusMetricChip({
-    required this.label,
-    required this.value,
-    this.accentColor,
-  });
-
-  final String label;
-  final String value;
-  final Color? accentColor;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final resolvedAccentColor = accentColor ?? theme.colorScheme.primary;
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: resolvedAccentColor.withValues(alpha: 0.35)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            label,
-            style: theme.textTheme.labelMedium?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-              fontWeight: FontWeight.w700,
+                return Stack(
+                  children: [
+                    for (final mark in range.hourMarks)
+                      Positioned(
+                        left: leftForMinute(mark),
+                        top: 0,
+                        bottom: 0,
+                        child: Container(
+                          width: 1,
+                          color: colorScheme.outlineVariant.withValues(
+                            alpha: 0.24,
+                          ),
+                        ),
+                      ),
+                    if (!hasStructuredSchedule)
+                      Center(
+                        child: Text(
+                          helperText,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.w700,
+                            color: colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ),
+                    if (hasStructuredSchedule) ...[
+                      for (final segment in effectiveSegments)
+                        Positioned(
+                          left: leftForMinute(segment.startMinutes),
+                          top: 16,
+                          width: math.max(
+                            10,
+                            leftForMinute(segment.endMinutes) -
+                                leftForMinute(segment.startMinutes),
+                          ),
+                          height: 18,
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              color:
+                                  segment.kind ==
+                                      _AgendaMeasurementSegmentKind.pause
+                                  ? pauseColor
+                                  : workColor,
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                          ),
+                        ),
+                      Positioned(
+                        left: 0,
+                        top: 0,
+                        child: Text(
+                          formatTimeInput(startMinutes),
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: colorScheme.onSurfaceVariant,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      Positioned(
+                        right: 0,
+                        top: 0,
+                        child: Text(
+                          formatTimeInput(endMinutes),
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: colorScheme.onSurfaceVariant,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      Positioned(
+                        left: 0,
+                        bottom: 0,
+                        child: Text(
+                          helperText,
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: colorScheme.onSurfaceVariant,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                );
+              },
             ),
           ),
-          const SizedBox(height: 2),
-          Text(
-            value,
-            style: theme.textTheme.titleSmall?.copyWith(
-              color: resolvedAccentColor,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }
@@ -6175,6 +6194,7 @@ class _AgendaDaySurfaceState extends State<_AgendaDaySurface> {
         ),
       ),
       child: Stack(
+        clipBehavior: Clip.none,
         children: [
           for (final mark in widget.range.hourMarks)
             Positioned(
@@ -7512,6 +7532,9 @@ class _CalendarDayCell extends StatelessWidget {
             constraints.maxHeight < 80;
         final isTooShortForSummary =
             constraints.maxHeight < 64 || constraints.maxWidth < 56;
+        final dayNumberAlignment = isTooShortForSummary
+            ? Alignment.center
+            : Alignment.centerLeft;
         final cellPadding = isMicroCell
             ? 3.0
             : (isUltraCompactCell ? 5.0 : (isCompact ? 7.0 : 9.0));
@@ -7541,11 +7564,16 @@ class _CalendarDayCell extends StatelessWidget {
                     : null,
               ),
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: isTooShortForSummary
+                    ? MainAxisAlignment.center
+                    : MainAxisAlignment.start,
+                crossAxisAlignment: isTooShortForSummary
+                    ? CrossAxisAlignment.center
+                    : CrossAxisAlignment.start,
                 children: [
                   FittedBox(
                     fit: BoxFit.scaleDown,
-                    alignment: Alignment.centerLeft,
+                    alignment: dayNumberAlignment,
                     child: Text(
                       '${day.date!.day}',
                       maxLines: 1,
@@ -7997,13 +8025,8 @@ class _YearMonthCard extends StatelessWidget {
                     fontWeight: FontWeight.w800,
                   ),
                 ),
-                const SizedBox(height: 10),
-                Text(
-                  'Tocca per aprire il mese',
-                  style: theme.textTheme.bodyMedium,
-                ),
                 if (metrics.overrideCount > 0) ...[
-                  const SizedBox(height: 6),
+                  const SizedBox(height: 10),
                   Text(
                     metrics.overrideCount == 1
                         ? '1 modifica presente'
@@ -8853,14 +8876,14 @@ class _DayCalendarSettingsCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Calendario - Giorno',
+            'Sezione Oggi',
             style: theme.textTheme.titleMedium?.copyWith(
               fontWeight: FontWeight.w800,
             ),
           ),
           const SizedBox(height: 8),
           Text(
-            'Decidi cosa vuoi vedere e in che ordine nel tab Giorno del calendario.',
+            'Decidi cosa vuoi vedere e in che ordine nella sezione Oggi.',
             style: theme.textTheme.bodyMedium,
           ),
           const SizedBox(height: 16),
@@ -9452,6 +9475,7 @@ class _RgbSliderRow extends StatelessWidget {
 
 class _SupportTicketCard extends StatelessWidget {
   const _SupportTicketCard({
+    required this.ticketApiBaseUrl,
     required this.formKey,
     required this.selectedCategory,
     required this.onCategoryChanged,
@@ -9474,6 +9498,7 @@ class _SupportTicketCard extends StatelessWidget {
     required this.onSubmitReply,
   });
 
+  final String ticketApiBaseUrl;
   final GlobalKey<FormState> formKey;
   final SupportTicketCategory selectedCategory;
   final ValueChanged<SupportTicketCategory> onCategoryChanged;
@@ -9516,6 +9541,12 @@ class _SupportTicketCard extends StatelessWidget {
     final selectedThread = selectedTrackedTicket == null
         ? null
         : ticketThreadsById[selectedTrackedTicket.id];
+    final normalizedTicketApiBaseUrl = ticketApiBaseUrl.trim().isEmpty
+        ? 'non configurata'
+        : ticketApiBaseUrl.trim();
+    final ticketApiHint = normalizedTicketApiBaseUrl == 'non configurata'
+        ? 'I ticket richiedono un backend HTTP attivo.'
+        : 'I ticket richiedono un backend HTTP attivo. API corrente: $normalizedTicketApiBaseUrl';
 
     return _SectionCard(
       title: 'Ticket',
@@ -9526,6 +9557,34 @@ class _SupportTicketCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            Container(
+              key: const ValueKey('ticket-api-hint'),
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surfaceContainerLow,
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(
+                  color: Theme.of(context).colorScheme.outlineVariant,
+                ),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(
+                    Icons.cloud_outlined,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      ticketApiHint,
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 18),
             Row(
               children: [
                 Text(
@@ -11726,7 +11785,7 @@ class _OverviewCard extends StatelessWidget {
               OutlinedButton.icon(
                 onPressed: () => onOpenTodayCalendar(),
                 icon: const Icon(Icons.edit_calendar_outlined),
-                label: const Text('Modifica oggi'),
+                label: const Text('Apri giorno'),
               ),
             ],
           ),
@@ -11823,7 +11882,7 @@ class _OverviewCard extends StatelessWidget {
   ({String label, IconData icon, VoidCallback onPressed}) _primaryAction() {
     return switch (todayStatus) {
       _TodayStatus.dayOff => (
-        label: 'Controlla il calendario',
+        label: 'Controlla il giorno',
         icon: Icons.calendar_month_outlined,
         onPressed: () => unawaited(onOpenTodayCalendar()),
       ),
@@ -11843,7 +11902,7 @@ class _OverviewCard extends StatelessWidget {
         onPressed: onOpenWorkEntry,
       ),
       _TodayStatus.completed => (
-        label: 'Rivedi i dettagli di oggi',
+        label: 'Rivedi la giornata',
         icon: Icons.visibility_outlined,
         onPressed: () => unawaited(onOpenTodayCalendar()),
       ),
@@ -12010,6 +12069,8 @@ class _TodayReminderCard extends StatelessWidget {
 extension on _HomeSection {
   String get label {
     switch (this) {
+      case _HomeSection.day:
+        return 'Oggi';
       case _HomeSection.overview:
         return 'Oggi';
       case _HomeSection.quickEntry:
@@ -12027,6 +12088,8 @@ extension on _HomeSection {
 
   IconData get icon {
     switch (this) {
+      case _HomeSection.day:
+        return Icons.view_day_outlined;
       case _HomeSection.overview:
         return Icons.today_outlined;
       case _HomeSection.quickEntry:

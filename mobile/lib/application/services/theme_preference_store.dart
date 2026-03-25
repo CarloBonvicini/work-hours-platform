@@ -15,6 +15,7 @@ class AppAppearanceSettings {
     required this.textScale,
     required this.dayCalendarLayoutMode,
     required this.showDayWorkdayCard,
+    required this.expandDayWorkdayCard,
     required this.showDayTargetMinutes,
     required this.showDayEndTime,
     required this.showDayBreakMinutes,
@@ -28,6 +29,7 @@ class AppAppearanceSettings {
   final double textScale;
   final DayCalendarLayoutMode dayCalendarLayoutMode;
   final bool showDayWorkdayCard;
+  final bool expandDayWorkdayCard;
   final bool showDayTargetMinutes;
   final bool showDayEndTime;
   final bool showDayBreakMinutes;
@@ -40,6 +42,7 @@ class AppAppearanceSettings {
     textScale: 1,
     dayCalendarLayoutMode: DayCalendarLayoutMode.quickEditorFirst,
     showDayWorkdayCard: true,
+    expandDayWorkdayCard: true,
     showDayTargetMinutes: false,
     showDayEndTime: true,
     showDayBreakMinutes: true,
@@ -55,6 +58,7 @@ class AppAppearanceSettings {
     double? textScale,
     DayCalendarLayoutMode? dayCalendarLayoutMode,
     bool? showDayWorkdayCard,
+    bool? expandDayWorkdayCard,
     bool? showDayTargetMinutes,
     bool? showDayEndTime,
     bool? showDayBreakMinutes,
@@ -69,6 +73,7 @@ class AppAppearanceSettings {
       dayCalendarLayoutMode:
           dayCalendarLayoutMode ?? this.dayCalendarLayoutMode,
       showDayWorkdayCard: showDayWorkdayCard ?? this.showDayWorkdayCard,
+      expandDayWorkdayCard: expandDayWorkdayCard ?? this.expandDayWorkdayCard,
       showDayTargetMinutes: showDayTargetMinutes ?? this.showDayTargetMinutes,
       showDayEndTime: showDayEndTime ?? this.showDayEndTime,
       showDayBreakMinutes: showDayBreakMinutes ?? this.showDayBreakMinutes,
@@ -110,6 +115,9 @@ class AppAppearanceSettings {
       showDayWorkdayCard:
           json['showDayWorkdayCard'] as bool? ??
           AppAppearanceSettings.defaults.showDayWorkdayCard,
+      expandDayWorkdayCard:
+          json['expandDayWorkdayCard'] as bool? ??
+          AppAppearanceSettings.defaults.expandDayWorkdayCard,
       showDayTargetMinutes:
           json['showDayTargetMinutes'] as bool? ??
           AppAppearanceSettings.defaults.showDayTargetMinutes,
@@ -136,6 +144,7 @@ class AppAppearanceSettings {
       'textScale': textScale,
       'dayCalendarLayoutMode': dayCalendarLayoutMode.name,
       'showDayWorkdayCard': showDayWorkdayCard,
+      'expandDayWorkdayCard': expandDayWorkdayCard,
       'showDayTargetMinutes': showDayTargetMinutes,
       'showDayEndTime': showDayEndTime,
       'showDayBreakMinutes': showDayBreakMinutes,
@@ -172,6 +181,7 @@ class SharedPreferencesThemePreferenceStore implements ThemePreferenceStore {
   static const _dayCalendarLayoutModeKey =
       'appearance.day_calendar_layout_mode';
   static const _showDayWorkdayCardKey = 'appearance.show_day_workday_card';
+  static const _expandDayWorkdayCardKey = 'appearance.expand_day_workday_card';
   static const _showDayTargetMinutesKey = 'appearance.show_day_target_minutes';
   static const _showDayEndTimeKey = 'appearance.show_day_end_time';
   static const _showDayBreakMinutesKey = 'appearance.show_day_break_minutes';
@@ -235,6 +245,9 @@ class SharedPreferencesThemePreferenceStore implements ThemePreferenceStore {
       showDayWorkdayCard:
           preferences.getBool(_showDayWorkdayCardKey) ??
           AppAppearanceSettings.defaults.showDayWorkdayCard,
+      expandDayWorkdayCard:
+          preferences.getBool(_expandDayWorkdayCardKey) ??
+          AppAppearanceSettings.defaults.expandDayWorkdayCard,
       showDayTargetMinutes:
           preferences.getBool(_showDayTargetMinutesKey) ??
           AppAppearanceSettings.defaults.showDayTargetMinutes,
@@ -278,6 +291,10 @@ class SharedPreferencesThemePreferenceStore implements ThemePreferenceStore {
     await preferences.setBool(
       _showDayWorkdayCardKey,
       settings.showDayWorkdayCard,
+    );
+    await preferences.setBool(
+      _expandDayWorkdayCardKey,
+      settings.expandDayWorkdayCard,
     );
     await preferences.setBool(
       _showDayTargetMinutesKey,

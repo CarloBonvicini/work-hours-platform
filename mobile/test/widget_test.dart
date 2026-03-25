@@ -74,6 +74,7 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey('navigation-menu-button')));
     await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('navigation-option-day')), findsOneWidget);
     expect(
       find.byKey(const ValueKey('navigation-option-calendar')),
       findsOneWidget,
@@ -86,16 +87,10 @@ void main() {
       find.byKey(const ValueKey('navigation-option-ticket')),
       findsOneWidget,
     );
-    await tester.tap(find.byKey(const ValueKey('navigation-option-calendar')));
+    await tester.tap(find.byKey(const ValueKey('navigation-option-day')));
     await tester.pumpAndSettle();
 
-    expect(find.text('Calendario'), findsWidgets);
-    expect(
-      find.byKey(const ValueKey('calendar-record-start-button')),
-      findsNothing,
-    );
-    await tester.tap(find.text('Giorno').last);
-    await tester.pumpAndSettle();
+    expect(find.text('Oggi'), findsWidgets);
     expect(
       find.byKey(const ValueKey('calendar-record-start-button')),
       findsOneWidget,
@@ -134,6 +129,20 @@ void main() {
       findsNothing,
     );
     expect(find.text('Ore previste per questo giorno'), findsNothing);
+
+    await tester.tap(find.byKey(const ValueKey('navigation-menu-button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('navigation-option-calendar')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Calendario'), findsWidgets);
+    expect(find.text('Settimana'), findsWidgets);
+    expect(find.text('Mese'), findsWidgets);
+    expect(find.text('Anno'), findsWidgets);
+    expect(
+      find.byKey(const ValueKey('calendar-record-start-button')),
+      findsNothing,
+    );
   });
 
   testWidgets('uses a compact week layout on narrow screens', (tester) async {
@@ -167,8 +176,103 @@ void main() {
     await tester.tap(find.text('Settimana').last);
     await tester.pumpAndSettle();
 
-    expect(find.text('Tocca un giorno per vederlo in grande.'), findsOneWidget);
-    expect(find.text('Giorno selezionato'), findsOneWidget);
+    expect(find.text('Tocca un giorno per vederlo in grande.'), findsNothing);
+    expect(find.text('Giorno selezionato'), findsNothing);
+    expect(
+      find.byKey(const ValueKey('calendar-week-row-2026-03-23')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('calendar-week-row-2026-03-29')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('persists collapsed state for the today workday card', (
+    tester,
+  ) async {
+    final themePreferenceStore = _FakeThemePreferenceStore();
+
+    Future<void> openDaySection() async {
+      await tester.tap(find.byKey(const ValueKey('navigation-menu-button')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('navigation-option-day')));
+      await tester.pumpAndSettle();
+    }
+
+    await tester.pumpWidget(
+      WorkHoursApp(
+        dashboardService: DashboardService(
+          repository: _FakeDashboardRepository(),
+        ),
+        appUpdateService: _FakeAppUpdateService(),
+        updateReminderStore: _FakeUpdateReminderStore(),
+        onboardingPreferenceStore: _FakeOnboardingPreferenceStore(
+          hasCompleted: true,
+        ),
+        themePreferenceStore: themePreferenceStore,
+        workdayStartStore: _FakeWorkdayStartStore(),
+        supportTicketStore: _FakeSupportTicketStore(),
+        hasCompletedInitialSetup: true,
+      ),
+    );
+
+    await tester.pumpAndSettle();
+    if (find.text('Ricordamelo piu tardi').evaluate().isNotEmpty) {
+      await tester.tap(find.text('Ricordamelo piu tardi'));
+      await tester.pumpAndSettle();
+    }
+    await openDaySection();
+
+    expect(
+      find.byKey(const ValueKey('calendar-record-start-button')),
+      findsOneWidget,
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey('calendar-workday-card-toggle-button')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('calendar-record-start-button')),
+      findsNothing,
+    );
+    expect(themePreferenceStore.settings.expandDayWorkdayCard, isFalse);
+
+    await tester.pumpWidget(
+      WorkHoursApp(
+        dashboardService: DashboardService(
+          repository: _FakeDashboardRepository(),
+        ),
+        appUpdateService: _FakeAppUpdateService(),
+        updateReminderStore: _FakeUpdateReminderStore(),
+        onboardingPreferenceStore: _FakeOnboardingPreferenceStore(
+          hasCompleted: true,
+        ),
+        themePreferenceStore: themePreferenceStore,
+        workdayStartStore: _FakeWorkdayStartStore(),
+        supportTicketStore: _FakeSupportTicketStore(),
+        initialAppearanceSettings: themePreferenceStore.settings,
+        hasCompletedInitialSetup: true,
+      ),
+    );
+
+    await tester.pumpAndSettle();
+    if (find.text('Ricordamelo piu tardi').evaluate().isNotEmpty) {
+      await tester.tap(find.text('Ricordamelo piu tardi'));
+      await tester.pumpAndSettle();
+    }
+    await openDaySection();
+
+    expect(
+      find.byKey(const ValueKey('calendar-workday-card-toggle-button')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('calendar-record-start-button')),
+      findsNothing,
+    );
   });
 
   testWidgets('checks for updates again when app resumes', (tester) async {
@@ -413,6 +517,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('navigation-option-ticket')));
     await tester.pumpAndSettle();
 
+    expect(find.byKey(const ValueKey('ticket-api-hint')), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('ticket-category-feature')));
     await tester.pumpAndSettle();
     await tester.enterText(
@@ -593,7 +698,10 @@ class _FakeThemePreferenceStore implements ThemePreferenceStore {
 }
 
 class _FakeWorkdayStartStore implements WorkdayStartStore {
-  final Map<String, WorkdaySession> _values = {};
+  _FakeWorkdayStartStore({Map<String, WorkdaySession>? initialValues})
+    : _values = {...?initialValues};
+
+  final Map<String, WorkdaySession> _values;
 
   @override
   Future<void> clearSession(String isoDate) async {
@@ -666,6 +774,22 @@ class _FakeSupportTicketStore implements SupportTicketStore {
 }
 
 class _FakeDashboardRepository implements DashboardRepository {
+  _FakeDashboardRepository({
+    Map<String, ScheduleOverride>? initialScheduleOverrides,
+  }) : _scheduleOverridesByDate = {
+         '2026-03-04': const ScheduleOverride(
+           id: 'override-1',
+           date: '2026-03-04',
+           targetMinutes: 240,
+           startTime: '09:00',
+           endTime: '13:30',
+           breakMinutes: 30,
+           note: 'Scambio turno',
+         ),
+         ...?initialScheduleOverrides,
+       };
+
+  final Map<String, ScheduleOverride> _scheduleOverridesByDate;
   final Map<String, SupportTicketThread> _ticketThreadsById = {};
   String? savedFullName;
   int? savedDailyTargetMinutes;
@@ -751,8 +875,8 @@ class _FakeDashboardRepository implements DashboardRepository {
           sunday: DaySchedule(targetMinutes: 0),
         ),
       ),
-      summary: const MonthlySummary(
-        month: '2026-03',
+      summary: MonthlySummary(
+        month: month,
         expectedMinutes: 10350,
         workedMinutes: 900,
         leaveMinutes: 60,
@@ -775,17 +899,9 @@ class _FakeDashboardRepository implements DashboardRepository {
           note: 'Visita medica',
         ),
       ],
-      scheduleOverrides: const [
-        ScheduleOverride(
-          id: 'override-1',
-          date: '2026-03-04',
-          targetMinutes: 240,
-          startTime: '09:00',
-          endTime: '13:30',
-          breakMinutes: 30,
-          note: 'Scambio turno',
-        ),
-      ],
+      scheduleOverrides: _scheduleOverridesByDate.values.toList(
+        growable: false,
+      ),
       apiBaseUrl: 'http://localhost:8080/',
     );
   }
@@ -816,6 +932,15 @@ class _FakeDashboardRepository implements DashboardRepository {
     String? note,
     required String month,
   }) {
+    _scheduleOverridesByDate[date] = ScheduleOverride(
+      id: 'override-$date',
+      date: date,
+      targetMinutes: targetMinutes,
+      startTime: startTime,
+      endTime: endTime,
+      breakMinutes: breakMinutes,
+      note: note,
+    );
     return loadSnapshot(month: month);
   }
 
@@ -824,6 +949,7 @@ class _FakeDashboardRepository implements DashboardRepository {
     required String date,
     required String month,
   }) {
+    _scheduleOverridesByDate.remove(date);
     return loadSnapshot(month: month);
   }
 
