@@ -163,6 +163,8 @@ jobs:
           fi
 
           compose "${compose_files[@]}" pull
+          compose "${compose_files[@]}" stop api || true
+          compose "${compose_files[@]}" rm -f api || true
           compose "${compose_files[@]}" up -d --remove-orphans
           docker image prune -f
 

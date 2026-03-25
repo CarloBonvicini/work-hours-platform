@@ -62,9 +62,11 @@ describe("Admin dashboard", () => {
     expect(response.statusCode).toBe(200);
     expect(response.headers["content-type"]).toContain("text/html");
     expect(response.body).toContain("Admin Dashboard");
-    expect(response.body).toContain("Il super admin viene definito dai secret di deploy");
-    expect(response.body).toContain("Crea profilo");
+    expect(response.body).toContain("Accedi con un profilo gia autorizzato");
+    expect(response.body).toContain("Non hai ancora un profilo?");
+    expect(response.body).toContain("Torna al login");
     expect(response.body).toContain("SUPER_ADMIN_EMAIL");
+    expect(response.body).not.toContain("ADMIN_SETUP_TOKEN");
   });
 
   it("protects the overview api when an admin token is configured", async () => {

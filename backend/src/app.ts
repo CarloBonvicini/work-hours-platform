@@ -2044,9 +2044,19 @@ function renderAdminPage(options: {
       .auth-shell { width: min(100%, 920px); padding: 20px; border-color: rgba(117,190,255,0.24); background: rgba(22,26,35,0.62); backdrop-filter: blur(16px); box-shadow: 0 22px 50px rgba(0,0,0,0.4), 0 0 0 1px rgba(117,190,255,0.14), 0 0 34px rgba(14,99,156,0.22); }
       .auth-view { display: grid; gap: 14px; }
       .auth-cta { color: var(--muted); font-size: 14px; }
-      .auth-grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+      .auth-grid { display: grid; gap: 14px; grid-template-columns: minmax(0, 460px); justify-content: center; }
       .auth-card { align-content: start; }
       .auth-card h3 { margin-bottom: 6px; }
+      .auth-switch { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; color: var(--muted); font-size: 13px; }
+      .link-button {
+        min-height: 0;
+        padding: 0;
+        border: 0;
+        background: transparent;
+        color: var(--info);
+        font-weight: 700;
+      }
+      .link-button:hover { background: transparent; color: #bfe2ff; }
       .pill { display: inline-flex; align-items: center; gap: 6px; width: fit-content; border-radius: 999px; padding: 5px 10px; font-size: 12px; font-weight: 700; }
       .pill.info { background: rgba(117, 190, 255, 0.12); color: var(--info); }
       .pill.warning { background: var(--warning-soft); color: var(--warning); }
@@ -2160,17 +2170,16 @@ function renderAdminPage(options: {
         </div>
         <p class="eyebrow">Work Hours Platform</p>
         <h1>Admin Console</h1>
-        <p class="lede">Layout ispirato alla dashboard admin di AutoCaptionServer, adattato a release, storage e supporto di Work Hours Platform.</p>
       </section>
 
       <section class="panel auth-stage" id="admin-auth-panel">
         <div class="card auth-shell">
           <section class="auth-view">
             <h2>Accesso admin</h2>
-            <p class="lede">Il super admin viene definito dai secret di deploy. Qui puoi fare login oppure creare un profilo normale da promuovere in seguito.</p>
+            <p class="lede">Accedi con un profilo gia autorizzato. Se devi prima creare un account, apri la registrazione dal link qui sotto.</p>
             <div id="admin-auth-status" class="status info">Accedi con un profilo admin per aprire la dashboard.</div>
             <div class="auth-grid">
-              <article class="workspace-card auth-card">
+              <article class="workspace-card auth-card" id="admin-login-card">
                 <span class="pill info">Login</span>
                 <div>
                   <h3>Entra in dashboard</h3>
@@ -2187,12 +2196,16 @@ function renderAdminPage(options: {
                     <button class="primary" id="admin-login-btn" type="submit">Login</button>
                   </div>
                 </form>
+                <div class="auth-switch">
+                  <span>Non hai ancora un profilo?</span>
+                  <button class="link-button" id="admin-show-register-btn" type="button">Registrati</button>
+                </div>
               </article>
 
-              <article class="workspace-card auth-card">
+              <article class="workspace-card auth-card hidden" id="admin-register-card">
                 <span class="pill success">Registrazione</span>
                 <div>
-                  <h3>Crea profilo</h3>
+                  <h3>Registra profilo</h3>
                   <p class="lede">La registrazione crea un account normale. Solo il super admin puo promuoverti ad admin.</p>
                 </div>
                 <form id="admin-register-form">
@@ -2206,9 +2219,13 @@ function renderAdminPage(options: {
                     <button type="submit">Registrati</button>
                   </div>
                 </form>
+                <div class="auth-switch">
+                  <span>Hai gia un profilo?</span>
+                  <button class="link-button" id="admin-show-login-btn" type="button">Torna al login</button>
+                </div>
               </article>
             </div>
-            <p class="auth-cta" id="admin-auth-cta">Configura <code>SUPER_ADMIN_EMAIL</code> e <code>SUPER_ADMIN_PASSWORD</code> nel secret runtime del backend. Quel profilo potra poi creare e gestire gli altri admin.</p>
+            <p class="auth-cta" id="admin-auth-cta">Il super admin si definisce nel runtime del backend con <code>SUPER_ADMIN_EMAIL</code> e <code>SUPER_ADMIN_PASSWORD</code>. Quel profilo potra poi creare e gestire gli altri admin.</p>
           </section>
         </div>
       </section>
@@ -2315,12 +2332,16 @@ function renderAdminPage(options: {
       const dashboardPanel = document.getElementById("admin-dashboard-panel");
       const authStatusBox = document.getElementById("admin-auth-status");
       const authCta = document.getElementById("admin-auth-cta");
+      const loginCard = document.getElementById("admin-login-card");
       const loginForm = document.getElementById("admin-login-form");
       const emailInput = document.getElementById("admin-email-input");
       const passwordInput = document.getElementById("admin-password-input");
+      const registerCard = document.getElementById("admin-register-card");
       const registerForm = document.getElementById("admin-register-form");
       const registerEmailInput = document.getElementById("admin-register-email-input");
       const registerPasswordInput = document.getElementById("admin-register-password-input");
+      const showRegisterButton = document.getElementById("admin-show-register-btn");
+      const showLoginButton = document.getElementById("admin-show-login-btn");
       const statusBox = document.getElementById("admin-status");
       const statsContainer = document.getElementById("admin-stats");
       const ticketList = document.getElementById("admin-ticket-list");
@@ -2346,6 +2367,7 @@ function renderAdminPage(options: {
         tickets: [],
         users: [],
         selectedTicketId: null,
+        authMode: "login",
         superAdminConfigured: bodyDataset.superAdminConfigured === "true"
       };
 
@@ -2390,9 +2412,14 @@ function renderAdminPage(options: {
       }
       function defaultAuthMessage() {
         if (!state.superAdminConfigured) {
-          return "Configura SUPER_ADMIN_EMAIL e SUPER_ADMIN_PASSWORD nel runtime env del backend per abilitare il super admin.";
+          return "Login disponibile, ma prima va configurato il super admin nel runtime del backend.";
         }
         return "Accedi con un profilo admin per aprire la dashboard.";
+      }
+      function updateAuthMode(nextMode = "login") {
+        state.authMode = nextMode === "register" ? "register" : "login";
+        loginCard?.classList.toggle("hidden", state.authMode !== "login");
+        registerCard?.classList.toggle("hidden", state.authMode !== "register");
       }
       function updateAuthPanel() {
         if (authCta) {
@@ -2642,6 +2669,7 @@ function renderAdminPage(options: {
           authPanel.classList.remove("hidden");
           dashboardPanel.classList.add("hidden");
           resetDashboardState();
+          updateAuthMode("login");
           updateAuthPanel();
           setStatus(defaultAuthMessage(), "info", "auth");
           return;
@@ -2656,6 +2684,7 @@ function renderAdminPage(options: {
           resetDashboardState();
           authPanel.classList.remove("hidden");
           dashboardPanel.classList.add("hidden");
+          updateAuthMode("login");
           state.token = "";
           writeToken("");
           updateAuthPanel();
@@ -2738,8 +2767,10 @@ function renderAdminPage(options: {
             }
           } catch (_) {}
 
+          updateAuthMode("login");
+          if (passwordInput) passwordInput.value = "";
           setStatus(
-            "Profilo creato. Ora il super admin deve promuoverti dalla sezione Accessi e ruoli.",
+            "Profilo creato. Ora fai login quando il super admin ti avra promosso, oppure attendi la promozione dalla sezione Accessi e ruoli.",
             "success",
             "auth"
           );
@@ -2754,6 +2785,18 @@ function renderAdminPage(options: {
       registerForm?.addEventListener("submit", (event) => {
         event.preventDefault();
         registerAccount();
+      });
+      showRegisterButton?.addEventListener("click", () => {
+        updateAuthMode("register");
+        setStatus(
+          "La registrazione crea un profilo normale. Solo il super admin puo darti accesso admin.",
+          "info",
+          "auth"
+        );
+      });
+      showLoginButton?.addEventListener("click", () => {
+        updateAuthMode("login");
+        setStatus(defaultAuthMessage(), "info", "auth");
       });
       document.getElementById("admin-logout-btn")?.addEventListener("click", async () => {
         const currentToken = state.token;
@@ -2774,6 +2817,7 @@ function renderAdminPage(options: {
         dashboardPanel.classList.add("hidden");
         authPanel.classList.remove("hidden");
         resetDashboardState();
+        updateAuthMode("login");
         updateAuthPanel();
         setStatus("Sessione admin chiusa.", "info", "auth");
       });
@@ -2781,6 +2825,7 @@ function renderAdminPage(options: {
       document.getElementById("admin-refresh-tickets-btn")?.addEventListener("click", bootstrapDashboard);
       document.getElementById("admin-refresh-users-btn")?.addEventListener("click", bootstrapDashboard);
       updateAuthPanel();
+      updateAuthMode("login");
       state.token = readToken();
       if (state.token) {
         bootstrapDashboard();
