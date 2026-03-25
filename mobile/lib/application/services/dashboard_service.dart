@@ -80,9 +80,7 @@ class DashboardService {
     );
   }
 
-  Future<DashboardSnapshot> removeScheduleOverride({
-    required String date,
-  }) {
+  Future<DashboardSnapshot> removeScheduleOverride({required String date}) {
     return _repository.removeScheduleOverride(
       date: date,
       month: date.substring(0, 7),
@@ -96,6 +94,7 @@ class DashboardService {
     required String subject,
     required String message,
     String? appVersion,
+    List<SupportTicketUploadAttachment> attachments = const [],
   }) {
     return _repository.submitSupportTicket(
       category: category,
@@ -104,6 +103,7 @@ class DashboardService {
       subject: subject,
       message: message,
       appVersion: appVersion,
+      attachments: attachments,
     );
   }
 

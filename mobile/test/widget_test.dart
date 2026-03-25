@@ -186,7 +186,10 @@ void main() {
       find.byKey(const ValueKey('calendar-week-row-2026-03-29')),
       findsOneWidget,
     );
-    expect(find.text('Ore 6:00 / Pausa 0:30'), findsWidgets);
+    expect(find.text('Ore 6:00'), findsWidgets);
+    expect(find.text('Credito: 0:00'), findsWidgets);
+    expect(find.text('In pari'), findsNothing);
+    expect(find.text('Pausa 0:30'), findsNothing);
     expect(find.text('08:30 - 15:00'), findsNothing);
   });
 
@@ -698,6 +701,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('ticket-api-hint')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('ticket-attachments-button')),
+      findsOneWidget,
+    );
     await tester.tap(find.byKey(const ValueKey('ticket-category-feature')));
     await tester.pumpAndSettle();
     await tester.enterText(
@@ -1141,6 +1148,7 @@ class _FakeDashboardRepository implements DashboardRepository {
     required String subject,
     required String message,
     String? appVersion,
+    List<SupportTicketUploadAttachment> attachments = const [],
   }) async {
     submittedTicketCategory = category;
     submittedTicketName = name;
@@ -1156,6 +1164,18 @@ class _FakeDashboardRepository implements DashboardRepository {
       message: message,
       createdAt: DateTime(2026, 3, 20, 9, 0),
       updatedAt: DateTime(2026, 3, 20, 9, 0),
+      attachments: attachments
+          .asMap()
+          .entries
+          .map(
+            (entry) => SupportTicketAttachment(
+              id: 'attachment-${entry.key + 1}',
+              fileName: entry.value.fileName,
+              contentType: entry.value.contentType,
+              sizeBytes: entry.value.sizeBytes,
+            ),
+          )
+          .toList(growable: false),
       replies: const [],
       name: name,
       email: email,
@@ -1178,6 +1198,7 @@ class _FakeDashboardRepository implements DashboardRepository {
           message: 'Messaggio',
           createdAt: DateTime(2026, 3, 20, 9),
           updatedAt: DateTime(2026, 3, 20, 9),
+          attachments: const [],
           replies: [],
         );
   }
@@ -1196,6 +1217,7 @@ class _FakeDashboardRepository implements DashboardRepository {
       message: currentThread.message,
       createdAt: currentThread.createdAt,
       updatedAt: DateTime(2026, 3, 20, 9, 30),
+      attachments: currentThread.attachments,
       replies: [
         ...currentThread.replies,
         SupportTicketReply(

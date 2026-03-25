@@ -40,6 +40,8 @@ describe("Support tickets", () => {
     expect(response.body).toContain("Invia un ticket");
     expect(response.body).toContain("Nuova funzione");
     expect(response.body).toContain("Segnala un problema che hai trovato.");
+    expect(response.body).toContain("/admin");
+    expect(response.body).toContain("Area admin");
   });
 
   it("stores a valid support ticket on disk", async () => {
@@ -85,6 +87,70 @@ describe("Support tickets", () => {
     expect(ticket.message).toContain("vista piu leggibile");
     expect(ticket.appVersion).toBe("0.1.13");
     expect(ticket.userAgent).toBe("Vitest");
+  });
+
+  it("stores screenshot attachments and serves them back", async () => {
+    tempDirectory = await mkdtemp(path.join(os.tmpdir(), "work-hours-tickets-"));
+    process.env.TICKETS_DIR = tempDirectory;
+    app = buildApp();
+
+    const screenshotBytes = Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7Z0uoAAAAASUVORK5CYII=",
+      "base64"
+    );
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/tickets",
+      headers: {
+        "content-type": "application/json"
+      },
+      payload: {
+        category: "bug",
+        subject: "Screenshot allegato",
+        message: "Ti mando uno screenshot del problema.",
+        attachments: [
+          {
+            fileName: "errore-marzo.png",
+            contentType: "image/png",
+            base64Data: screenshotBytes.toString("base64")
+          }
+        ]
+      }
+    });
+
+    expect(response.statusCode).toBe(201);
+    const ticket = response.json() as {
+      id: string;
+      attachments: Array<{
+        id: string;
+        fileName: string;
+        contentType: string;
+        sizeBytes: number;
+        downloadPath: string;
+      }>;
+    };
+    expect(ticket.attachments).toHaveLength(1);
+    expect(ticket.attachments[0]?.fileName).toBe("errore-marzo.png");
+    expect(ticket.attachments[0]?.contentType).toBe("image/png");
+    expect(ticket.attachments[0]?.downloadPath).toContain(
+      `/tickets/${ticket.id}/attachments/`
+    );
+
+    const savedTicket = JSON.parse(
+      await readFile(path.join(tempDirectory, `${ticket.id}.json`), "utf8")
+    ) as {
+      attachments: Array<{ storedFileName: string }>;
+    };
+    expect(savedTicket.attachments).toHaveLength(1);
+
+    const attachmentResponse = await app.inject({
+      method: "GET",
+      url: ticket.attachments[0]!.downloadPath
+    });
+
+    expect(attachmentResponse.statusCode).toBe(200);
+    expect(attachmentResponse.headers["content-type"]).toContain("image/png");
   });
 
   it("returns a public ticket thread and persists user replies", async () => {

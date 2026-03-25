@@ -54,6 +54,15 @@ interface MobileReleaseStatus {
 type SupportTicketCategory = "bug" | "feature" | "support";
 type SupportTicketStatus = "new" | "in_progress" | "answered" | "closed";
 type SupportTicketReplyAuthor = "admin" | "user";
+const SUPPORT_TICKET_MAX_ATTACHMENTS = 3;
+const SUPPORT_TICKET_MAX_ATTACHMENT_BYTES = 4 * 1024 * 1024;
+const SUPPORT_TICKET_ATTACHMENT_EXTENSIONS = {
+  "image/png": ".png",
+  "image/jpeg": ".jpg",
+  "image/webp": ".webp"
+} as const;
+type SupportTicketAttachmentContentType =
+  keyof typeof SUPPORT_TICKET_ATTACHMENT_EXTENSIONS;
 
 interface SupportTicketInput {
   category: SupportTicketCategory;
@@ -70,6 +79,7 @@ interface SupportTicket extends SupportTicketInput {
   status: SupportTicketStatus;
   createdAt: string;
   updatedAt: string;
+  attachments: SupportTicketAttachment[];
   replies: SupportTicketReply[];
 }
 
@@ -78,6 +88,20 @@ interface SupportTicketReply {
   author: SupportTicketReplyAuthor;
   message: string;
   createdAt: string;
+}
+
+interface SupportTicketAttachmentUpload {
+  fileName: string;
+  contentType: SupportTicketAttachmentContentType;
+  bytes: Buffer;
+}
+
+interface SupportTicketAttachment {
+  id: string;
+  fileName: string;
+  contentType: SupportTicketAttachmentContentType;
+  sizeBytes: number;
+  storedFileName: string;
 }
 
 interface AuthResponse {
@@ -382,6 +406,96 @@ function isSupportTicketReplyAuthor(
   value: unknown
 ): value is SupportTicketReplyAuthor {
   return value === "admin" || value === "user";
+}
+
+function isSupportTicketAttachmentContentType(
+  value: unknown
+): value is SupportTicketAttachmentContentType {
+  return typeof value === "string" && value in SUPPORT_TICKET_ATTACHMENT_EXTENSIONS;
+}
+
+function normalizeSupportTicketAttachmentFileName(
+  value: unknown,
+  contentType: SupportTicketAttachmentContentType
+) {
+  const extension = SUPPORT_TICKET_ATTACHMENT_EXTENSIONS[contentType];
+  const rawFileName = typeof value === "string" ? path.basename(value.trim()) : "";
+  const normalizedBaseName = path
+    .parse(rawFileName)
+    .name
+    .replace(/[^a-zA-Z0-9 _.-]+/g, "_")
+    .trim()
+    .slice(0, 80);
+
+  return `${normalizedBaseName || "screenshot"}${extension}`;
+}
+
+function parseSupportTicketAttachments(
+  value: unknown
+): { value: SupportTicketAttachmentUpload[]; error?: string } {
+  if (value === undefined) {
+    return { value: [] };
+  }
+
+  if (!Array.isArray(value)) {
+    return { value: [], error: "attachments must be an array" };
+  }
+
+  if (value.length > SUPPORT_TICKET_MAX_ATTACHMENTS) {
+    return {
+      value: [],
+      error: `attachments can contain at most ${SUPPORT_TICKET_MAX_ATTACHMENTS} images`
+    };
+  }
+
+  const attachments: SupportTicketAttachmentUpload[] = [];
+  for (const attachmentValue of value) {
+    if (!attachmentValue || typeof attachmentValue !== "object") {
+      return { value: [], error: "attachment must be an object" };
+    }
+
+    const attachment = attachmentValue as Record<string, unknown>;
+    if (!isSupportTicketAttachmentContentType(attachment.contentType)) {
+      return {
+        value: [],
+        error: "attachment contentType must be one of: image/png, image/jpeg, image/webp"
+      };
+    }
+
+    const base64Data = typeof attachment.base64Data === "string"
+      ? attachment.base64Data.trim()
+      : "";
+    if (
+      base64Data.length === 0 ||
+      base64Data.length % 4 !== 0 ||
+      !/^[A-Za-z0-9+/]+=*$/.test(base64Data)
+    ) {
+      return { value: [], error: "attachment base64Data is invalid" };
+    }
+
+    const bytes = Buffer.from(base64Data, "base64");
+    if (bytes.length === 0) {
+      return { value: [], error: "attachment file is empty" };
+    }
+
+    if (bytes.length > SUPPORT_TICKET_MAX_ATTACHMENT_BYTES) {
+      return {
+        value: [],
+        error: `attachment exceeds ${SUPPORT_TICKET_MAX_ATTACHMENT_BYTES} bytes`
+      };
+    }
+
+    attachments.push({
+      fileName: normalizeSupportTicketAttachmentFileName(
+        attachment.fileName,
+        attachment.contentType
+      ),
+      contentType: attachment.contentType,
+      bytes
+    });
+  }
+
+  return { value: attachments };
 }
 
 function normalizeOptionalText(value: unknown, maxLength: number) {
@@ -799,32 +913,46 @@ async function readAuthenticatedUser(
 function parseSupportTicketInput(
   payload: unknown,
   userAgent: string | undefined
-): { value: SupportTicketInput | null; error?: string } {
+): {
+  value: SupportTicketInput | null;
+  attachments: SupportTicketAttachmentUpload[];
+  error?: string;
+} {
   if (!payload || typeof payload !== "object") {
-    return { value: null, error: "Invalid body" };
+    return { value: null, attachments: [], error: "Invalid body" };
   }
 
   const body = payload as Record<string, unknown>;
   if (!isSupportTicketCategory(body.category)) {
     return {
       value: null,
+      attachments: [],
       error: "category must be one of: bug, feature, support"
     };
   }
 
   const subject = normalizeRequiredText(body.subject, 160);
   if (!subject) {
-    return { value: null, error: "subject is required" };
+    return { value: null, attachments: [], error: "subject is required" };
   }
 
   const message = normalizeRequiredText(body.message, 4000);
   if (!message) {
-    return { value: null, error: "message is required" };
+    return { value: null, attachments: [], error: "message is required" };
   }
 
   const email = normalizeOptionalText(body.email, 160);
   if (email && !isValidEmail(email)) {
-    return { value: null, error: "email must be valid" };
+    return { value: null, attachments: [], error: "email must be valid" };
+  }
+
+  const parsedAttachments = parseSupportTicketAttachments(body.attachments);
+  if (parsedAttachments.error) {
+    return {
+      value: null,
+      attachments: [],
+      error: parsedAttachments.error
+    };
   }
 
   return {
@@ -836,27 +964,64 @@ function parseSupportTicketInput(
       message,
       appVersion: normalizeOptionalText(body.appVersion, 40),
       userAgent
-    }
+    },
+    attachments: parsedAttachments.value
   };
 }
 
-async function saveSupportTicket(input: SupportTicketInput): Promise<SupportTicket> {
+async function saveSupportTicket(
+  input: SupportTicketInput,
+  attachments: SupportTicketAttachmentUpload[] = []
+): Promise<SupportTicket> {
   const now = new Date().toISOString();
+  const ticketId = randomUUID();
   const ticket: SupportTicket = {
-    id: randomUUID(),
+    id: ticketId,
     status: "new",
     createdAt: now,
     updatedAt: now,
+    attachments: [],
     replies: [],
     ...input
   };
 
-  await fs.mkdir(getTicketsDirectory(), { recursive: true });
-  await fs.writeFile(
-    path.join(getTicketsDirectory(), `${ticket.id}.json`),
-    JSON.stringify(ticket, null, 2),
-    "utf8"
-  );
+  const createdAttachmentPaths: string[] = [];
+  try {
+    for (const attachment of attachments) {
+      const attachmentId = randomUUID();
+      const extension = SUPPORT_TICKET_ATTACHMENT_EXTENSIONS[attachment.contentType];
+      const storedFileName = `${attachmentId}${extension}`;
+      const attachmentPath = getSupportTicketAttachmentPath(ticket.id, storedFileName);
+      if (!attachmentPath) {
+        throw new Error("Invalid attachment path");
+      }
+
+      await fs.mkdir(path.dirname(attachmentPath), { recursive: true });
+      await fs.writeFile(attachmentPath, attachment.bytes);
+      createdAttachmentPaths.push(attachmentPath);
+      ticket.attachments.push({
+        id: attachmentId,
+        fileName: attachment.fileName,
+        contentType: attachment.contentType,
+        sizeBytes: attachment.bytes.length,
+        storedFileName
+      });
+    }
+
+    await fs.mkdir(getTicketsDirectory(), { recursive: true });
+    await fs.writeFile(
+      path.join(getTicketsDirectory(), `${ticket.id}.json`),
+      JSON.stringify(ticket, null, 2),
+      "utf8"
+    );
+  } catch (error) {
+    await Promise.all(
+      createdAttachmentPaths.map((filePath) =>
+        fs.rm(filePath, { force: true }).catch(() => undefined)
+      )
+    );
+    throw error;
+  }
 
   return ticket;
 }
@@ -873,6 +1038,42 @@ function getSupportTicketPath(ticketId: string) {
   }
 
   return ticketPath;
+}
+
+function getSupportTicketAttachmentPath(ticketId: string, storedFileName: string) {
+  if (!/^[a-zA-Z0-9-]+$/.test(ticketId)) {
+    return null;
+  }
+
+  if (!/^[a-zA-Z0-9-]+\.(png|jpg|webp)$/.test(storedFileName)) {
+    return null;
+  }
+
+  const ticketsDirectory = path.resolve(getTicketsDirectory());
+  const attachmentPath = path.resolve(
+    ticketsDirectory,
+    "attachments",
+    ticketId,
+    storedFileName
+  );
+  if (!attachmentPath.startsWith(`${ticketsDirectory}${path.sep}`)) {
+    return null;
+  }
+
+  return attachmentPath;
+}
+
+function serializeSupportTicket(ticket: SupportTicket) {
+  return {
+    ...ticket,
+    attachments: ticket.attachments.map((attachment) => ({
+      id: attachment.id,
+      fileName: attachment.fileName,
+      contentType: attachment.contentType,
+      sizeBytes: attachment.sizeBytes,
+      downloadPath: `/tickets/${encodeURIComponent(ticket.id)}/attachments/${encodeURIComponent(attachment.id)}`
+    }))
+  };
 }
 
 function normalizeSupportTicketRecord(value: unknown): SupportTicket | null {
@@ -918,6 +1119,35 @@ function normalizeSupportTicketRecord(value: unknown): SupportTicket | null {
       })
     : [];
 
+  const attachments = Array.isArray(rawValue.attachments)
+    ? rawValue.attachments.flatMap((attachmentValue) => {
+        if (!attachmentValue || typeof attachmentValue !== "object") {
+          return [];
+        }
+
+        const attachment = attachmentValue as Record<string, unknown>;
+        if (
+          typeof attachment.id !== "string" ||
+          typeof attachment.fileName !== "string" ||
+          !isSupportTicketAttachmentContentType(attachment.contentType) ||
+          !isPositiveInteger(attachment.sizeBytes) ||
+          typeof attachment.storedFileName !== "string"
+        ) {
+          return [];
+        }
+
+        return [
+          {
+            id: attachment.id,
+            fileName: attachment.fileName,
+            contentType: attachment.contentType,
+            sizeBytes: attachment.sizeBytes,
+            storedFileName: attachment.storedFileName
+          }
+        ];
+      })
+    : [];
+
   return {
     id: rawValue.id,
     category: rawValue.category,
@@ -933,6 +1163,7 @@ function normalizeSupportTicketRecord(value: unknown): SupportTicket | null {
         ? rawValue.updatedAt
         : rawValue.createdAt,
     status: isSupportTicketStatus(rawValue.status) ? rawValue.status : "new",
+    attachments,
     replies
   };
 }
@@ -1172,12 +1403,25 @@ function renderTicketPage(options: { baseUrl: string }) {
         line-height: 1.5;
       }
 
-      .hero a {
-        display: inline-flex;
+      .hero-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
         margin-top: 18px;
-        color: white;
+      }
+
+      .hero-link {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 48px;
+        padding: 0 18px;
+        border-radius: 16px;
         text-decoration: none;
         font-weight: 700;
+        color: white;
+        border: 1px solid rgba(255, 255, 255, 0.22);
+        background: rgba(255, 255, 255, 0.12);
       }
 
       .panel {
@@ -1339,7 +1583,10 @@ function renderTicketPage(options: { baseUrl: string }) {
       <section class="hero">
         <h1>Invia un ticket</h1>
         <p>Usa questa pagina per segnalare bug, chiedere nuove funzioni o inviare una richiesta di supporto sul progetto.</p>
-        <a href="${escapeHtml(baseUrl)}/">Torna al download app</a>
+        <div class="hero-actions">
+          <a class="hero-link" href="${escapeHtml(baseUrl)}/">Torna al download app</a>
+          <a class="hero-link" href="${escapeHtml(baseUrl)}/admin">Area admin</a>
+        </div>
       </section>
 
       <section class="grid">
@@ -1566,6 +1813,11 @@ function renderAdminPage(options: { baseUrl: string; authRequired: boolean }) {
       .thread { display: grid; gap: 12px; margin-top: 18px; }
       .message-card { border-radius: 12px; border: 1px solid var(--line); padding: 14px; background: rgba(255,255,255,0.02); }
       .message-card.reply { background: rgba(117, 190, 255, 0.06); border-color: rgba(117, 190, 255, 0.22); }
+      .attachment-gallery { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); margin-top: 12px; }
+      .attachment-card { display: grid; gap: 10px; border-radius: 12px; border: 1px solid var(--line); background: rgba(255,255,255,0.03); padding: 12px; }
+      .attachment-preview { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 10px; border: 1px solid rgba(255,255,255,0.08); background: rgba(0,0,0,0.16); }
+      .attachment-name { font-size: 13px; font-weight: 700; color: #fff; word-break: break-word; }
+      .attachment-meta { color: var(--muted); font-size: 12px; }
       .detail-grid { display: grid; gap: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .field { display: grid; gap: 6px; }
       .reply-form { display: grid; gap: 12px; margin-top: 20px; }
@@ -1704,8 +1956,12 @@ function renderAdminPage(options: { baseUrl: string; authRequired: boolean }) {
         const ticket = state.tickets.find((entry) => entry.id === state.selectedTicketId) || state.tickets[0];
         if (!ticket) { ticketDetail.innerHTML = '<div class="empty-state">Seleziona un ticket per vedere il dettaglio.</div>'; return; }
         state.selectedTicketId = ticket.id;
+        const attachments = Array.isArray(ticket.attachments) ? ticket.attachments : [];
         const replies = Array.isArray(ticket.replies) ? ticket.replies : [];
-        ticketDetail.innerHTML = '<div class="toolbar"><div><h3 style="margin-bottom:6px;">' + escapeHtml(ticket.subject) + '</h3><div class="reply-meta">' + categoryBadge(ticket.category) + statusBadge(ticket.status) + '</div></div></div><div class="detail-grid" style="margin-top:14px;"><div class="field"><div class="field-label">Creato</div><div>' + formatDateTime(ticket.createdAt) + '</div></div><div class="field"><div class="field-label">Aggiornato</div><div>' + formatDateTime(ticket.updatedAt) + '</div></div><div class="field"><div class="field-label">Contatto</div><div>' + escapeHtml(ticket.name || "—") + (ticket.email ? " (" + escapeHtml(ticket.email) + ")" : "") + '</div></div><div class="field"><div class="field-label">Versione app</div><div>' + escapeHtml(ticket.appVersion || "—") + '</div></div></div><section class="thread"><article class="message-card"><div class="field-label">Messaggio utente</div><div style="margin-top:8px; white-space:pre-wrap;">' + escapeHtml(ticket.message) + '</div></article>' + (replies.map((reply) => '<article class="message-card reply"><div class="field-label">' + (reply.author === "admin" ? "Risposta admin" : "Replica utente") + ' · ' + formatDateTime(reply.createdAt) + '</div><div style="margin-top:8px; white-space:pre-wrap;">' + escapeHtml(reply.message) + '</div></article>').join("") || '<div class="empty-state">Ancora nessuna risposta nel thread.</div>') + '</section><form id="admin-reply-form" class="reply-form"><label class="field"><span class="field-label">Nuova risposta</span><textarea name="message" required placeholder="Scrivi la risposta che vuoi salvare nel thread del ticket"></textarea></label><label class="field"><span class="field-label">Nuovo stato</span><select name="status"><option value="answered">Risposto</option><option value="in_progress">In lavorazione</option><option value="closed">Chiuso</option></select></label><div class="reply-actions"><button type="submit" class="primary">Salva risposta</button></div></form>';
+        const attachmentsSection = attachments.length
+          ? '<article class="message-card"><div class="field-label">Screenshot allegati</div><div class="attachment-gallery">' + attachments.map((attachment) => '<a class="attachment-card" target="_blank" rel="noreferrer" href="' + escapeHtml(attachment.downloadPath || "#") + '"><img class="attachment-preview" loading="lazy" src="' + escapeHtml(attachment.downloadPath || "#") + '" alt="' + escapeHtml(attachment.fileName || "Screenshot ticket") + '" /><div class="attachment-name">' + escapeHtml(attachment.fileName) + '</div><div class="attachment-meta">' + escapeHtml(attachment.contentType || "immagine") + ' · ' + escapeHtml(formatBytes(attachment.sizeBytes)) + '</div></a>').join("") + '</div></article>'
+          : '';
+        ticketDetail.innerHTML = '<div class="toolbar"><div><h3 style="margin-bottom:6px;">' + escapeHtml(ticket.subject) + '</h3><div class="reply-meta">' + categoryBadge(ticket.category) + statusBadge(ticket.status) + '</div></div></div><div class="detail-grid" style="margin-top:14px;"><div class="field"><div class="field-label">Creato</div><div>' + formatDateTime(ticket.createdAt) + '</div></div><div class="field"><div class="field-label">Aggiornato</div><div>' + formatDateTime(ticket.updatedAt) + '</div></div><div class="field"><div class="field-label">Contatto</div><div>' + escapeHtml(ticket.name || "—") + (ticket.email ? " (" + escapeHtml(ticket.email) + ")" : "") + '</div></div><div class="field"><div class="field-label">Versione app</div><div>' + escapeHtml(ticket.appVersion || "—") + '</div></div></div><section class="thread"><article class="message-card"><div class="field-label">Messaggio utente</div><div style="margin-top:8px; white-space:pre-wrap;">' + escapeHtml(ticket.message) + '</div></article>' + attachmentsSection + (replies.map((reply) => '<article class="message-card reply"><div class="field-label">' + (reply.author === "admin" ? "Risposta admin" : "Replica utente") + ' · ' + formatDateTime(reply.createdAt) + '</div><div style="margin-top:8px; white-space:pre-wrap;">' + escapeHtml(reply.message) + '</div></article>').join("") || '<div class="empty-state">Ancora nessuna risposta nel thread.</div>') + '</section><form id="admin-reply-form" class="reply-form"><label class="field"><span class="field-label">Nuova risposta</span><textarea name="message" required placeholder="Scrivi la risposta che vuoi salvare nel thread del ticket"></textarea></label><label class="field"><span class="field-label">Nuovo stato</span><select name="status"><option value="answered">Risposto</option><option value="in_progress">In lavorazione</option><option value="closed">Chiuso</option></select></label><div class="reply-actions"><button type="submit" class="primary">Salva risposta</button></div></form>';
         const form = document.getElementById("admin-reply-form");
         form?.addEventListener("submit", async (event) => {
           event.preventDefault();
@@ -1723,6 +1979,12 @@ function renderAdminPage(options: { baseUrl: string; authRequired: boolean }) {
             setStatus(error.message || "Errore durante il salvataggio della risposta.", "error");
           }
         });
+      }
+      function formatBytes(value) {
+        const size = Number(value || 0);
+        if (!Number.isFinite(size) || size <= 0) return "0 KB";
+        if (size >= 1024 * 1024) return (size / (1024 * 1024)).toFixed(1) + " MB";
+        return Math.ceil(size / 1024) + " KB";
       }
       async function loadDashboard() {
         state.overview = await api(baseUrl + "/admin/api/overview");
@@ -2003,6 +2265,7 @@ function renderLandingPage(options: {
         <div class="actions">
           ${primaryAction}
           <a class="button secondary" href="${escapeHtml(baseUrl)}/tickets">Invia ticket</a>
+          <a class="button secondary" href="${escapeHtml(baseUrl)}/admin">Area admin</a>
         </div>
       </section>
 
@@ -2035,7 +2298,8 @@ export function buildApp(options: BuildAppOptions = {}) {
   const corsOrigin = process.env.CORS_ORIGIN;
 
   const app = Fastify({
-    logger: true
+    logger: true,
+    bodyLimit: 15 * 1024 * 1024
   });
 
   void app.register(cors, {
@@ -2061,7 +2325,7 @@ export function buildApp(options: BuildAppOptions = {}) {
   });
 
   app.post("/tickets", async (request, reply) => {
-    const { value, error } = parseSupportTicketInput(
+    const { value, attachments, error } = parseSupportTicketInput(
       request.body,
       typeof request.headers["user-agent"] === "string"
         ? request.headers["user-agent"]
@@ -2071,8 +2335,8 @@ export function buildApp(options: BuildAppOptions = {}) {
       return reply.code(400).send({ error: error ?? "Invalid ticket payload" });
     }
 
-    const savedTicket = await saveSupportTicket(value);
-    return reply.code(201).send(savedTicket);
+    const savedTicket = await saveSupportTicket(value, attachments);
+    return reply.code(201).send(serializeSupportTicket(savedTicket));
   });
 
   app.get("/tickets/:ticketId", async (request, reply) => {
@@ -2086,7 +2350,57 @@ export function buildApp(options: BuildAppOptions = {}) {
       return reply.code(404).send({ error: "Ticket not found" });
     }
 
-    return ticket;
+    return serializeSupportTicket(ticket);
+  });
+
+  app.get("/tickets/:ticketId/attachments/:attachmentId", async (request, reply) => {
+    const params = request.params as {
+      ticketId?: unknown;
+      attachmentId?: unknown;
+    };
+    if (
+      typeof params.ticketId !== "string" ||
+      params.ticketId.length === 0 ||
+      typeof params.attachmentId !== "string" ||
+      params.attachmentId.length === 0
+    ) {
+      return reply.code(400).send({ error: "ticketId and attachmentId are required" });
+    }
+
+    const ticket = await readSupportTicket(params.ticketId);
+    if (!ticket) {
+      return reply.code(404).send({ error: "Ticket not found" });
+    }
+
+    const attachment = ticket.attachments.find(
+      (entry) => entry.id === params.attachmentId
+    );
+    if (!attachment) {
+      return reply.code(404).send({ error: "Attachment not found" });
+    }
+
+    const attachmentPath = getSupportTicketAttachmentPath(
+      ticket.id,
+      attachment.storedFileName
+    );
+    if (!attachmentPath) {
+      return reply.code(404).send({ error: "Attachment not found" });
+    }
+
+    try {
+      await fs.access(attachmentPath);
+    } catch {
+      return reply.code(404).send({ error: "Attachment not found" });
+    }
+
+    reply
+      .type(attachment.contentType)
+      .header(
+        "content-disposition",
+        `inline; filename="${path.basename(attachment.fileName)}"`
+      );
+
+    return reply.send(createReadStream(attachmentPath));
   });
 
   app.post("/tickets/:ticketId/replies", async (request, reply) => {
@@ -2118,7 +2432,7 @@ export function buildApp(options: BuildAppOptions = {}) {
       return reply.code(404).send({ error: "Ticket not found" });
     }
 
-    return updatedTicket;
+    return serializeSupportTicket(updatedTicket);
   });
 
   app.get("/admin", async (request, reply) => {
@@ -2158,7 +2472,7 @@ export function buildApp(options: BuildAppOptions = {}) {
     }
 
     return {
-      items: await listSupportTickets()
+      items: (await listSupportTickets()).map(serializeSupportTicket)
     };
   });
 
@@ -2207,7 +2521,7 @@ export function buildApp(options: BuildAppOptions = {}) {
       return reply.code(404).send({ error: "Ticket not found" });
     }
 
-    return updatedTicket;
+    return serializeSupportTicket(updatedTicket);
   });
 
   app.post("/auth/register", async (request, reply) => {

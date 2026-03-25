@@ -16,8 +16,9 @@ import 'package:work_hours_mobile/domain/repositories/dashboard_repository.dart'
 import 'package:work_hours_mobile/data/api/work_hours_api_client.dart';
 
 class SharedPreferencesLocalDashboardRepository implements DashboardRepository {
-  SharedPreferencesLocalDashboardRepository({WorkHoursApiClient? ticketApiClient})
-    : _ticketApiClient = ticketApiClient;
+  SharedPreferencesLocalDashboardRepository({
+    WorkHoursApiClient? ticketApiClient,
+  }) : _ticketApiClient = ticketApiClient;
 
   static const _bundleKey = 'local_dashboard.bundle';
   static const _migrationKey = 'local_dashboard.legacy_migrated';
@@ -145,20 +146,21 @@ class SharedPreferencesLocalDashboardRepository implements DashboardRepository {
     required String month,
   }) async {
     final currentBundle = await exportBundle();
-    final nextOverrides = currentBundle.scheduleOverrides
-        .where((entry) => entry.date != date)
-        .toList(growable: true)
-      ..add(
-        ScheduleOverride(
-          id: 'override-${DateTime.now().microsecondsSinceEpoch}',
-          date: date,
-          targetMinutes: targetMinutes,
-          startTime: startTime,
-          endTime: endTime,
-          breakMinutes: breakMinutes,
-          note: note,
-        ),
-      );
+    final nextOverrides =
+        currentBundle.scheduleOverrides
+            .where((entry) => entry.date != date)
+            .toList(growable: true)
+          ..add(
+            ScheduleOverride(
+              id: 'override-${DateTime.now().microsecondsSinceEpoch}',
+              date: date,
+              targetMinutes: targetMinutes,
+              startTime: startTime,
+              endTime: endTime,
+              breakMinutes: breakMinutes,
+              note: note,
+            ),
+          );
     final nextBundle = LocalDashboardDataBundle(
       profile: currentBundle.profile,
       workEntries: currentBundle.workEntries,
@@ -195,6 +197,7 @@ class SharedPreferencesLocalDashboardRepository implements DashboardRepository {
     required String subject,
     required String message,
     String? appVersion,
+    List<SupportTicketUploadAttachment> attachments = const [],
   }) async {
     final apiClient = _ticketApiClient;
     if (apiClient == null) {
@@ -207,11 +210,14 @@ class SharedPreferencesLocalDashboardRepository implements DashboardRepository {
       subject: subject,
       message: message,
       appVersion: appVersion,
+      attachments: attachments,
     );
   }
 
   @override
-  Future<SupportTicketThread> fetchSupportTicket({required String ticketId}) async {
+  Future<SupportTicketThread> fetchSupportTicket({
+    required String ticketId,
+  }) async {
     final apiClient = _ticketApiClient;
     if (apiClient == null) {
       throw Exception('Ticket non disponibili in locale.');

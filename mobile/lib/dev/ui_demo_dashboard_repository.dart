@@ -233,6 +233,7 @@ class UiDemoDashboardRepository implements DashboardRepository {
     required String subject,
     required String message,
     String? appVersion,
+    List<SupportTicketUploadAttachment> attachments = const [],
   }) async {
     final now = DateTime.now();
     final thread = SupportTicketThread(
@@ -243,6 +244,18 @@ class UiDemoDashboardRepository implements DashboardRepository {
       message: message,
       createdAt: now,
       updatedAt: now,
+      attachments: attachments
+          .asMap()
+          .entries
+          .map(
+            (entry) => SupportTicketAttachment(
+              id: 'attachment-${entry.key + 1}',
+              fileName: entry.value.fileName,
+              contentType: entry.value.contentType,
+              sizeBytes: entry.value.sizeBytes,
+            ),
+          )
+          .toList(growable: false),
       replies: const [],
       name: name,
       email: email,
@@ -257,12 +270,15 @@ class UiDemoDashboardRepository implements DashboardRepository {
       'subject': subject,
       'message': message,
       'appVersion': appVersion,
+      'attachmentCount': attachments.length,
     });
     return thread;
   }
 
   @override
-  Future<SupportTicketThread> fetchSupportTicket({required String ticketId}) async {
+  Future<SupportTicketThread> fetchSupportTicket({
+    required String ticketId,
+  }) async {
     final thread = _ticketThreadsById[ticketId];
     if (thread == null) {
       throw Exception('Ticket non trovato');
@@ -288,6 +304,7 @@ class UiDemoDashboardRepository implements DashboardRepository {
       message: thread.message,
       createdAt: thread.createdAt,
       updatedAt: DateTime.now(),
+      attachments: thread.attachments,
       replies: [
         ...thread.replies,
         SupportTicketReply(
@@ -307,7 +324,9 @@ class UiDemoDashboardRepository implements DashboardRepository {
 
   DashboardSnapshot _buildSnapshot(String month) {
     final workEntries = List<WorkEntry>.from(_workEntriesByMonth[month] ?? []);
-    final leaveEntries = List<LeaveEntry>.from(_leaveEntriesByMonth[month] ?? []);
+    final leaveEntries = List<LeaveEntry>.from(
+      _leaveEntriesByMonth[month] ?? [],
+    );
     final overrides = List<ScheduleOverride>.from(
       _scheduleOverridesByMonth[month] ?? [],
     );
@@ -338,24 +357,21 @@ class UiDemoDashboardRepository implements DashboardRepository {
     );
   }
 
-  int _expectedMinutesForMonth(
-    String month,
-    List<ScheduleOverride> overrides,
-  ) {
+  int _expectedMinutesForMonth(String month, List<ScheduleOverride> overrides) {
     final parts = month.split('-');
     final year = int.parse(parts[0]);
     final monthNumber = int.parse(parts[1]);
     final daysInMonth = DateTime(year, monthNumber + 1, 0).day;
-    final overridesByDate = {
-      for (final entry in overrides) entry.date: entry,
-    };
+    final overridesByDate = {for (final entry in overrides) entry.date: entry};
 
     var total = 0;
     for (var day = 1; day <= daysInMonth; day += 1) {
       final date = DateTime(year, monthNumber, day);
       final isoDate = _formatDate(date);
       final override = overridesByDate[isoDate];
-      total += override?.targetMinutes ?? _profile.weekdaySchedule.forDate(date).targetMinutes;
+      total +=
+          override?.targetMinutes ??
+          _profile.weekdaySchedule.forDate(date).targetMinutes;
     }
 
     return total;

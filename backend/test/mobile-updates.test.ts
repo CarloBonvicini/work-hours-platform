@@ -48,6 +48,8 @@ describe("Mobile updates API", () => {
     expect(response.body).toContain("Work Hours Platform");
     expect(response.body).toContain("APK non disponibile");
     expect(response.body).toContain("/tickets");
+    expect(response.body).toContain("/admin");
+    expect(response.body).toContain("Area admin");
     expect(response.body).toContain("Nessuna versione disponibile in questo momento");
     expect(response.body).toContain("Quando il download sara pronto, il pulsante Scarica APK comparira qui.");
     expect(response.body).not.toContain("Canale update");
@@ -123,6 +125,7 @@ describe("Mobile updates API", () => {
     expect(landingPageResponse.body).toContain("Versione 0.1.4");
     expect(landingPageResponse.body).toContain("Android APK build 0.1.4.");
     expect(landingPageResponse.body).not.toContain("(14)");
+    expect(landingPageResponse.body).toContain("/admin");
     expect(landingPageResponse.body).toContain(
       "https://updates.example.com/mobile-updates/releases/latest"
     );

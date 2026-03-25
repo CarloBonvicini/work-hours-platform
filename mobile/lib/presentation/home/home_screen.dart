@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -33,6 +34,9 @@ enum _QuickEntryMode { work, leave }
 enum _CalendarView { day, week, month, year }
 
 enum _AppearanceTab { theme, colors, typography }
+
+const int _maxTicketAttachments = 3;
+const int _maxTicketAttachmentBytes = 4 * 1024 * 1024;
 
 enum _HomeSection {
   day,
@@ -181,6 +185,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   SupportTicketCategory _selectedTicketCategory = SupportTicketCategory.bug;
   List<TrackedSupportTicket> _trackedTickets = const [];
   Map<String, SupportTicketThread> _ticketThreadsById = const {};
+  List<SupportTicketUploadAttachment> _ticketAttachments = const [];
   String? _selectedTrackedTicketId;
   int _unreadTicketReplyCount = 0;
   WorkdaySession? _workdaySession;
@@ -3156,6 +3161,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         appVersion: _ticketAppVersionController.text.trim().isEmpty
             ? null
             : _ticketAppVersionController.text.trim(),
+        attachments: List<SupportTicketUploadAttachment>.from(
+          _ticketAttachments,
+        ),
       );
 
       if (!mounted) {
@@ -3172,6 +3180,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _ticketSubjectController.clear();
       _ticketMessageController.clear();
       setState(() {
+        _ticketAttachments = const [];
         _trackedTickets = [
           TrackedSupportTicket(
             id: createdThread.id,
@@ -3213,6 +3222,128 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _isSubmittingTicket = false;
       });
     }
+  }
+
+  Future<void> _pickTicketAttachments() async {
+    if (_isSubmittingTicket) {
+      return;
+    }
+
+    final remainingSlots = _maxTicketAttachments - _ticketAttachments.length;
+    if (remainingSlots <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Puoi allegare al massimo 3 screenshot per ticket.'),
+        ),
+      );
+      return;
+    }
+
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        allowMultiple: true,
+        withData: true,
+        type: FileType.custom,
+        allowedExtensions: const ['png', 'jpg', 'jpeg', 'webp'],
+      );
+      if (result == null || !mounted) {
+        return;
+      }
+
+      final nextAttachments = List<SupportTicketUploadAttachment>.from(
+        _ticketAttachments,
+      );
+      var addedCount = 0;
+      var skippedCount = 0;
+      for (final file in result.files) {
+        if (nextAttachments.length >= _maxTicketAttachments) {
+          skippedCount += 1;
+          continue;
+        }
+
+        final contentType = _ticketAttachmentContentTypeForFileName(file.name);
+        final bytes = file.bytes;
+        if (contentType == null ||
+            bytes == null ||
+            bytes.isEmpty ||
+            bytes.lengthInBytes > _maxTicketAttachmentBytes) {
+          skippedCount += 1;
+          continue;
+        }
+
+        nextAttachments.add(
+          SupportTicketUploadAttachment(
+            fileName: file.name,
+            contentType: contentType,
+            bytes: bytes,
+          ),
+        );
+        addedCount += 1;
+      }
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _ticketAttachments = nextAttachments;
+      });
+
+      if (addedCount == 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Nessuno screenshot valido selezionato. Usa PNG, JPG o WEBP fino a 4 MB.',
+            ),
+          ),
+        );
+      } else if (skippedCount > 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Aggiunti $addedCount screenshot. Alcuni file sono stati ignorati per formato, peso o limite massimo.',
+            ),
+          ),
+        );
+      }
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Impossibile aprire il selettore screenshot.'),
+        ),
+      );
+    }
+  }
+
+  void _removeTicketAttachmentAt(int index) {
+    if (index < 0 || index >= _ticketAttachments.length) {
+      return;
+    }
+
+    setState(() {
+      _ticketAttachments = [
+        for (var i = 0; i < _ticketAttachments.length; i += 1)
+          if (i != index) _ticketAttachments[i],
+      ];
+    });
+  }
+
+  String? _ticketAttachmentContentTypeForFileName(String fileName) {
+    final lowerFileName = fileName.toLowerCase();
+    if (lowerFileName.endsWith('.png')) {
+      return 'image/png';
+    }
+    if (lowerFileName.endsWith('.jpg') || lowerFileName.endsWith('.jpeg')) {
+      return 'image/jpeg';
+    }
+    if (lowerFileName.endsWith('.webp')) {
+      return 'image/webp';
+    }
+    return null;
   }
 
   void _applyPresetMinutes(int minutes) {
@@ -4429,6 +4560,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           messageController: _ticketMessageController,
           replyController: _ticketReplyController,
           appVersionController: _ticketAppVersionController,
+          attachments: _ticketAttachments,
           trackedTickets: _trackedTickets,
           ticketThreadsById: _ticketThreadsById,
           selectedTicketId: _selectedTrackedTicketId,
@@ -4438,6 +4570,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           unreadReplyCount: _unreadTicketReplyCount,
           onSelectTicket: _selectTrackedSupportTicket,
           onRefreshThreads: _refreshTrackedSupportTickets,
+          onPickAttachments: _pickTicketAttachments,
+          onRemoveAttachment: _removeTicketAttachmentAt,
           onSubmit: _submitSupportTicket,
           onSubmitReply: _submitSupportTicketReply,
         );
@@ -4794,6 +4928,12 @@ class _CalendarCard extends StatelessWidget {
     };
     final showWorkdaySessionCard =
         appearanceSettings.showDayWorkdayCard && isSelectedDateToday;
+    final workdaySessionSpacing = appearanceSettings.expandDayWorkdayCard
+        ? 18.0
+        : 8.0;
+    final quickEditorSpacing = appearanceSettings.expandDayQuickEditor
+        ? 18.0
+        : 8.0;
     final quickEditor = Form(
       key: overrideFormKey,
       child: Column(
@@ -4937,7 +5077,7 @@ class _CalendarCard extends StatelessWidget {
               ),
             ),
           if (calendarView == _CalendarView.day && showWorkdaySessionCard) ...[
-            const SizedBox(height: 18),
+            SizedBox(height: workdaySessionSpacing),
             _WorkdaySessionCard(
               isExpanded: appearanceSettings.expandDayWorkdayCard,
               session: workdaySession,
@@ -4957,13 +5097,13 @@ class _CalendarCard extends StatelessWidget {
             ),
           ],
           if (calendarView == _CalendarView.day) ...[
-            const SizedBox(height: 18),
+            SizedBox(height: quickEditorSpacing),
             if (appearanceSettings.dayCalendarLayoutMode ==
                 DayCalendarLayoutMode.quickEditorFirst)
               quickEditor
             else
               dayTimeline,
-            const SizedBox(height: 18),
+            SizedBox(height: quickEditorSpacing),
             if (appearanceSettings.dayCalendarLayoutMode ==
                 DayCalendarLayoutMode.quickEditorFirst)
               dayTimeline
@@ -5130,6 +5270,8 @@ class _CalendarQuickScheduleEditor extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final toggleButtonSize = isExpanded ? 36.0 : 30.0;
+    final toggleIconSize = isExpanded ? 20.0 : 18.0;
     final expandedIcon = isExpanded
         ? Icons.keyboard_arrow_up_rounded
         : Icons.keyboard_arrow_down_rounded;
@@ -5140,9 +5282,12 @@ class _CalendarQuickScheduleEditor extends StatelessWidget {
           ? 'Riduci modifica rapida'
           : 'Espandi modifica rapida',
       visualDensity: VisualDensity.compact,
-      iconSize: 20,
-      splashRadius: 18,
-      constraints: const BoxConstraints.tightFor(width: 36, height: 36),
+      iconSize: toggleIconSize,
+      splashRadius: isExpanded ? 18 : 16,
+      constraints: BoxConstraints.tightFor(
+        width: toggleButtonSize,
+        height: toggleButtonSize,
+      ),
       padding: EdgeInsets.zero,
       icon: Icon(expandedIcon),
     );
@@ -5175,38 +5320,46 @@ class _CalendarQuickScheduleEditor extends StatelessWidget {
         ),
     ];
 
+    final header = Row(
+      children: [
+        Expanded(
+          child: Text(
+            'Modifica rapida del giorno',
+            style: theme.textTheme.titleSmall?.copyWith(
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ),
+        if (isExpanded) ...[
+          IconButton(
+            key: const ValueKey('calendar-override-undo-button'),
+            onPressed: canUndoChanges ? () => onUndoChange() : null,
+            tooltip: 'Annulla modifica',
+            visualDensity: VisualDensity.compact,
+            icon: const Icon(Icons.undo_rounded),
+          ),
+          IconButton(
+            key: const ValueKey('calendar-override-redo-button'),
+            onPressed: canRedoChanges ? () => onRedoChange() : null,
+            tooltip: 'Ripristina modifica',
+            visualDensity: VisualDensity.compact,
+            icon: const Icon(Icons.redo_rounded),
+          ),
+        ],
+        toggleButton,
+      ],
+    );
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            Expanded(
-              child: Text(
-                'Modifica rapida del giorno',
-                style: theme.textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-            ),
-            if (isExpanded) ...[
-              IconButton(
-                key: const ValueKey('calendar-override-undo-button'),
-                onPressed: canUndoChanges ? () => onUndoChange() : null,
-                tooltip: 'Annulla modifica',
-                visualDensity: VisualDensity.compact,
-                icon: const Icon(Icons.undo_rounded),
-              ),
-              IconButton(
-                key: const ValueKey('calendar-override-redo-button'),
-                onPressed: canRedoChanges ? () => onRedoChange() : null,
-                tooltip: 'Ripristina modifica',
-                visualDensity: VisualDensity.compact,
-                icon: const Icon(Icons.redo_rounded),
-              ),
-            ],
-            toggleButton,
-          ],
-        ),
+        if (isExpanded)
+          header
+        else
+          SizedBox(
+            height: 30,
+            child: Align(alignment: Alignment.centerLeft, child: header),
+          ),
         AnimatedSize(
           duration: const Duration(milliseconds: 180),
           curve: Curves.easeOut,
@@ -5311,26 +5464,51 @@ class _WorkdaySessionCard extends StatelessWidget {
     );
     final displayedEndMinutes =
         parseTimeInput(schedule.endTime) ?? session?.endMinutes;
+    final toggleButtonSize = isExpanded ? 36.0 : 30.0;
+    final toggleIconSize = isExpanded ? 20.0 : 18.0;
     final expandedIcon = isExpanded
         ? Icons.keyboard_arrow_up_rounded
         : Icons.keyboard_arrow_down_rounded;
-    final cardPadding = isExpanded
-        ? const EdgeInsets.all(16)
-        : const EdgeInsets.symmetric(horizontal: 14, vertical: 10);
     final toggleButton = IconButton(
       key: const ValueKey('calendar-workday-card-toggle-button'),
       onPressed: () => onToggleExpanded(!isExpanded),
       tooltip: isExpanded ? 'Riduci riquadro' : 'Espandi riquadro',
       visualDensity: VisualDensity.compact,
-      iconSize: 20,
-      splashRadius: 18,
-      constraints: const BoxConstraints.tightFor(width: 36, height: 36),
+      iconSize: toggleIconSize,
+      splashRadius: isExpanded ? 18 : 16,
+      constraints: BoxConstraints.tightFor(
+        width: toggleButtonSize,
+        height: toggleButtonSize,
+      ),
       padding: EdgeInsets.zero,
       icon: Icon(expandedIcon),
     );
 
+    if (!isExpanded) {
+      return SizedBox(
+        height: 30,
+        child: Row(
+          children: [
+            Expanded(
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: _TodayStatusBadge(
+                  label: statusMeta.label,
+                  color: statusMeta.color,
+                  icon: statusMeta.icon,
+                  dense: true,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            toggleButton,
+          ],
+        ),
+      );
+    }
+
     return Container(
-      padding: cardPadding,
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: theme.colorScheme.surfaceContainerLow,
         borderRadius: BorderRadius.circular(20),
@@ -5339,46 +5517,27 @@ class _WorkdaySessionCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (isExpanded)
-            Row(
-              children: [
-                Icon(Icons.login_rounded, color: theme.colorScheme.primary),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    'Giornata di oggi',
-                    style: theme.textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w800,
-                    ),
+          Row(
+            children: [
+              Icon(Icons.login_rounded, color: theme.colorScheme.primary),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Giornata di oggi',
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w800,
                   ),
                 ),
-                _TodayStatusBadge(
-                  label: statusMeta.label,
-                  color: statusMeta.color,
-                  icon: statusMeta.icon,
-                ),
-                const SizedBox(width: 8),
-                toggleButton,
-              ],
-            )
-          else
-            Row(
-              children: [
-                Expanded(
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: _TodayStatusBadge(
-                      label: statusMeta.label,
-                      color: statusMeta.color,
-                      icon: statusMeta.icon,
-                      dense: true,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                toggleButton,
-              ],
-            ),
+              ),
+              _TodayStatusBadge(
+                label: statusMeta.label,
+                color: statusMeta.color,
+                icon: statusMeta.icon,
+              ),
+              const SizedBox(width: 8),
+              toggleButton,
+            ],
+          ),
           AnimatedSize(
             duration: const Duration(milliseconds: 180),
             curve: Curves.easeOut,
@@ -5941,9 +6100,19 @@ class _CompactWeekTimelineRow extends StatelessWidget {
     final helperText = schedule.targetMinutes <= 0
         ? 'Giorno libero'
         : _compactWeekScheduleLabel(schedule);
-    final footerText = hasStructuredSchedule && dayDetails != null
-        ? 'Ore ${_formatHoursInput(dayDetails.workedMinutes)} / Pausa ${_formatHoursInput(dayDetails.pauseMinutes)}'
-        : helperText;
+    final comparisonTargetMinutes = metrics.expectedMinutes;
+    final workedDeltaMinutes = dayDetails == null
+        ? 0
+        : dayDetails.workedMinutes - comparisonTargetMinutes;
+    final workedLabelColor = workedDeltaMinutes >= 0
+        ? const Color(0xFF0B6E69)
+        : const Color(0xFF9D3D2F);
+    final workedFooterLabel = dayDetails == null
+        ? null
+        : 'Ore ${_formatHoursInput(dayDetails.workedMinutes)}';
+    final balanceFooterLabel = workedDeltaMinutes >= 0
+        ? 'Credito: ${_formatHoursInput(workedDeltaMinutes)}'
+        : 'Debito: ${_formatHoursInput(workedDeltaMinutes.abs())}';
 
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
@@ -6068,15 +6237,46 @@ class _CompactWeekTimelineRow extends StatelessWidget {
                         left: 0,
                         right: 0,
                         bottom: 0,
-                        child: Text(
-                          footerText,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.labelSmall?.copyWith(
-                            color: colorScheme.onSurfaceVariant,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
+                        child: hasStructuredSchedule && dayDetails != null
+                            ? Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      workedFooterLabel!,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: theme.textTheme.labelSmall
+                                          ?.copyWith(
+                                            color: workedLabelColor,
+                                            fontWeight: FontWeight.w800,
+                                          ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Flexible(
+                                    child: Text(
+                                      balanceFooterLabel,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      textAlign: TextAlign.right,
+                                      style: theme.textTheme.labelSmall
+                                          ?.copyWith(
+                                            color: workedLabelColor,
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                    ),
+                                  ),
+                                ],
+                              )
+                            : Text(
+                                helperText,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.textTheme.labelSmall?.copyWith(
+                                  color: colorScheme.onSurfaceVariant,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
                       ),
                     ],
                   ],
@@ -9812,6 +10012,7 @@ class _SupportTicketCard extends StatelessWidget {
     required this.messageController,
     required this.replyController,
     required this.appVersionController,
+    required this.attachments,
     required this.trackedTickets,
     required this.ticketThreadsById,
     required this.selectedTicketId,
@@ -9821,6 +10022,8 @@ class _SupportTicketCard extends StatelessWidget {
     required this.unreadReplyCount,
     required this.onSelectTicket,
     required this.onRefreshThreads,
+    required this.onPickAttachments,
+    required this.onRemoveAttachment,
     required this.onSubmit,
     required this.onSubmitReply,
   });
@@ -9835,6 +10038,7 @@ class _SupportTicketCard extends StatelessWidget {
   final TextEditingController messageController;
   final TextEditingController replyController;
   final TextEditingController appVersionController;
+  final List<SupportTicketUploadAttachment> attachments;
   final List<TrackedSupportTicket> trackedTickets;
   final Map<String, SupportTicketThread> ticketThreadsById;
   final String? selectedTicketId;
@@ -9844,6 +10048,8 @@ class _SupportTicketCard extends StatelessWidget {
   final int unreadReplyCount;
   final Future<void> Function(String ticketId) onSelectTicket;
   final Future<void> Function({bool notifyAboutNewReplies}) onRefreshThreads;
+  final Future<void> Function() onPickAttachments;
+  final void Function(int index) onRemoveAttachment;
   final Future<void> Function() onSubmit;
   final Future<void> Function() onSubmitReply;
 
@@ -10042,6 +10248,29 @@ class _SupportTicketCard extends StatelessWidget {
                           ],
                         ),
                       ),
+                      if (selectedThread.attachments.isNotEmpty) ...[
+                        const SizedBox(height: 12),
+                        Text(
+                          'Screenshot allegati',
+                          style: Theme.of(context).textTheme.labelLarge
+                              ?.copyWith(fontWeight: FontWeight.w700),
+                        ),
+                        const SizedBox(height: 10),
+                        Wrap(
+                          spacing: 10,
+                          runSpacing: 10,
+                          children: selectedThread.attachments
+                              .map(
+                                (attachment) => _TicketAttachmentChip(
+                                  fileName: attachment.fileName,
+                                  sizeLabel: _formatTicketAttachmentSize(
+                                    attachment.sizeBytes,
+                                  ),
+                                ),
+                              )
+                              .toList(growable: false),
+                        ),
+                      ],
                       if (selectedThread.replies.isNotEmpty) ...[
                         const SizedBox(height: 12),
                         ...selectedThread.replies.map((reply) {
@@ -10189,6 +10418,62 @@ class _SupportTicketCard extends StatelessWidget {
               },
             ),
             const SizedBox(height: 14),
+            Text(
+              'Screenshot',
+              style: Theme.of(
+                context,
+              ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Puoi allegare fino a 3 screenshot PNG, JPG o WEBP da massimo 4 MB ciascuno.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                OutlinedButton.icon(
+                  key: const ValueKey('ticket-attachments-button'),
+                  onPressed: isSubmitting ? null : () => onPickAttachments(),
+                  icon: const Icon(Icons.add_photo_alternate_outlined),
+                  label: Text(
+                    attachments.isEmpty
+                        ? 'Aggiungi screenshot'
+                        : 'Aggiungi altri screenshot',
+                  ),
+                ),
+                if (attachments.isNotEmpty)
+                  _TicketPill(
+                    label:
+                        '${attachments.length}/$_maxTicketAttachments allegati',
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+              ],
+            ),
+            if (attachments.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: attachments
+                    .asMap()
+                    .entries
+                    .map(
+                      (entry) => _TicketAttachmentChip(
+                        fileName: entry.value.fileName,
+                        sizeLabel: _formatTicketAttachmentSize(
+                          entry.value.sizeBytes,
+                        ),
+                        onDeleted: () => onRemoveAttachment(entry.key),
+                      ),
+                    )
+                    .toList(growable: false),
+              ),
+            ],
+            const SizedBox(height: 14),
             TextFormField(
               controller: appVersionController,
               decoration: const InputDecoration(
@@ -10231,6 +10516,72 @@ class _TicketPill extends StatelessWidget {
           color: color,
           fontWeight: FontWeight.w700,
         ),
+      ),
+    );
+  }
+}
+
+class _TicketAttachmentChip extends StatelessWidget {
+  const _TicketAttachmentChip({
+    required this.fileName,
+    required this.sizeLabel,
+    this.onDeleted,
+  });
+
+  final String fileName;
+  final String sizeLabel;
+  final VoidCallback? onDeleted;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: const BoxConstraints(maxWidth: 260),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.image_outlined,
+            size: 18,
+            color: Theme.of(context).colorScheme.primary,
+          ),
+          const SizedBox(width: 8),
+          ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: onDeleted == null ? 200 : 160,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  fileName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(
+                    context,
+                  ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 2),
+                Text(sizeLabel, style: Theme.of(context).textTheme.bodySmall),
+              ],
+            ),
+          ),
+          if (onDeleted != null) ...[
+            const SizedBox(width: 4),
+            IconButton(
+              onPressed: onDeleted,
+              visualDensity: VisualDensity.compact,
+              tooltip: 'Rimuovi screenshot',
+              icon: const Icon(Icons.close_rounded, size: 18),
+            ),
+          ],
+        ],
       ),
     );
   }
@@ -11393,6 +11744,14 @@ String _formatCompactDate(DateTime date) {
 
 String _formatTicketDateTime(DateTime value) {
   return '${_formatCompactDate(value)}, ${formatTimeInput((value.hour * 60) + value.minute)}';
+}
+
+String _formatTicketAttachmentSize(int sizeBytes) {
+  if (sizeBytes >= 1024 * 1024) {
+    return '${(sizeBytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+  }
+
+  return '${(sizeBytes / 1024).ceil()} KB';
 }
 
 Color _ticketStatusColor(BuildContext context, SupportTicketStatus status) {

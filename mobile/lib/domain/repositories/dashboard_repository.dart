@@ -53,6 +53,7 @@ abstract class DashboardRepository {
     required String subject,
     required String message,
     String? appVersion,
+    List<SupportTicketUploadAttachment> attachments,
   });
 
   Future<SupportTicketThread> fetchSupportTicket({required String ticketId});

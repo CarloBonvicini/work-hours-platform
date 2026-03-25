@@ -1,6 +1,58 @@
+import 'dart:typed_data';
+
 enum SupportTicketCategory { bug, feature, support }
 
 enum SupportTicketStatus { newTicket, inProgress, answered, closed }
+
+class SupportTicketAttachment {
+  const SupportTicketAttachment({
+    required this.id,
+    required this.fileName,
+    required this.contentType,
+    required this.sizeBytes,
+    this.downloadPath,
+  });
+
+  final String id;
+  final String fileName;
+  final String contentType;
+  final int sizeBytes;
+  final String? downloadPath;
+
+  factory SupportTicketAttachment.fromJson(Map<String, dynamic> json) {
+    return SupportTicketAttachment(
+      id: json['id'] as String,
+      fileName: json['fileName'] as String? ?? 'screenshot',
+      contentType: json['contentType'] as String? ?? 'image/png',
+      sizeBytes: (json['sizeBytes'] as num?)?.toInt() ?? 0,
+      downloadPath: json['downloadPath'] as String?,
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'fileName': fileName,
+      'contentType': contentType,
+      'sizeBytes': sizeBytes,
+      if (downloadPath != null) 'downloadPath': downloadPath,
+    };
+  }
+}
+
+class SupportTicketUploadAttachment {
+  const SupportTicketUploadAttachment({
+    required this.fileName,
+    required this.contentType,
+    required this.bytes,
+  });
+
+  final String fileName;
+  final String contentType;
+  final Uint8List bytes;
+
+  int get sizeBytes => bytes.lengthInBytes;
+}
 
 class SupportTicketReply {
   const SupportTicketReply({
@@ -45,6 +97,7 @@ class SupportTicketThread {
     required this.message,
     required this.createdAt,
     required this.updatedAt,
+    required this.attachments,
     required this.replies,
     this.name,
     this.email,
@@ -58,14 +111,17 @@ class SupportTicketThread {
   final String message;
   final DateTime createdAt;
   final DateTime updatedAt;
+  final List<SupportTicketAttachment> attachments;
   final List<SupportTicketReply> replies;
   final String? name;
   final String? email;
   final String? appVersion;
 
-  int get adminReplyCount => replies.where((reply) => reply.isAdminReply).length;
+  int get adminReplyCount =>
+      replies.where((reply) => reply.isAdminReply).length;
 
   factory SupportTicketThread.fromJson(Map<String, dynamic> json) {
+    final rawAttachments = json['attachments'];
     final rawReplies = json['replies'];
     return SupportTicketThread(
       id: json['id'] as String,
@@ -81,6 +137,15 @@ class SupportTicketThread {
       updatedAt: DateTime.parse(
         (json['updatedAt'] as String?) ?? (json['createdAt'] as String),
       ),
+      attachments: rawAttachments is List
+          ? rawAttachments
+                .map(
+                  (entry) => SupportTicketAttachment.fromJson(
+                    entry as Map<String, dynamic>,
+                  ),
+                )
+                .toList(growable: false)
+          : const [],
       replies: rawReplies is List
           ? rawReplies
                 .map(
@@ -105,6 +170,9 @@ class SupportTicketThread {
       'message': message,
       'createdAt': createdAt.toIso8601String(),
       'updatedAt': updatedAt.toIso8601String(),
+      'attachments': attachments
+          .map((attachment) => attachment.toJson())
+          .toList(growable: false),
       'replies': replies.map((reply) => reply.toJson()).toList(growable: false),
       if (name != null) 'name': name,
       if (email != null) 'email': email,

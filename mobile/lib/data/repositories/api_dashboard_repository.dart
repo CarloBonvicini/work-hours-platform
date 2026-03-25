@@ -103,6 +103,7 @@ class ApiDashboardRepository implements DashboardRepository {
     required String subject,
     required String message,
     String? appVersion,
+    List<SupportTicketUploadAttachment> attachments = const [],
   }) {
     return _apiClient.createSupportTicket(
       category: category,
@@ -111,6 +112,7 @@ class ApiDashboardRepository implements DashboardRepository {
       subject: subject,
       message: message,
       appVersion: appVersion,
+      attachments: attachments,
     );
   }
 
@@ -124,7 +126,10 @@ class ApiDashboardRepository implements DashboardRepository {
     required String ticketId,
     required String message,
   }) {
-    return _apiClient.replyToSupportTicket(ticketId: ticketId, message: message);
+    return _apiClient.replyToSupportTicket(
+      ticketId: ticketId,
+      message: message,
+    );
   }
 
   Future<DashboardSnapshot> _buildSnapshot({required String month}) async {

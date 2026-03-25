@@ -29,10 +29,9 @@ class WorkHoursApiClient {
     required String baseUrl,
     http.Client? httpClient,
     this.authToken,
-  })
-    : _httpClient = httpClient ?? http.Client(),
-      _baseUri = _normalizeBaseUri(baseUrl),
-      baseUrl = _normalizeBaseUri(baseUrl).toString();
+  }) : _httpClient = httpClient ?? http.Client(),
+       _baseUri = _normalizeBaseUri(baseUrl),
+       baseUrl = _normalizeBaseUri(baseUrl).toString();
 
   final http.Client _httpClient;
   final Uri _baseUri;
@@ -214,6 +213,7 @@ class WorkHoursApiClient {
     required String subject,
     required String message,
     String? appVersion,
+    List<SupportTicketUploadAttachment> attachments = const [],
   }) async {
     final response = await _httpClient.post(
       _buildUri('tickets'),
@@ -224,7 +224,18 @@ class WorkHoursApiClient {
         if (email != null && email.isNotEmpty) 'email': email,
         'subject': subject,
         'message': message,
-        if (appVersion != null && appVersion.isNotEmpty) 'appVersion': appVersion,
+        if (appVersion != null && appVersion.isNotEmpty)
+          'appVersion': appVersion,
+        if (attachments.isNotEmpty)
+          'attachments': attachments
+              .map(
+                (attachment) => {
+                  'fileName': attachment.fileName,
+                  'contentType': attachment.contentType,
+                  'base64Data': base64Encode(attachment.bytes),
+                },
+              )
+              .toList(growable: false),
       }),
     );
 
@@ -319,9 +330,7 @@ class WorkHoursApiClient {
   }
 
   Map<String, String> _headers({bool json = false}) {
-    final headers = <String, String>{
-      'Accept': 'application/json',
-    };
+    final headers = <String, String>{'Accept': 'application/json'};
     if (json) {
       headers['Content-Type'] = 'application/json';
     }
@@ -367,5 +376,4 @@ class WorkHoursApiClient {
     final normalizedBaseUrl = baseUrl.endsWith('/') ? baseUrl : '$baseUrl/';
     return Uri.parse(normalizedBaseUrl);
   }
-
 }
