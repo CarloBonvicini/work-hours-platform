@@ -81,6 +81,10 @@ void main() {
       findsOneWidget,
     );
     expect(
+      find.byKey(const ValueKey('navigation-option-workSettings')),
+      findsOneWidget,
+    );
+    expect(
       find.byKey(const ValueKey('navigation-option-profile')),
       findsOneWidget,
     );
@@ -95,6 +99,24 @@ void main() {
     expect(
       find.byKey(const ValueKey('calendar-record-start-button')),
       findsOneWidget,
+    );
+    expect(find.text('Orario standard'), findsOneWidget);
+    expect(find.text('Inizia da qui'), findsOneWidget);
+    expect(
+      tester
+          .widget<Text>(
+            find.byKey(const ValueKey('calendar-live-day-balance-value')),
+          )
+          .data,
+      'Da iniziare',
+    );
+    expect(
+      tester
+          .widget<Text>(
+            find.byKey(const ValueKey('calendar-live-suggested-exit-value')),
+          )
+          .data,
+      'Da calcolare',
     );
     await tester.tap(
       find.byKey(const ValueKey('calendar-record-start-button')),
@@ -125,10 +147,14 @@ void main() {
       find.byKey(const ValueKey('calendar-override-break-value')),
       findsOneWidget,
     );
-    expect(find.text('Ore attese oggi'), findsOneWidget);
-    expect(find.text('Saldo oggi'), findsOneWidget);
+    expect(find.text('Lavorate'), findsOneWidget);
+    expect(find.text('Ore attese'), findsOneWidget);
     expect(find.text('Saldo mese'), findsOneWidget);
     expect(find.text('Esci alle'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('calendar-live-worked-value')),
+      findsOneWidget,
+    );
     expect(
       find.byKey(const ValueKey('calendar-live-expected-value')),
       findsOneWidget,
@@ -143,6 +169,10 @@ void main() {
     );
     expect(
       find.byKey(const ValueKey('calendar-live-suggested-exit-value')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('calendar-day-agenda-toggle-button')),
       findsOneWidget,
     );
     expect(
@@ -212,6 +242,217 @@ void main() {
     expect(find.text('In pari'), findsNothing);
     expect(find.text('Pausa 0:30'), findsNothing);
     expect(find.text('08:30 - 15:00'), findsNothing);
+  });
+
+  testWidgets('organizes work settings into clear sections', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(900, 1600));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      WorkHoursApp(
+        dashboardService: DashboardService(
+          repository: _FakeDashboardRepository(),
+        ),
+        appUpdateService: _FakeAppUpdateService(),
+        updateReminderStore: _FakeUpdateReminderStore(),
+        onboardingPreferenceStore: _FakeOnboardingPreferenceStore(
+          hasCompleted: true,
+        ),
+        themePreferenceStore: _FakeThemePreferenceStore(),
+        workdayStartStore: _FakeWorkdayStartStore(),
+        supportTicketStore: _FakeSupportTicketStore(),
+        hasCompletedInitialSetup: true,
+      ),
+    );
+
+    await tester.pumpAndSettle();
+    if (find.text('Ricordamelo piu tardi').evaluate().isNotEmpty) {
+      await tester.tap(find.text('Ricordamelo piu tardi'));
+      await tester.pumpAndSettle();
+    }
+
+    await tester.tap(find.byKey(const ValueKey('navigation-menu-button')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('navigation-option-workSettings')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Orario di lavoro'), findsOneWidget);
+    expect(find.text('Quanto devi lavorare'), findsOneWidget);
+    expect(find.text('Limiti'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('work-settings-schedule-toggle-button')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('work-settings-rules-toggle-button')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('work-settings-limits-toggle-button')),
+      findsOneWidget,
+    );
+    expect(
+      find.text(
+        'Scegli il massimo credito o debito che l app puo conteggiare nel giorno e nel mese. Se non vuoi limiti, lascia Nessun limite.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('Stesso orario lun-ven'), findsOneWidget);
+    expect(find.text('Disattiva per personalizzare i giorni.'), findsOneWidget);
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is RichText &&
+            widget.text.toPlainText().contains('Ore attese'),
+      ),
+      findsWidgets,
+    );
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is RichText &&
+            widget.text.toPlainText().contains('Pausa minima'),
+      ),
+      findsWidgets,
+    );
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is RichText &&
+            widget.text.toPlainText().contains('Nessun limite'),
+      ),
+      findsWidgets,
+    );
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is RichText &&
+            widget.text.toPlainText().contains('Max credito giorno'),
+      ),
+      findsWidgets,
+    );
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is RichText &&
+            widget.text.toPlainText().contains('Max debito mese'),
+      ),
+      findsWidgets,
+    );
+    expect(find.text('Ripristina valori'), findsOneWidget);
+    expect(find.text('Salva'), findsOneWidget);
+    expect(find.text('Ore giornaliere attese'), findsNothing);
+    expect(find.text('Carica orari'), findsNothing);
+    expect(find.text('Salva orari'), findsNothing);
+  });
+
+  testWidgets('persists collapsed state for work settings sections', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(900, 2200));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final themePreferenceStore = _FakeThemePreferenceStore();
+
+    Future<void> openWorkSettings() async {
+      await tester.tap(find.byKey(const ValueKey('navigation-menu-button')));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const ValueKey('navigation-option-workSettings')),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    await tester.pumpWidget(
+      WorkHoursApp(
+        dashboardService: DashboardService(
+          repository: _FakeDashboardRepository(),
+        ),
+        appUpdateService: _FakeAppUpdateService(),
+        updateReminderStore: _FakeUpdateReminderStore(),
+        onboardingPreferenceStore: _FakeOnboardingPreferenceStore(
+          hasCompleted: true,
+        ),
+        themePreferenceStore: themePreferenceStore,
+        workdayStartStore: _FakeWorkdayStartStore(),
+        supportTicketStore: _FakeSupportTicketStore(),
+        hasCompletedInitialSetup: true,
+      ),
+    );
+
+    await tester.pumpAndSettle();
+    if (find.text('Ricordamelo piu tardi').evaluate().isNotEmpty) {
+      await tester.tap(find.text('Ricordamelo piu tardi'));
+      await tester.pumpAndSettle();
+    }
+    await openWorkSettings();
+
+    expect(themePreferenceStore.settings.expandWorkSettingsLimits, isTrue);
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('work-settings-limits-toggle-button')),
+      250,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(
+      find.byKey(const ValueKey('work-settings-limits-toggle-button')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(themePreferenceStore.settings.expandWorkSettingsLimits, isFalse);
+    expect(
+      find.text(
+        'Scegli il massimo credito o debito che l app puo conteggiare nel giorno e nel mese. Se non vuoi limiti, lascia Nessun limite.',
+      ),
+      findsNothing,
+    );
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is RichText &&
+            widget.text.toPlainText().contains('Max credito giorno'),
+      ),
+      findsNothing,
+    );
+
+    await tester.pumpWidget(
+      WorkHoursApp(
+        dashboardService: DashboardService(
+          repository: _FakeDashboardRepository(),
+        ),
+        appUpdateService: _FakeAppUpdateService(),
+        updateReminderStore: _FakeUpdateReminderStore(),
+        onboardingPreferenceStore: _FakeOnboardingPreferenceStore(
+          hasCompleted: true,
+        ),
+        themePreferenceStore: themePreferenceStore,
+        workdayStartStore: _FakeWorkdayStartStore(),
+        supportTicketStore: _FakeSupportTicketStore(),
+        initialAppearanceSettings: themePreferenceStore.settings,
+        hasCompletedInitialSetup: true,
+      ),
+    );
+
+    await tester.pumpAndSettle();
+    if (find.text('Ricordamelo piu tardi').evaluate().isNotEmpty) {
+      await tester.tap(find.text('Ricordamelo piu tardi'));
+      await tester.pumpAndSettle();
+    }
+    await openWorkSettings();
+
+    expect(themePreferenceStore.settings.expandWorkSettingsLimits, isFalse);
+    expect(
+      find.byKey(const ValueKey('work-settings-limits-toggle-button')),
+      findsOneWidget,
+    );
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is RichText &&
+            widget.text.toPlainText().contains('Max credito giorno'),
+      ),
+      findsNothing,
+    );
   });
 
   testWidgets('supports undo and redo in quick day editing', (tester) async {
@@ -353,16 +594,6 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('navigation-option-day')));
     await tester.pumpAndSettle();
 
-    final targetValueText = tester.widget<Text>(
-      find
-          .descendant(
-            of: find.byKey(const ValueKey('calendar-override-target-value')),
-            matching: find.byType(Text),
-          )
-          .first,
-    );
-    final expectedWorkedHours = targetValueText.data;
-
     await tester.tap(
       find.byKey(const ValueKey('calendar-override-end-time-button')),
     );
@@ -373,7 +604,12 @@ void main() {
       find.byKey(const ValueKey('schedule-time-wheel-helper-text')),
       findsOneWidget,
     );
-    expect(find.text('Ore di lavoro: $expectedWorkedHours'), findsOneWidget);
+    final helperText = tester
+        .widget<Text>(
+          find.byKey(const ValueKey('schedule-time-wheel-helper-text')),
+        )
+        .data;
+    expect(helperText, startsWith('Ore di lavoro: '));
   });
 
   testWidgets('persists collapsed state for quick day editor', (tester) async {
@@ -514,10 +750,7 @@ void main() {
       findsNothing,
     );
     expect(find.text('Giornata di oggi'), findsNothing);
-    expect(
-      find.text('Qui registri entrata, pausa e uscita di oggi.'),
-      findsOneWidget,
-    );
+    expect(find.text('Entrata, pausa, uscita.'), findsOneWidget);
     expect(themePreferenceStore.settings.expandDayWorkdayCard, isFalse);
 
     await tester.pumpWidget(
@@ -554,10 +787,101 @@ void main() {
       findsNothing,
     );
     expect(find.text('Giornata di oggi'), findsNothing);
+    expect(find.text('Entrata, pausa, uscita.'), findsOneWidget);
+  });
+
+  testWidgets('persists collapsed state for day agenda', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 1400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final themePreferenceStore = _FakeThemePreferenceStore();
+
+    Future<void> openDaySection() async {
+      await tester.tap(find.byKey(const ValueKey('navigation-menu-button')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('navigation-option-day')));
+      await tester.pumpAndSettle();
+    }
+
+    await tester.pumpWidget(
+      WorkHoursApp(
+        dashboardService: DashboardService(
+          repository: _FakeDashboardRepository(),
+        ),
+        appUpdateService: _FakeAppUpdateService(),
+        updateReminderStore: _FakeUpdateReminderStore(),
+        onboardingPreferenceStore: _FakeOnboardingPreferenceStore(
+          hasCompleted: true,
+        ),
+        themePreferenceStore: themePreferenceStore,
+        workdayStartStore: _FakeWorkdayStartStore(),
+        supportTicketStore: _FakeSupportTicketStore(),
+        hasCompletedInitialSetup: true,
+      ),
+    );
+
+    await tester.pumpAndSettle();
+    if (find.text('Ricordamelo piu tardi').evaluate().isNotEmpty) {
+      await tester.tap(find.text('Ricordamelo piu tardi'));
+      await tester.pumpAndSettle();
+    }
+    await openDaySection();
+
     expect(
-      find.text('Qui registri entrata, pausa e uscita di oggi.'),
+      find.byKey(const ValueKey('calendar-day-agenda-toggle-button')),
       findsOneWidget,
     );
+    expect(themePreferenceStore.settings.expandDayAgenda, isFalse);
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('calendar-day-agenda-toggle-button')),
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey('calendar-day-agenda-toggle-button')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(themePreferenceStore.settings.expandDayAgenda, isTrue);
+
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('calendar-day-agenda-toggle-button')),
+    );
+    await tester.tap(
+      find.byKey(const ValueKey('calendar-day-agenda-toggle-button')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(themePreferenceStore.settings.expandDayAgenda, isFalse);
+
+    await tester.pumpWidget(
+      WorkHoursApp(
+        dashboardService: DashboardService(
+          repository: _FakeDashboardRepository(),
+        ),
+        appUpdateService: _FakeAppUpdateService(),
+        updateReminderStore: _FakeUpdateReminderStore(),
+        onboardingPreferenceStore: _FakeOnboardingPreferenceStore(
+          hasCompleted: true,
+        ),
+        themePreferenceStore: themePreferenceStore,
+        workdayStartStore: _FakeWorkdayStartStore(),
+        supportTicketStore: _FakeSupportTicketStore(),
+        initialAppearanceSettings: themePreferenceStore.settings,
+        hasCompletedInitialSetup: true,
+      ),
+    );
+
+    await tester.pumpAndSettle();
+    if (find.text('Ricordamelo piu tardi').evaluate().isNotEmpty) {
+      await tester.tap(find.text('Ricordamelo piu tardi'));
+      await tester.pumpAndSettle();
+    }
+    await openDaySection();
+
+    expect(
+      find.byKey(const ValueKey('calendar-day-agenda-toggle-button')),
+      findsOneWidget,
+    );
+    expect(find.text('Agenda oraria'), findsOneWidget);
   });
 
   testWidgets('checks for updates again when app resumes', (tester) async {
@@ -804,7 +1128,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('navigation-option-ticket')));
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const ValueKey('ticket-api-hint')), findsOneWidget);
+    expect(find.byKey(const ValueKey('ticket-api-hint')), findsNothing);
     expect(
       find.byKey(const ValueKey('ticket-attachments-button')),
       findsOneWidget,

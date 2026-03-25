@@ -17,6 +17,10 @@ class AppAppearanceSettings {
     required this.showDayWorkdayCard,
     required this.expandDayWorkdayCard,
     required this.expandDayQuickEditor,
+    required this.expandDayAgenda,
+    required this.expandWorkSettingsSchedule,
+    required this.expandWorkSettingsRules,
+    required this.expandWorkSettingsLimits,
     required this.showDayTargetMinutes,
     required this.showDayEndTime,
     required this.showDayBreakMinutes,
@@ -32,6 +36,10 @@ class AppAppearanceSettings {
   final bool showDayWorkdayCard;
   final bool expandDayWorkdayCard;
   final bool expandDayQuickEditor;
+  final bool expandDayAgenda;
+  final bool expandWorkSettingsSchedule;
+  final bool expandWorkSettingsRules;
+  final bool expandWorkSettingsLimits;
   final bool showDayTargetMinutes;
   final bool showDayEndTime;
   final bool showDayBreakMinutes;
@@ -46,6 +54,10 @@ class AppAppearanceSettings {
     showDayWorkdayCard: true,
     expandDayWorkdayCard: true,
     expandDayQuickEditor: true,
+    expandDayAgenda: false,
+    expandWorkSettingsSchedule: true,
+    expandWorkSettingsRules: true,
+    expandWorkSettingsLimits: true,
     showDayTargetMinutes: false,
     showDayEndTime: true,
     showDayBreakMinutes: true,
@@ -63,6 +75,10 @@ class AppAppearanceSettings {
     bool? showDayWorkdayCard,
     bool? expandDayWorkdayCard,
     bool? expandDayQuickEditor,
+    bool? expandDayAgenda,
+    bool? expandWorkSettingsSchedule,
+    bool? expandWorkSettingsRules,
+    bool? expandWorkSettingsLimits,
     bool? showDayTargetMinutes,
     bool? showDayEndTime,
     bool? showDayBreakMinutes,
@@ -79,6 +95,13 @@ class AppAppearanceSettings {
       showDayWorkdayCard: showDayWorkdayCard ?? this.showDayWorkdayCard,
       expandDayWorkdayCard: expandDayWorkdayCard ?? this.expandDayWorkdayCard,
       expandDayQuickEditor: expandDayQuickEditor ?? this.expandDayQuickEditor,
+      expandDayAgenda: expandDayAgenda ?? this.expandDayAgenda,
+      expandWorkSettingsSchedule:
+          expandWorkSettingsSchedule ?? this.expandWorkSettingsSchedule,
+      expandWorkSettingsRules:
+          expandWorkSettingsRules ?? this.expandWorkSettingsRules,
+      expandWorkSettingsLimits:
+          expandWorkSettingsLimits ?? this.expandWorkSettingsLimits,
       showDayTargetMinutes: showDayTargetMinutes ?? this.showDayTargetMinutes,
       showDayEndTime: showDayEndTime ?? this.showDayEndTime,
       showDayBreakMinutes: showDayBreakMinutes ?? this.showDayBreakMinutes,
@@ -126,6 +149,18 @@ class AppAppearanceSettings {
       expandDayQuickEditor:
           json['expandDayQuickEditor'] as bool? ??
           AppAppearanceSettings.defaults.expandDayQuickEditor,
+      expandDayAgenda:
+          json['expandDayAgenda'] as bool? ??
+          AppAppearanceSettings.defaults.expandDayAgenda,
+      expandWorkSettingsSchedule:
+          json['expandWorkSettingsSchedule'] as bool? ??
+          AppAppearanceSettings.defaults.expandWorkSettingsSchedule,
+      expandWorkSettingsRules:
+          json['expandWorkSettingsRules'] as bool? ??
+          AppAppearanceSettings.defaults.expandWorkSettingsRules,
+      expandWorkSettingsLimits:
+          json['expandWorkSettingsLimits'] as bool? ??
+          AppAppearanceSettings.defaults.expandWorkSettingsLimits,
       showDayTargetMinutes:
           json['showDayTargetMinutes'] as bool? ??
           AppAppearanceSettings.defaults.showDayTargetMinutes,
@@ -154,6 +189,10 @@ class AppAppearanceSettings {
       'showDayWorkdayCard': showDayWorkdayCard,
       'expandDayWorkdayCard': expandDayWorkdayCard,
       'expandDayQuickEditor': expandDayQuickEditor,
+      'expandDayAgenda': expandDayAgenda,
+      'expandWorkSettingsSchedule': expandWorkSettingsSchedule,
+      'expandWorkSettingsRules': expandWorkSettingsRules,
+      'expandWorkSettingsLimits': expandWorkSettingsLimits,
       'showDayTargetMinutes': showDayTargetMinutes,
       'showDayEndTime': showDayEndTime,
       'showDayBreakMinutes': showDayBreakMinutes,
@@ -192,6 +231,13 @@ class SharedPreferencesThemePreferenceStore implements ThemePreferenceStore {
   static const _showDayWorkdayCardKey = 'appearance.show_day_workday_card';
   static const _expandDayWorkdayCardKey = 'appearance.expand_day_workday_card';
   static const _expandDayQuickEditorKey = 'appearance.expand_day_quick_editor';
+  static const _expandDayAgendaKey = 'appearance.expand_day_agenda';
+  static const _expandWorkSettingsScheduleKey =
+      'appearance.expand_work_settings_schedule';
+  static const _expandWorkSettingsRulesKey =
+      'appearance.expand_work_settings_rules';
+  static const _expandWorkSettingsLimitsKey =
+      'appearance.expand_work_settings_limits';
   static const _showDayTargetMinutesKey = 'appearance.show_day_target_minutes';
   static const _showDayEndTimeKey = 'appearance.show_day_end_time';
   static const _showDayBreakMinutesKey = 'appearance.show_day_break_minutes';
@@ -261,6 +307,18 @@ class SharedPreferencesThemePreferenceStore implements ThemePreferenceStore {
       expandDayQuickEditor:
           preferences.getBool(_expandDayQuickEditorKey) ??
           AppAppearanceSettings.defaults.expandDayQuickEditor,
+      expandDayAgenda:
+          preferences.getBool(_expandDayAgendaKey) ??
+          AppAppearanceSettings.defaults.expandDayAgenda,
+      expandWorkSettingsSchedule:
+          preferences.getBool(_expandWorkSettingsScheduleKey) ??
+          AppAppearanceSettings.defaults.expandWorkSettingsSchedule,
+      expandWorkSettingsRules:
+          preferences.getBool(_expandWorkSettingsRulesKey) ??
+          AppAppearanceSettings.defaults.expandWorkSettingsRules,
+      expandWorkSettingsLimits:
+          preferences.getBool(_expandWorkSettingsLimitsKey) ??
+          AppAppearanceSettings.defaults.expandWorkSettingsLimits,
       showDayTargetMinutes:
           preferences.getBool(_showDayTargetMinutesKey) ??
           AppAppearanceSettings.defaults.showDayTargetMinutes,
@@ -312,6 +370,19 @@ class SharedPreferencesThemePreferenceStore implements ThemePreferenceStore {
     await preferences.setBool(
       _expandDayQuickEditorKey,
       settings.expandDayQuickEditor,
+    );
+    await preferences.setBool(_expandDayAgendaKey, settings.expandDayAgenda);
+    await preferences.setBool(
+      _expandWorkSettingsScheduleKey,
+      settings.expandWorkSettingsSchedule,
+    );
+    await preferences.setBool(
+      _expandWorkSettingsRulesKey,
+      settings.expandWorkSettingsRules,
+    );
+    await preferences.setBool(
+      _expandWorkSettingsLimitsKey,
+      settings.expandWorkSettingsLimits,
     );
     await preferences.setBool(
       _showDayTargetMinutesKey,

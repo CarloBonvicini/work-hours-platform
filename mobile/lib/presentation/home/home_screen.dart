@@ -47,6 +47,7 @@ enum _HomeSection {
   quickEntry,
   calendar,
   recentActivity,
+  workSettings,
   profile,
   ticket,
 }
@@ -71,6 +72,7 @@ enum _WorkdaySessionStatus { notStarted, active, onBreak, completed }
 const _mainNavigationSections = [
   _HomeSection.day,
   _HomeSection.calendar,
+  _HomeSection.workSettings,
   _HomeSection.profile,
   _HomeSection.ticket,
 ];
@@ -1702,9 +1704,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         return;
       }
 
-      messenger.showSnackBar(
-        const SnackBar(content: Text('Impostazioni aggiornate.')),
-      );
+      messenger.showSnackBar(const SnackBar(content: Text('Dati aggiornati.')));
     } catch (error) {
       if (!mounted) {
         return;
@@ -2052,7 +2052,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final currentTargetMinutes =
         _displayedScheduleStateForSelectedDate().schedule.targetMinutes;
     final pickedMinutes = await _showScheduleTargetWheelPicker(
-      title: 'Ore del giorno',
+      title: 'Durata del giorno',
       initialMinutes: currentTargetMinutes,
     );
     if (pickedMinutes == null) {
@@ -2255,7 +2255,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         parseHoursInput(_uniformDailyTargetController.text) ??
         8 * 60;
     final pickedMinutes = await _showDurationWheelPicker(
-      title: 'Ore giornaliere attese',
+      title: 'Ore attese',
       initialMinutes: currentMinutes,
       maxMinutes: 16 * 60,
       stepMinutes: 5,
@@ -2295,6 +2295,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       title: 'Massimo credito giornaliero',
       controller: _rulesMaximumDailyCreditController,
       maxMinutes: 16 * 60,
+      unboundedMinutes: 24 * 60,
     );
   }
 
@@ -2303,6 +2304,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       title: 'Massimo debito giornaliero',
       controller: _rulesMaximumDailyDebitController,
       maxMinutes: 16 * 60,
+      unboundedMinutes: 24 * 60,
     );
   }
 
@@ -2311,6 +2313,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       title: 'Massimo credito mensile',
       controller: _rulesMaximumMonthlyCreditController,
       maxMinutes: 240 * 60,
+      unboundedMinutes: 31 * 24 * 60,
     );
   }
 
@@ -2319,6 +2322,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       title: 'Massimo debito mensile',
       controller: _rulesMaximumMonthlyDebitController,
       maxMinutes: 240 * 60,
+      unboundedMinutes: 31 * 24 * 60,
     );
   }
 
@@ -2326,6 +2330,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     required String title,
     required TextEditingController controller,
     required int maxMinutes,
+    required int unboundedMinutes,
   }) async {
     final currentMinutes = parseHoursInput(controller.text) ?? 0;
     final pickedMinutes = await _showDurationWheelPicker(
@@ -2333,7 +2338,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       initialMinutes: currentMinutes,
       maxMinutes: maxMinutes,
       stepMinutes: 5,
-      zeroLabel: 'Nessun limite',
+      specialValue: unboundedMinutes,
+      specialLabel: 'Nessun limite',
     );
     if (pickedMinutes == null) {
       return;
@@ -2535,27 +2541,47 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     required int maxMinutes,
     int stepMinutes = 5,
     String? zeroLabel,
+    int? specialValue,
+    String? specialLabel,
   }) async {
-    final allowedValues = List<int>.generate(
-      (maxMinutes ~/ stepMinutes) + 1,
-      (index) => index * stepMinutes,
-    );
+    final allowedValues = [
+      ...?specialValue == null ? null : [specialValue],
+      ...List<int>.generate(
+        (maxMinutes ~/ stepMinutes) + 1,
+        (index) => index * stepMinutes,
+      ),
+    ];
     final normalizedInitial =
-        ((initialMinutes / stepMinutes).round() * stepMinutes).clamp(
-          0,
-          allowedValues.last,
-        );
+        initialMinutes == specialValue && specialValue != null
+        ? specialValue
+        : ((initialMinutes / stepMinutes).round() * stepMinutes).clamp(
+            0,
+            maxMinutes,
+          );
     final initialIndex = allowedValues.indexOf(normalizedInitial);
+    final resolvedInitialIndex = initialIndex < 0 ? 0 : initialIndex;
+    String labelFor(int value) {
+      if (specialValue != null &&
+          value == specialValue &&
+          specialLabel != null) {
+        return specialLabel;
+      }
+      if (value == 0 && zeroLabel != null) {
+        return zeroLabel;
+      }
+      return _formatHoursInput(value);
+    }
+
     final pickedMinutes = await showModalBottomSheet<int>(
       context: context,
       showDragHandle: true,
       builder: (context) => _WheelPickerBottomSheet<int>(
         title: title,
-        initialValue: allowedValues[initialIndex],
+        initialValue: allowedValues[resolvedInitialIndex],
         valueBuilder: (controller) => ValueListenableBuilder<int>(
           valueListenable: controller,
           builder: (context, value, _) => Text(
-            value == 0 && zeroLabel != null ? zeroLabel : _formatHoursInput(value),
+            labelFor(value),
             style: Theme.of(
               context,
             ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
@@ -2565,7 +2591,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           height: 220,
           child: CupertinoPicker(
             scrollController: FixedExtentScrollController(
-              initialItem: initialIndex,
+              initialItem: resolvedInitialIndex,
             ),
             itemExtent: 38,
             onSelectedItemChanged: (index) {
@@ -2573,13 +2599,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             },
             children: [
               for (final value in allowedValues)
-                Center(
-                  child: Text(
-                    value == 0 && zeroLabel != null
-                        ? zeroLabel
-                        : _formatHoursInput(value),
-                  ),
-                ),
+                Center(child: Text(labelFor(value))),
             ],
           ),
         ),
@@ -4657,6 +4677,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       onUndoOverrideChange: _undoScheduleOverrideDraftChange,
       onRedoOverrideChange: _redoScheduleOverrideDraftChange,
       onMarkDayAsOff: _markSelectedDayAsDayOff,
+      onRestoreWorkingDay: _removeScheduleOverride,
     );
   }
 
@@ -4754,10 +4775,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           onOpenWorkEntry: _openWorkQuickEntryForDate,
           onOpenLeaveEntry: _openLeaveQuickEntryForDate,
         );
-      case _HomeSection.profile:
-        return _ProfileCard(
+      case _HomeSection.workSettings:
+        return _WorkSettingsCard(
           formKey: _profileFormKey,
-          fullNameController: _fullNameController,
+          appearanceSettings: widget.appearanceSettings,
           useUniformDailyTarget: _useUniformDailyTarget,
           onUniformDailyTargetChanged: (value) {
             setState(() {
@@ -4770,8 +4791,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           uniformBreakController: _uniformBreakController,
           rulesExpectedDailyController: _rulesExpectedDailyController,
           rulesMinimumBreakController: _rulesMinimumBreakController,
-          rulesMaximumDailyCreditController:
-              _rulesMaximumDailyCreditController,
+          rulesMaximumDailyCreditController: _rulesMaximumDailyCreditController,
           rulesMaximumDailyDebitController: _rulesMaximumDailyDebitController,
           rulesMaximumMonthlyCreditController:
               _rulesMaximumMonthlyCreditController,
@@ -4783,20 +4803,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           weekdayBreakControllers: _weekdayBreakControllers,
           isBusy: _isSavingProfile,
           isReloading: _isReloadingProfile,
-          isDarkTheme: widget.isDarkTheme,
-          appearanceSettings: widget.appearanceSettings,
-          availableUpdate: _availableUpdate,
-          isCheckingForUpdate: _isCheckingForUpdate,
-          isOpeningUpdate: _isOpeningUpdate,
-          isUpdatingThemeMode: _isUpdatingThemeMode,
-          accountSession: _accountSession,
-          accountEmailController: _accountEmailController,
-          accountPasswordController: _accountPasswordController,
-          isAuthenticatingAccount: _isAuthenticatingAccount,
-          isRestoringCloudBackup: _isRestoringCloudBackup,
-          isSyncingCloudBackup: _isSyncingCloudBackup,
-          onDarkThemeChanged: _toggleThemeMode,
-          onOpenUpdateFromSettings: _openUpdateFromSettings,
           onPickUniformTargetMinutes: _pickUniformTargetMinutes,
           onPickUniformScheduleTime: _pickUniformScheduleTime,
           onPickUniformBreakMinutes: _pickUniformBreakMinutes,
@@ -4813,6 +4819,30 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           onPickWeekdayTargetMinutes: _pickWeekdayTargetMinutes,
           onPickWeekdayScheduleTime: _pickWeekdayScheduleTime,
           onPickWeekdayBreakMinutes: _pickWeekdayBreakMinutes,
+          onAppearanceSettingsChanged: _updateAppearanceSettings,
+          onReload: _reloadProfileDraft,
+          onSubmit: _submitProfile,
+        );
+      case _HomeSection.profile:
+        return _ProfileCard(
+          formKey: _profileFormKey,
+          fullNameController: _fullNameController,
+          isBusy: _isSavingProfile,
+          isReloading: _isReloadingProfile,
+          isDarkTheme: widget.isDarkTheme,
+          appearanceSettings: widget.appearanceSettings,
+          availableUpdate: _availableUpdate,
+          isCheckingForUpdate: _isCheckingForUpdate,
+          isOpeningUpdate: _isOpeningUpdate,
+          isUpdatingThemeMode: _isUpdatingThemeMode,
+          accountSession: _accountSession,
+          accountEmailController: _accountEmailController,
+          accountPasswordController: _accountPasswordController,
+          isAuthenticatingAccount: _isAuthenticatingAccount,
+          isRestoringCloudBackup: _isRestoringCloudBackup,
+          isSyncingCloudBackup: _isSyncingCloudBackup,
+          onDarkThemeChanged: _toggleThemeMode,
+          onOpenUpdateFromSettings: _openUpdateFromSettings,
           onAppearanceSettingsChanged: _updateAppearanceSettings,
           onRegisterAccount: _registerAccount,
           onLoginAccount: _loginAccount,
@@ -5102,6 +5132,7 @@ class _CalendarCard extends StatelessWidget {
     required this.onUndoOverrideChange,
     required this.onRedoOverrideChange,
     required this.onMarkDayAsOff,
+    required this.onRestoreWorkingDay,
   });
 
   final String title;
@@ -5170,6 +5201,7 @@ class _CalendarCard extends StatelessWidget {
   final Future<void> Function() onUndoOverrideChange;
   final Future<void> Function() onRedoOverrideChange;
   final VoidCallback onMarkDayAsOff;
+  final Future<void> Function() onRestoreWorkingDay;
 
   @override
   Widget build(BuildContext context) {
@@ -5197,22 +5229,39 @@ class _CalendarCard extends StatelessWidget {
       quickEditorSchedule: quickEditorDaySchedule,
       workRules: workRules,
     );
+    final hasQuickResultContext =
+        (isSelectedDateToday && workdaySession != null) ||
+        dayMetrics.workedMinutes > 0 ||
+        dayMetrics.leaveMinutes > 0 ||
+        !_matchesDaySchedule(quickEditorDaySchedule, baseDaySchedule);
+    final displayedWorkedMinutes = hasQuickResultContext
+        ? liveWorkedMinutes
+        : 0;
     final liveRawDayBalanceMinutes =
         (liveWorkedMinutes + dayMetrics.leaveMinutes) - liveExpectedMinutes;
     final liveDayBalanceMinutes = workRules.clampDailyBalance(
       liveRawDayBalanceMinutes,
     );
-    final liveRawMonthBalanceMinutes =
-        monthMetrics.rawBalanceMinutes +
-        (liveRawDayBalanceMinutes - dayMetrics.rawBalanceMinutes);
-    final liveMonthBalanceMinutes = workRules.clampMonthlyBalance(
-      liveRawMonthBalanceMinutes,
+    final monthBalanceInfo = _buildDisplayedMonthBalanceInfo(
+      month: month,
+      selectedDate: selectedDate,
+      days: days,
+      liveExpectedMinutes: liveExpectedMinutes,
+      liveWorkedMinutes: liveWorkedMinutes,
+      liveLeaveMinutes: dayMetrics.leaveMinutes,
+      workRules: workRules,
     );
     final suggestedExitLabel = _resolveSuggestedExitLabel(
       effectiveSchedule: effectiveDaySchedule,
       quickEditorSchedule: quickEditorDaySchedule,
       workRules: workRules,
     );
+    final isQuickEditorDayOff = _isExplicitDayOffSchedule(
+      quickEditorDaySchedule,
+    );
+    final canRestoreWorkingDay =
+        isQuickEditorDayOff &&
+        !_matchesDaySchedule(baseDaySchedule, quickEditorDaySchedule);
     final selectedDayInfo = switch (_compareDateToToday(selectedDate)) {
       0 => (
         label: 'Oggi',
@@ -5265,10 +5314,15 @@ class _CalendarCard extends StatelessWidget {
               ),
             ),
             onMarkDayAsOff: onMarkDayAsOff,
+            onRestoreWorkingDay: onRestoreWorkingDay,
+            isDayOff: isQuickEditorDayOff,
+            canRestoreWorkingDay: canRestoreWorkingDay,
+            workedMinutes: displayedWorkedMinutes,
             expectedMinutes: liveExpectedMinutes,
             todayBalanceMinutes: liveDayBalanceMinutes,
-            monthBalanceMinutes: liveMonthBalanceMinutes,
+            monthBalanceInfo: monthBalanceInfo,
             suggestedExitLabel: suggestedExitLabel,
+            hasResultContext: hasQuickResultContext,
           ),
         ],
       ),
@@ -5295,6 +5349,12 @@ class _CalendarCard extends StatelessWidget {
       onDaySchedulePreviewCleared: onAgendaSchedulePreviewCleared,
       onDayScheduleChanged: onAgendaScheduleChanged,
       onAgendaInteractionChanged: onAgendaInteractionChanged,
+      isDayAgendaExpanded: appearanceSettings.expandDayAgenda,
+      onToggleDayAgendaExpanded: (expanded) => unawaited(
+        onAppearanceSettingsChanged(
+          appearanceSettings.copyWith(expandDayAgenda: expanded),
+        ),
+      ),
     );
 
     final trailing = calendarView == _CalendarView.day
@@ -5555,10 +5615,15 @@ class _CalendarQuickScheduleEditor extends StatelessWidget {
     required this.onRedoChange,
     required this.onToggleExpanded,
     required this.onMarkDayAsOff,
+    required this.onRestoreWorkingDay,
+    required this.isDayOff,
+    required this.canRestoreWorkingDay,
+    required this.workedMinutes,
     required this.expectedMinutes,
     required this.todayBalanceMinutes,
-    required this.monthBalanceMinutes,
+    required this.monthBalanceInfo,
     required this.suggestedExitLabel,
+    required this.hasResultContext,
   });
 
   final bool isExpanded;
@@ -5578,10 +5643,15 @@ class _CalendarQuickScheduleEditor extends StatelessWidget {
   final Future<void> Function() onRedoChange;
   final ValueChanged<bool> onToggleExpanded;
   final VoidCallback onMarkDayAsOff;
+  final Future<void> Function() onRestoreWorkingDay;
+  final bool isDayOff;
+  final bool canRestoreWorkingDay;
+  final int workedMinutes;
   final int expectedMinutes;
   final int todayBalanceMinutes;
-  final int monthBalanceMinutes;
+  final _DisplayedMonthBalanceInfo monthBalanceInfo;
   final String suggestedExitLabel;
+  final bool hasResultContext;
 
   @override
   Widget build(BuildContext context) {
@@ -5612,6 +5682,8 @@ class _CalendarQuickScheduleEditor extends StatelessWidget {
         label: 'Entrata',
         value: startTimeText.isEmpty ? '--:--' : startTimeText,
         valueKey: const ValueKey('calendar-override-start-time-button'),
+        supportingText: !hasResultContext && !isDayOff ? 'Inizia da qui' : null,
+        isPrimaryAction: !hasResultContext && !isDayOff,
         onTap: onPickStartTime,
       ),
       if (showEndTime)
@@ -5619,10 +5691,13 @@ class _CalendarQuickScheduleEditor extends StatelessWidget {
           label: 'Uscita',
           value: endTimeText.isEmpty ? '--:--' : endTimeText,
           valueKey: const ValueKey('calendar-override-end-time-button'),
+          supportingText: endTimeText.isEmpty && !isDayOff
+              ? 'Dopo l\'entrata'
+              : null,
           onTap: onPickEndTime,
         ),
       _QuickScheduleValue(
-        label: 'Ore',
+        label: 'Orario standard',
         value: targetText.isEmpty ? '--' : targetText,
         valueKey: const ValueKey('calendar-override-target-value'),
         onTap: onPickTargetMinutes,
@@ -5640,7 +5715,7 @@ class _CalendarQuickScheduleEditor extends StatelessWidget {
       children: [
         Expanded(
           child: Text(
-            'Modifica rapida del giorno',
+            'Modifica rapida',
             style: theme.textTheme.titleSmall?.copyWith(
               fontWeight: FontWeight.w800,
             ),
@@ -5685,6 +5760,38 @@ class _CalendarQuickScheduleEditor extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const SizedBox(height: 6),
+                    Wrap(
+                      spacing: 10,
+                      runSpacing: 10,
+                      children: [
+                        FilterChip(
+                          key: const ValueKey(
+                            'calendar-override-day-off-button',
+                          ),
+                          selected: isDayOff,
+                          showCheckmark: false,
+                          avatar: Icon(
+                            isDayOff
+                                ? Icons.event_busy_outlined
+                                : Icons.event_available_outlined,
+                            size: 18,
+                          ),
+                          label: Text(
+                            isDayOff ? 'Giornata libera' : 'Segna libera',
+                          ),
+                          onSelected: (selected) {
+                            if (selected) {
+                              onMarkDayAsOff();
+                              return;
+                            }
+                            if (canRestoreWorkingDay) {
+                              unawaited(onRestoreWorkingDay());
+                            }
+                          },
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
                     LayoutBuilder(
                       builder: (context, constraints) {
                         final columnCount = math.min(
@@ -5693,7 +5800,7 @@ class _CalendarQuickScheduleEditor extends StatelessWidget {
                               ? 4
                               : (constraints.maxWidth >= 540 ? 3 : 2),
                         );
-                        final spacing = 18.0;
+                        const spacing = 12.0;
                         final itemWidth = columnCount <= 1
                             ? constraints.maxWidth
                             : (constraints.maxWidth -
@@ -5710,23 +5817,26 @@ class _CalendarQuickScheduleEditor extends StatelessWidget {
                         );
                       },
                     ),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 14),
                     _QuickDayComputedSummary(
+                      workedMinutes: workedMinutes,
                       expectedMinutes: expectedMinutes,
                       todayBalanceMinutes: todayBalanceMinutes,
-                      monthBalanceMinutes: monthBalanceMinutes,
+                      monthBalanceInfo: monthBalanceInfo,
                       suggestedExitLabel: suggestedExitLabel,
+                      isDayOff: isDayOff,
+                      hasResultContext: hasResultContext,
                     ),
-                    const SizedBox(height: 8),
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: TextButton.icon(
-                        key: const ValueKey('calendar-override-day-off-button'),
-                        onPressed: onMarkDayAsOff,
-                        icon: const Icon(Icons.event_busy_outlined),
-                        label: const Text('Giornata libera'),
+                    if (!hasResultContext && !isDayOff) ...[
+                      const SizedBox(height: 10),
+                      Text(
+                        'Inserisci l\'entrata per iniziare.',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
-                    ),
+                    ],
                   ],
                 )
               : const SizedBox.shrink(),
@@ -5815,7 +5925,7 @@ class _WorkdaySessionCard extends StatelessWidget {
           children: [
             Expanded(
               child: Text(
-                'Qui registri entrata, pausa e uscita di oggi.',
+                'Entrata, pausa, uscita.',
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: theme.colorScheme.onSurfaceVariant,
                   fontWeight: FontWeight.w600,
@@ -5977,132 +6087,388 @@ class _QuickScheduleValue extends StatelessWidget {
     required this.value,
     required this.valueKey,
     required this.onTap,
+    this.supportingText,
+    this.isPrimaryAction = false,
   });
 
   final String label;
   final String value;
   final Key valueKey;
   final Future<void> Function() onTap;
+  final String? supportingText;
+  final bool isPrimaryAction;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: theme.textTheme.labelLarge?.copyWith(
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-        const SizedBox(height: 6),
-        TextButton(
-          key: valueKey,
-          onPressed: () => onTap(),
-          style: TextButton.styleFrom(
-            padding: EdgeInsets.zero,
-            alignment: Alignment.centerLeft,
-            foregroundColor: theme.colorScheme.primary,
-            textStyle: theme.textTheme.titleLarge?.copyWith(
-              fontWeight: FontWeight.w800,
+    final colorScheme = theme.colorScheme;
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        key: valueKey,
+        borderRadius: BorderRadius.circular(18),
+        onTap: () => onTap(),
+        child: Ink(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: BoxDecoration(
+            color: isPrimaryAction
+                ? colorScheme.primary.withValues(alpha: 0.10)
+                : colorScheme.surfaceContainerLow,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(
+              color: isPrimaryAction
+                  ? colorScheme.primary.withValues(alpha: 0.72)
+                  : colorScheme.outlineVariant.withValues(alpha: 0.78),
             ),
           ),
-          child: Row(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Flexible(child: Text(value, overflow: TextOverflow.ellipsis)),
-              const SizedBox(width: 6),
-              Icon(
-                CupertinoIcons.chevron_up_chevron_down,
-                size: 16,
-                color: theme.colorScheme.primary,
+              Text(
+                label,
+                style: theme.textTheme.labelLarge?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
               ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      value,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.titleLarge?.copyWith(
+                        color: colorScheme.primary,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Icon(
+                    CupertinoIcons.chevron_up_chevron_down,
+                    size: 16,
+                    color: colorScheme.primary,
+                  ),
+                ],
+              ),
+              if (supportingText != null) ...[
+                const SizedBox(height: 4),
+                Text(
+                  supportingText!,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: colorScheme.onSurfaceVariant,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
             ],
           ),
         ),
-      ],
+      ),
     );
   }
 }
 
 class _QuickDayComputedSummary extends StatelessWidget {
   const _QuickDayComputedSummary({
+    required this.workedMinutes,
     required this.expectedMinutes,
     required this.todayBalanceMinutes,
-    required this.monthBalanceMinutes,
+    required this.monthBalanceInfo,
     required this.suggestedExitLabel,
+    required this.isDayOff,
+    required this.hasResultContext,
   });
 
+  final int workedMinutes;
   final int expectedMinutes;
   final int todayBalanceMinutes;
-  final int monthBalanceMinutes;
+  final _DisplayedMonthBalanceInfo monthBalanceInfo;
   final String suggestedExitLabel;
+  final bool isDayOff;
+  final bool hasResultContext;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final items = [
-      (
-        label: 'Ore attese oggi',
-        value: _formatHoursInput(expectedMinutes),
-        valueKey: const ValueKey('calendar-live-expected-value'),
-        accentColor: theme.colorScheme.primary,
-      ),
-      (
-        label: 'Saldo oggi',
-        value: _formatSignedHoursInput(todayBalanceMinutes),
-        valueKey: const ValueKey('calendar-live-day-balance-value'),
-        accentColor: _balanceColor(context, todayBalanceMinutes),
-      ),
-      (
-        label: 'Saldo mese',
-        value: _formatSignedHoursInput(monthBalanceMinutes),
-        valueKey: const ValueKey('calendar-live-month-balance-value'),
-        accentColor: _balanceColor(context, monthBalanceMinutes),
-      ),
-      (
-        label: 'Esci alle',
-        value: suggestedExitLabel,
-        valueKey: const ValueKey('calendar-live-suggested-exit-value'),
-        accentColor: theme.colorScheme.primary,
-      ),
-    ];
+    final colorScheme = theme.colorScheme;
+    final hasStartedDay = hasResultContext && !isDayOff;
+    final dayBalanceLabel = switch ((
+      isDayOff,
+      hasStartedDay,
+      todayBalanceMinutes,
+    )) {
+      (true, _, _) => 'Saldo oggi',
+      (false, false, _) => 'Saldo oggi',
+      (false, true, > 0) => 'Credito oggi',
+      (false, true, < 0) => 'Debito oggi',
+      _ => 'In pari oggi',
+    };
+    final dayBalanceValue = switch ((isDayOff, hasStartedDay)) {
+      (true, _) => '0:00',
+      (false, false) => 'Da iniziare',
+      _ => _formatSignedHoursInput(todayBalanceMinutes),
+    };
+    final dayBalanceColor = switch ((isDayOff, hasStartedDay)) {
+      (true, _) => colorScheme.primary,
+      (false, false) => colorScheme.onSurfaceVariant,
+      _ => _balanceColor(context, todayBalanceMinutes),
+    };
+    final exitValue = switch ((isDayOff, hasStartedDay)) {
+      (true, _) => 'Libero',
+      (false, false) => 'Da calcolare',
+      _ => suggestedExitLabel,
+    };
+    final exitHelperText = switch ((isDayOff, hasStartedDay)) {
+      (true, _) => 'Nessuna uscita prevista',
+      (false, false) => 'Inserisci entrata per calcolare uscita',
+      _ => null,
+    };
+
+    return _QuickDayHero(
+      workedMinutes: workedMinutes,
+      isDayOff: isDayOff,
+      hasResultContext: hasResultContext,
+      dayBalanceLabel: dayBalanceLabel,
+      dayBalanceValue: dayBalanceValue,
+      dayBalanceColor: dayBalanceColor,
+      exitValue: exitValue,
+      exitHelperText: exitHelperText,
+      expectedMinutes: expectedMinutes,
+      monthBalanceInfo: monthBalanceInfo,
+      expectedValueColor: colorScheme.primary,
+      monthValueColor: monthBalanceInfo.accentColor ?? colorScheme.onSurface,
+    );
+  }
+}
+
+class _QuickDayHero extends StatelessWidget {
+  const _QuickDayHero({
+    required this.workedMinutes,
+    required this.isDayOff,
+    required this.hasResultContext,
+    required this.dayBalanceLabel,
+    required this.dayBalanceValue,
+    required this.dayBalanceColor,
+    required this.exitValue,
+    required this.exitHelperText,
+    required this.expectedMinutes,
+    required this.monthBalanceInfo,
+    required this.expectedValueColor,
+    required this.monthValueColor,
+  });
+
+  final int workedMinutes;
+  final bool isDayOff;
+  final bool hasResultContext;
+  final String dayBalanceLabel;
+  final String dayBalanceValue;
+  final Color dayBalanceColor;
+  final String exitValue;
+  final String? exitHelperText;
+  final int expectedMinutes;
+  final _DisplayedMonthBalanceInfo monthBalanceInfo;
+  final Color expectedValueColor;
+  final Color monthValueColor;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final labelStyle = theme.textTheme.labelMedium?.copyWith(
+      color: colorScheme.onSurfaceVariant.withValues(alpha: 0.72),
+      fontWeight: FontWeight.w700,
+      letterSpacing: 0.2,
+    );
+    final secondaryValueStyle = theme.textTheme.titleLarge?.copyWith(
+      fontSize: 18,
+      height: 1.05,
+      color: colorScheme.onSurface,
+      fontWeight: FontWeight.w800,
+    );
+    final helperStyle = theme.textTheme.bodySmall?.copyWith(
+      color: colorScheme.onSurfaceVariant,
+      fontWeight: FontWeight.w600,
+      fontSize: 11.5,
+      height: 1.15,
+    );
+    final workedHelperText = switch ((isDayOff, hasResultContext)) {
+      (true, _) => 'Nessuna ora da registrare',
+      (false, false) => 'Inserisci l\'entrata per iniziare',
+      _ => null,
+    };
+    final neutralValueColor = colorScheme.onSurfaceVariant;
+    Widget metricBlock({
+      required String label,
+      required String value,
+      required Key valueKey,
+      required Color valueColor,
+      String? helperText,
+    }) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: labelStyle),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            key: valueKey,
+            style: secondaryValueStyle?.copyWith(color: valueColor),
+          ),
+          if (helperText != null) ...[
+            const SizedBox(height: 2),
+            Text(helperText, style: helperStyle),
+          ],
+        ],
+      );
+    }
+
+    final workedBlock = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Lavorate', style: labelStyle),
+        const SizedBox(height: 4),
+        Text(
+          _formatHoursInput(workedMinutes),
+          key: const ValueKey('calendar-live-worked-value'),
+          style: theme.textTheme.headlineLarge?.copyWith(
+            fontSize: 30,
+            height: 1,
+            fontWeight: FontWeight.w900,
+            color: colorScheme.primary,
+          ),
+        ),
+        if (workedHelperText != null) ...[
+          const SizedBox(height: 2),
+          Text(workedHelperText, style: helperStyle),
+        ],
+      ],
+    );
+    final balanceBlock = metricBlock(
+      label: dayBalanceLabel,
+      value: dayBalanceValue,
+      valueKey: const ValueKey('calendar-live-day-balance-value'),
+      valueColor: hasResultContext || isDayOff
+          ? dayBalanceColor
+          : neutralValueColor,
+    );
+    final exitBlock = metricBlock(
+      label: 'Esci alle',
+      value: exitValue,
+      valueKey: const ValueKey('calendar-live-suggested-exit-value'),
+      valueColor: hasResultContext && !isDayOff
+          ? colorScheme.primary
+          : neutralValueColor,
+      helperText: exitHelperText,
+    );
+    final monthBlock = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Saldo mese', style: labelStyle),
+        const SizedBox(height: 3),
+        Text(
+          monthBalanceInfo.value,
+          key: const ValueKey('calendar-live-month-balance-value'),
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: secondaryValueStyle?.copyWith(
+            fontSize: 16,
+            color: monthValueColor,
+          ),
+        ),
+        if (monthBalanceInfo.supportingText != null) ...[
+          const SizedBox(height: 2),
+          Text(monthBalanceInfo.supportingText!, style: helperStyle),
+        ],
+      ],
+    );
 
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(18),
+        color: Color.lerp(
+          colorScheme.surfaceContainerLow,
+          colorScheme.primary,
+          0.05,
+        )!,
+        borderRadius: BorderRadius.circular(22),
         border: Border.all(
-          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.72),
+          color: colorScheme.outlineVariant.withValues(alpha: 0.82),
         ),
       ),
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final columnCount = constraints.maxWidth >= 760 ? 4 : 2;
-          const spacing = 12.0;
-          final itemWidth = columnCount <= 1
-              ? constraints.maxWidth
-              : (constraints.maxWidth - (spacing * (columnCount - 1))) /
-                    columnCount;
-
-          return Wrap(
-            spacing: spacing,
-            runSpacing: 12,
-            children: [
-              for (final item in items)
-                SizedBox(
-                  width: itemWidth,
-                  child: _QuickDayComputedValue(
-                    label: item.label,
-                    value: item.value,
-                    valueKey: item.valueKey,
-                    accentColor: item.accentColor,
-                  ),
-                ),
-            ],
-          );
-        },
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          LayoutBuilder(
+            builder: (context, constraints) {
+              if (constraints.maxWidth >= 300) {
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(flex: 4, child: workedBlock),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      flex: 3,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          balanceBlock,
+                          const SizedBox(height: 10),
+                          exitBlock,
+                        ],
+                      ),
+                    ),
+                  ],
+                );
+              }
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  workedBlock,
+                  const SizedBox(height: 12),
+                  balanceBlock,
+                  const SizedBox(height: 10),
+                  exitBlock,
+                ],
+              );
+            },
+          ),
+          const SizedBox(height: 10),
+          Divider(
+            height: 1,
+            color: colorScheme.outlineVariant.withValues(alpha: 0.24),
+          ),
+          const SizedBox(height: 10),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final expectedBlock = _QuickDayComputedValue(
+                label: 'Ore attese',
+                value: _formatHoursInput(expectedMinutes),
+                valueKey: const ValueKey('calendar-live-expected-value'),
+                accentColor: expectedValueColor,
+              );
+              if (constraints.maxWidth >= 280) {
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(child: expectedBlock),
+                    const SizedBox(width: 10),
+                    Expanded(child: monthBlock),
+                  ],
+                );
+              }
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  expectedBlock,
+                  const SizedBox(height: 10),
+                  monthBlock,
+                ],
+              );
+            },
+          ),
+        ],
       ),
     );
   }
@@ -6142,6 +6508,8 @@ class _QuickDayComputedValue extends StatelessWidget {
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: theme.textTheme.titleMedium?.copyWith(
+            fontSize: 16,
+            height: 1.05,
             color: accentColor,
             fontWeight: FontWeight.w800,
           ),
@@ -6248,6 +6616,8 @@ class _CalendarPeriodSummary extends StatelessWidget {
     required this.onDaySchedulePreviewCleared,
     required this.onDayScheduleChanged,
     required this.onAgendaInteractionChanged,
+    required this.isDayAgendaExpanded,
+    required this.onToggleDayAgendaExpanded,
   });
 
   final _CalendarView calendarView;
@@ -6282,6 +6652,8 @@ class _CalendarPeriodSummary extends StatelessWidget {
   })
   onDayScheduleChanged;
   final ValueChanged<bool> onAgendaInteractionChanged;
+  final bool isDayAgendaExpanded;
+  final ValueChanged<bool> onToggleDayAgendaExpanded;
 
   @override
   Widget build(BuildContext context) {
@@ -6296,6 +6668,8 @@ class _CalendarPeriodSummary extends StatelessWidget {
         onSchedulePreviewCleared: onDaySchedulePreviewCleared,
         onScheduleChanged: onDayScheduleChanged,
         onAgendaInteractionChanged: onAgendaInteractionChanged,
+        isExpanded: isDayAgendaExpanded,
+        onToggleExpanded: onToggleDayAgendaExpanded,
       ),
       _CalendarView.week => _CalendarWeekSummary(
         metrics: weekMetrics,
@@ -6329,6 +6703,8 @@ class _CalendarDaySummary extends StatelessWidget {
     required this.onSchedulePreviewCleared,
     required this.onScheduleChanged,
     required this.onAgendaInteractionChanged,
+    required this.isExpanded,
+    required this.onToggleExpanded,
   });
 
   final _DayMetrics metrics;
@@ -6354,6 +6730,8 @@ class _CalendarDaySummary extends StatelessWidget {
   })
   onScheduleChanged;
   final ValueChanged<bool> onAgendaInteractionChanged;
+  final bool isExpanded;
+  final ValueChanged<bool> onToggleExpanded;
 
   @override
   Widget build(BuildContext context) {
@@ -6369,37 +6747,74 @@ class _CalendarDaySummary extends StatelessWidget {
     final workedSummary = _buildAgendaWorkedSummary(
       measurementSegments: measurementSegments,
     );
+    final toggleButton = IconButton(
+      key: const ValueKey('calendar-day-agenda-toggle-button'),
+      onPressed: () => onToggleExpanded(!isExpanded),
+      tooltip: isExpanded ? 'Riduci agenda' : 'Espandi agenda',
+      visualDensity: VisualDensity.compact,
+      iconSize: isExpanded ? 20 : 18,
+      splashRadius: isExpanded ? 18 : 16,
+      constraints: BoxConstraints.tightFor(
+        width: isExpanded ? 36 : 30,
+        height: isExpanded ? 36 : 30,
+      ),
+      padding: EdgeInsets.zero,
+      icon: Icon(
+        isExpanded
+            ? Icons.keyboard_arrow_up_rounded
+            : Icons.keyboard_arrow_down_rounded,
+      ),
+    );
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'Agenda oraria',
-          style: Theme.of(
-            context,
-          ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                'Agenda oraria',
+                style: Theme.of(
+                  context,
+                ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+              ),
+            ),
+            toggleButton,
+          ],
         ),
-        const SizedBox(height: 10),
-        _AgendaDayTimeline(
-          metrics: metrics,
-          range: agendaRange,
-          schedule: schedule,
-          isProvisional: isProvisional,
-          measurementSegments: measurementSegments,
-          onPreviewChanged: onSchedulePreviewChanged,
-          onPreviewCleared: onSchedulePreviewCleared,
-          onScheduleChanged: onScheduleChanged,
-          onInteractionChanged: onAgendaInteractionChanged,
+        AnimatedSize(
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOut,
+          alignment: Alignment.topCenter,
+          child: isExpanded
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const SizedBox(height: 10),
+                    _AgendaDayTimeline(
+                      metrics: metrics,
+                      range: agendaRange,
+                      schedule: schedule,
+                      isProvisional: isProvisional,
+                      measurementSegments: measurementSegments,
+                      onPreviewChanged: onSchedulePreviewChanged,
+                      onPreviewCleared: onSchedulePreviewCleared,
+                      onScheduleChanged: onScheduleChanged,
+                      onInteractionChanged: onAgendaInteractionChanged,
+                    ),
+                    if (workedSummary != null) ...[
+                      const SizedBox(height: 12),
+                      Text(
+                        workedSummary,
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ],
+                )
+              : const SizedBox.shrink(),
         ),
-        if (workedSummary != null) ...[
-          const SizedBox(height: 12),
-          Text(
-            workedSummary,
-            style: Theme.of(
-              context,
-            ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700),
-          ),
-        ],
       ],
     );
   }
@@ -6792,8 +7207,8 @@ class _AgendaDayTimelineState extends State<_AgendaDayTimeline> {
   @override
   Widget build(BuildContext context) {
     final baseTimelineHeight = widget.range.timelineHeight(
-      pixelsPerHour: 32,
-      minHeight: 320,
+      pixelsPerHour: 30,
+      minHeight: 260,
     );
     final effectiveRange = _lockedRange ?? widget.range;
     final timelineHeight = baseTimelineHeight;
@@ -9147,22 +9562,6 @@ class _ProfileCard extends StatelessWidget {
   const _ProfileCard({
     required this.formKey,
     required this.fullNameController,
-    required this.useUniformDailyTarget,
-    required this.onUniformDailyTargetChanged,
-    required this.uniformDailyTargetController,
-    required this.uniformStartTimeController,
-    required this.uniformEndTimeController,
-    required this.uniformBreakController,
-    required this.rulesExpectedDailyController,
-    required this.rulesMinimumBreakController,
-    required this.rulesMaximumDailyCreditController,
-    required this.rulesMaximumDailyDebitController,
-    required this.rulesMaximumMonthlyCreditController,
-    required this.rulesMaximumMonthlyDebitController,
-    required this.weekdayControllers,
-    required this.weekdayStartTimeControllers,
-    required this.weekdayEndTimeControllers,
-    required this.weekdayBreakControllers,
     required this.isBusy,
     required this.isReloading,
     required this.isDarkTheme,
@@ -9179,18 +9578,6 @@ class _ProfileCard extends StatelessWidget {
     required this.isSyncingCloudBackup,
     required this.onDarkThemeChanged,
     required this.onOpenUpdateFromSettings,
-    required this.onPickUniformTargetMinutes,
-    required this.onPickUniformScheduleTime,
-    required this.onPickUniformBreakMinutes,
-    required this.onPickRulesExpectedDailyMinutes,
-    required this.onPickRulesMinimumBreakMinutes,
-    required this.onPickRulesMaximumDailyCreditMinutes,
-    required this.onPickRulesMaximumDailyDebitMinutes,
-    required this.onPickRulesMaximumMonthlyCreditMinutes,
-    required this.onPickRulesMaximumMonthlyDebitMinutes,
-    required this.onPickWeekdayTargetMinutes,
-    required this.onPickWeekdayScheduleTime,
-    required this.onPickWeekdayBreakMinutes,
     required this.onAppearanceSettingsChanged,
     required this.onRegisterAccount,
     required this.onLoginAccount,
@@ -9203,22 +9590,6 @@ class _ProfileCard extends StatelessWidget {
 
   final GlobalKey<FormState> formKey;
   final TextEditingController fullNameController;
-  final bool useUniformDailyTarget;
-  final ValueChanged<bool> onUniformDailyTargetChanged;
-  final TextEditingController uniformDailyTargetController;
-  final TextEditingController uniformStartTimeController;
-  final TextEditingController uniformEndTimeController;
-  final TextEditingController uniformBreakController;
-  final TextEditingController rulesExpectedDailyController;
-  final TextEditingController rulesMinimumBreakController;
-  final TextEditingController rulesMaximumDailyCreditController;
-  final TextEditingController rulesMaximumDailyDebitController;
-  final TextEditingController rulesMaximumMonthlyCreditController;
-  final TextEditingController rulesMaximumMonthlyDebitController;
-  final Map<WeekdayKey, TextEditingController> weekdayControllers;
-  final Map<WeekdayKey, TextEditingController> weekdayStartTimeControllers;
-  final Map<WeekdayKey, TextEditingController> weekdayEndTimeControllers;
-  final Map<WeekdayKey, TextEditingController> weekdayBreakControllers;
   final bool isBusy;
   final bool isReloading;
   final bool isDarkTheme;
@@ -9235,20 +9606,6 @@ class _ProfileCard extends StatelessWidget {
   final bool isSyncingCloudBackup;
   final Future<void> Function(bool) onDarkThemeChanged;
   final Future<void> Function() onOpenUpdateFromSettings;
-  final Future<void> Function() onPickUniformTargetMinutes;
-  final Future<void> Function(_CalendarTimeField field)
-  onPickUniformScheduleTime;
-  final Future<void> Function() onPickUniformBreakMinutes;
-  final Future<void> Function() onPickRulesExpectedDailyMinutes;
-  final Future<void> Function() onPickRulesMinimumBreakMinutes;
-  final Future<void> Function() onPickRulesMaximumDailyCreditMinutes;
-  final Future<void> Function() onPickRulesMaximumDailyDebitMinutes;
-  final Future<void> Function() onPickRulesMaximumMonthlyCreditMinutes;
-  final Future<void> Function() onPickRulesMaximumMonthlyDebitMinutes;
-  final Future<void> Function(WeekdayKey weekday) onPickWeekdayTargetMinutes;
-  final Future<void> Function(WeekdayKey weekday, _CalendarTimeField field)
-  onPickWeekdayScheduleTime;
-  final Future<void> Function(WeekdayKey weekday) onPickWeekdayBreakMinutes;
   final Future<void> Function(AppAppearanceSettings settings)
   onAppearanceSettingsChanged;
   final Future<void> Function() onRegisterAccount;
@@ -9263,7 +9620,7 @@ class _ProfileCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return _SectionCard(
       title: 'Impostazioni',
-      subtitle: 'Gestisci dati base, orari predefiniti e aspetto dell app.',
+      subtitle: 'Gestisci profilo, backup e aspetto dell app.',
       child: Form(
         key: formKey,
         child: Column(
@@ -9280,84 +9637,6 @@ class _ProfileCard extends StatelessWidget {
                 return null;
               },
             ),
-            const SizedBox(height: 14),
-            SwitchListTile.adaptive(
-              contentPadding: EdgeInsets.zero,
-              value: useUniformDailyTarget,
-              onChanged: isBusy ? null : onUniformDailyTargetChanged,
-              title: const Text('Stesse ore ogni giorno lavorativo'),
-              subtitle: const Text(
-                'Se disattivi la spunta puoi indicare un orario diverso per ogni giorno.',
-              ),
-            ),
-            const SizedBox(height: 18),
-            if (useUniformDailyTarget)
-              _SettingsScheduleEditor(
-                title: 'Standard lun-ven',
-                targetText: uniformDailyTargetController.text,
-                startTimeText: uniformStartTimeController.text,
-                endTimeText: uniformEndTimeController.text,
-                breakText: uniformBreakController.text,
-                onPickTarget: onPickUniformTargetMinutes,
-                onPickStartTime: () =>
-                    onPickUniformScheduleTime(_CalendarTimeField.start),
-                onPickEndTime: () =>
-                    onPickUniformScheduleTime(_CalendarTimeField.end),
-                onPickBreak: onPickUniformBreakMinutes,
-              )
-            else
-              Column(
-                children: WeekdayKey.values
-                    .map(
-                      (weekday) => Padding(
-                        padding: const EdgeInsets.only(bottom: 12),
-                        child: _DayScheduleEditorRow(
-                          weekday: weekday,
-                          targetController: weekdayControllers[weekday]!,
-                          startTimeController:
-                              weekdayStartTimeControllers[weekday]!,
-                          endTimeController:
-                              weekdayEndTimeControllers[weekday]!,
-                          breakController: weekdayBreakControllers[weekday]!,
-                          onPickTarget: () =>
-                              onPickWeekdayTargetMinutes(weekday),
-                          onPickStartTime: () => onPickWeekdayScheduleTime(
-                            weekday,
-                            _CalendarTimeField.start,
-                          ),
-                          onPickEndTime: () => onPickWeekdayScheduleTime(
-                            weekday,
-                            _CalendarTimeField.end,
-                          ),
-                          onPickBreak: () => onPickWeekdayBreakMinutes(weekday),
-                        ),
-                      ),
-                    )
-                    .toList(growable: false),
-              ),
-            const SizedBox(height: 10),
-            Text(
-              'Puoi indicare solo i dati che ti servono. L app completa automaticamente il resto quando possibile.',
-              style: Theme.of(context).textTheme.bodyMedium,
-            ),
-            const SizedBox(height: 24),
-            _WorkRulesEditor(
-              expectedDailyText: rulesExpectedDailyController.text,
-              minimumBreakText: rulesMinimumBreakController.text,
-              maximumDailyCreditText: rulesMaximumDailyCreditController.text,
-              maximumDailyDebitText: rulesMaximumDailyDebitController.text,
-              maximumMonthlyCreditText:
-                  rulesMaximumMonthlyCreditController.text,
-              maximumMonthlyDebitText: rulesMaximumMonthlyDebitController.text,
-              onPickExpectedDaily: onPickRulesExpectedDailyMinutes,
-              onPickMinimumBreak: onPickRulesMinimumBreakMinutes,
-              onPickMaximumDailyCredit: onPickRulesMaximumDailyCreditMinutes,
-              onPickMaximumDailyDebit: onPickRulesMaximumDailyDebitMinutes,
-              onPickMaximumMonthlyCredit:
-                  onPickRulesMaximumMonthlyCreditMinutes,
-              onPickMaximumMonthlyDebit:
-                  onPickRulesMaximumMonthlyDebitMinutes,
-            ),
             const SizedBox(height: 18),
             Wrap(
               spacing: 10,
@@ -9371,7 +9650,7 @@ class _ProfileCard extends StatelessWidget {
                 FilledButton.tonalIcon(
                   onPressed: isBusy || isReloading ? null : () => onSubmit(),
                   icon: const Icon(Icons.save_outlined),
-                  label: Text(isBusy ? 'Salvo...' : 'Salva profilo'),
+                  label: Text(isBusy ? 'Salvo...' : 'Salva nome'),
                 ),
               ],
             ),
@@ -9416,6 +9695,362 @@ class _ProfileCard extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _WorkSettingsCard extends StatelessWidget {
+  const _WorkSettingsCard({
+    required this.formKey,
+    required this.appearanceSettings,
+    required this.useUniformDailyTarget,
+    required this.onUniformDailyTargetChanged,
+    required this.uniformDailyTargetController,
+    required this.uniformStartTimeController,
+    required this.uniformEndTimeController,
+    required this.uniformBreakController,
+    required this.rulesExpectedDailyController,
+    required this.rulesMinimumBreakController,
+    required this.rulesMaximumDailyCreditController,
+    required this.rulesMaximumDailyDebitController,
+    required this.rulesMaximumMonthlyCreditController,
+    required this.rulesMaximumMonthlyDebitController,
+    required this.weekdayControllers,
+    required this.weekdayStartTimeControllers,
+    required this.weekdayEndTimeControllers,
+    required this.weekdayBreakControllers,
+    required this.isBusy,
+    required this.isReloading,
+    required this.onPickUniformTargetMinutes,
+    required this.onPickUniformScheduleTime,
+    required this.onPickUniformBreakMinutes,
+    required this.onPickRulesExpectedDailyMinutes,
+    required this.onPickRulesMinimumBreakMinutes,
+    required this.onPickRulesMaximumDailyCreditMinutes,
+    required this.onPickRulesMaximumDailyDebitMinutes,
+    required this.onPickRulesMaximumMonthlyCreditMinutes,
+    required this.onPickRulesMaximumMonthlyDebitMinutes,
+    required this.onPickWeekdayTargetMinutes,
+    required this.onPickWeekdayScheduleTime,
+    required this.onPickWeekdayBreakMinutes,
+    required this.onAppearanceSettingsChanged,
+    required this.onReload,
+    required this.onSubmit,
+  });
+
+  final GlobalKey<FormState> formKey;
+  final AppAppearanceSettings appearanceSettings;
+  final bool useUniformDailyTarget;
+  final ValueChanged<bool> onUniformDailyTargetChanged;
+  final TextEditingController uniformDailyTargetController;
+  final TextEditingController uniformStartTimeController;
+  final TextEditingController uniformEndTimeController;
+  final TextEditingController uniformBreakController;
+  final TextEditingController rulesExpectedDailyController;
+  final TextEditingController rulesMinimumBreakController;
+  final TextEditingController rulesMaximumDailyCreditController;
+  final TextEditingController rulesMaximumDailyDebitController;
+  final TextEditingController rulesMaximumMonthlyCreditController;
+  final TextEditingController rulesMaximumMonthlyDebitController;
+  final Map<WeekdayKey, TextEditingController> weekdayControllers;
+  final Map<WeekdayKey, TextEditingController> weekdayStartTimeControllers;
+  final Map<WeekdayKey, TextEditingController> weekdayEndTimeControllers;
+  final Map<WeekdayKey, TextEditingController> weekdayBreakControllers;
+  final bool isBusy;
+  final bool isReloading;
+  final Future<void> Function() onPickUniformTargetMinutes;
+  final Future<void> Function(_CalendarTimeField field)
+  onPickUniformScheduleTime;
+  final Future<void> Function() onPickUniformBreakMinutes;
+  final Future<void> Function() onPickRulesExpectedDailyMinutes;
+  final Future<void> Function() onPickRulesMinimumBreakMinutes;
+  final Future<void> Function() onPickRulesMaximumDailyCreditMinutes;
+  final Future<void> Function() onPickRulesMaximumDailyDebitMinutes;
+  final Future<void> Function() onPickRulesMaximumMonthlyCreditMinutes;
+  final Future<void> Function() onPickRulesMaximumMonthlyDebitMinutes;
+  final Future<void> Function(WeekdayKey weekday) onPickWeekdayTargetMinutes;
+  final Future<void> Function(WeekdayKey weekday, _CalendarTimeField field)
+  onPickWeekdayScheduleTime;
+  final Future<void> Function(WeekdayKey weekday) onPickWeekdayBreakMinutes;
+  final Future<void> Function(AppAppearanceSettings settings)
+  onAppearanceSettingsChanged;
+  final Future<void> Function() onReload;
+  final Future<void> Function() onSubmit;
+
+  @override
+  Widget build(BuildContext context) {
+    return _SectionCard(
+      title: 'Orari',
+      subtitle: 'Definisci orario, ore attese e limiti.',
+      child: Form(
+        key: formKey,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _SettingsSectionPanel(
+              icon: Icons.schedule_outlined,
+              title: 'Orario di lavoro',
+              subtitle: 'Definisci quando lavori normalmente.',
+              isExpanded: appearanceSettings.expandWorkSettingsSchedule,
+              toggleButtonKey: const ValueKey(
+                'work-settings-schedule-toggle-button',
+              ),
+              onToggleExpanded: (expanded) => unawaited(
+                onAppearanceSettingsChanged(
+                  appearanceSettings.copyWith(
+                    expandWorkSettingsSchedule: expanded,
+                  ),
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SwitchListTile.adaptive(
+                    contentPadding: EdgeInsets.zero,
+                    value: useUniformDailyTarget,
+                    onChanged: isBusy ? null : onUniformDailyTargetChanged,
+                    title: const Text('Stesso orario lun-ven'),
+                    subtitle: const Text(
+                      'Disattiva per personalizzare i giorni.',
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  if (useUniformDailyTarget)
+                    _SettingsScheduleEditor(
+                      title: 'Orario standard',
+                      targetText: uniformDailyTargetController.text,
+                      startTimeText: uniformStartTimeController.text,
+                      endTimeText: uniformEndTimeController.text,
+                      breakText: uniformBreakController.text,
+                      onPickTarget: onPickUniformTargetMinutes,
+                      onPickStartTime: () =>
+                          onPickUniformScheduleTime(_CalendarTimeField.start),
+                      onPickEndTime: () =>
+                          onPickUniformScheduleTime(_CalendarTimeField.end),
+                      onPickBreak: onPickUniformBreakMinutes,
+                    )
+                  else
+                    Column(
+                      children: WeekdayKey.values
+                          .map(
+                            (weekday) => Padding(
+                              padding: const EdgeInsets.only(bottom: 12),
+                              child: _DayScheduleEditorRow(
+                                weekday: weekday,
+                                targetController: weekdayControllers[weekday]!,
+                                startTimeController:
+                                    weekdayStartTimeControllers[weekday]!,
+                                endTimeController:
+                                    weekdayEndTimeControllers[weekday]!,
+                                breakController:
+                                    weekdayBreakControllers[weekday]!,
+                                onPickTarget: () =>
+                                    onPickWeekdayTargetMinutes(weekday),
+                                onPickStartTime: () =>
+                                    onPickWeekdayScheduleTime(
+                                      weekday,
+                                      _CalendarTimeField.start,
+                                    ),
+                                onPickEndTime: () => onPickWeekdayScheduleTime(
+                                  weekday,
+                                  _CalendarTimeField.end,
+                                ),
+                                onPickBreak: () =>
+                                    onPickWeekdayBreakMinutes(weekday),
+                              ),
+                            ),
+                          )
+                          .toList(growable: false),
+                    ),
+                  const SizedBox(height: 10),
+                  Text(
+                    'Inserisci solo ciò che vuoi. Il resto è automatico.',
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            _SettingsSectionPanel(
+              icon: Icons.timer_outlined,
+              title: 'Quanto devi lavorare',
+              subtitle:
+                  'Questi valori vengono usati nei calcoli di Oggi e del saldo.',
+              isExpanded: appearanceSettings.expandWorkSettingsRules,
+              toggleButtonKey: const ValueKey(
+                'work-settings-rules-toggle-button',
+              ),
+              onToggleExpanded: (expanded) => unawaited(
+                onAppearanceSettingsChanged(
+                  appearanceSettings.copyWith(
+                    expandWorkSettingsRules: expanded,
+                  ),
+                ),
+              ),
+              child: _WorkRulesCoreEditor(
+                expectedDailyText: rulesExpectedDailyController.text,
+                minimumBreakText: rulesMinimumBreakController.text,
+                onPickExpectedDaily: onPickRulesExpectedDailyMinutes,
+                onPickMinimumBreak: onPickRulesMinimumBreakMinutes,
+              ),
+            ),
+            const SizedBox(height: 16),
+            _SettingsSectionPanel(
+              icon: Icons.tune_rounded,
+              title: 'Limiti',
+              subtitle:
+                  'Scegli il massimo credito o debito che l app puo conteggiare nel giorno e nel mese. Se non vuoi limiti, lascia Nessun limite.',
+              isExpanded: appearanceSettings.expandWorkSettingsLimits,
+              toggleButtonKey: const ValueKey(
+                'work-settings-limits-toggle-button',
+              ),
+              onToggleExpanded: (expanded) => unawaited(
+                onAppearanceSettingsChanged(
+                  appearanceSettings.copyWith(
+                    expandWorkSettingsLimits: expanded,
+                  ),
+                ),
+              ),
+              child: _WorkRulesLimitsEditor(
+                maximumDailyCreditText: rulesMaximumDailyCreditController.text,
+                maximumDailyDebitText: rulesMaximumDailyDebitController.text,
+                maximumMonthlyCreditText:
+                    rulesMaximumMonthlyCreditController.text,
+                maximumMonthlyDebitText:
+                    rulesMaximumMonthlyDebitController.text,
+                onPickMaximumDailyCredit: onPickRulesMaximumDailyCreditMinutes,
+                onPickMaximumDailyDebit: onPickRulesMaximumDailyDebitMinutes,
+                onPickMaximumMonthlyCredit:
+                    onPickRulesMaximumMonthlyCreditMinutes,
+                onPickMaximumMonthlyDebit:
+                    onPickRulesMaximumMonthlyDebitMinutes,
+              ),
+            ),
+            const SizedBox(height: 18),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                OutlinedButton.icon(
+                  onPressed: isBusy || isReloading ? null : () => onReload(),
+                  icon: const Icon(Icons.refresh_rounded),
+                  label: Text(
+                    isReloading ? 'Ripristino...' : 'Ripristina valori',
+                  ),
+                ),
+                FilledButton.tonalIcon(
+                  onPressed: isBusy || isReloading ? null : () => onSubmit(),
+                  icon: const Icon(Icons.save_outlined),
+                  label: Text(isBusy ? 'Salvo...' : 'Salva'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SettingsSectionPanel extends StatelessWidget {
+  const _SettingsSectionPanel({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.isExpanded,
+    required this.toggleButtonKey,
+    required this.onToggleExpanded,
+    required this.child,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final bool isExpanded;
+  final Key toggleButtonKey;
+  final ValueChanged<bool> onToggleExpanded;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final toggleButtonSize = isExpanded ? 36.0 : 30.0;
+    final toggleIconSize = isExpanded ? 20.0 : 18.0;
+    final expandedIcon = isExpanded
+        ? Icons.keyboard_arrow_up_rounded
+        : Icons.keyboard_arrow_down_rounded;
+    final toggleButton = IconButton(
+      key: toggleButtonKey,
+      onPressed: () => onToggleExpanded(!isExpanded),
+      tooltip: isExpanded ? 'Riduci $title' : 'Espandi $title',
+      visualDensity: VisualDensity.compact,
+      iconSize: toggleIconSize,
+      splashRadius: isExpanded ? 18 : 16,
+      constraints: BoxConstraints.tightFor(
+        width: toggleButtonSize,
+        height: toggleButtonSize,
+      ),
+      padding: EdgeInsets.zero,
+      icon: Icon(expandedIcon),
+    );
+    final header = Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (isExpanded) ...[
+          Icon(icon, color: theme.colorScheme.primary),
+          const SizedBox(width: 10),
+        ],
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              if (isExpanded) ...[
+                const SizedBox(height: 4),
+                Text(subtitle, style: theme.textTheme.bodyMedium),
+              ],
+            ],
+          ),
+        ),
+        toggleButton,
+      ],
+    );
+
+    return Container(
+      padding: EdgeInsets.fromLTRB(18, isExpanded ? 18 : 12, 18, 18),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (isExpanded)
+            header
+          else
+            SizedBox(
+              height: 30,
+              child: Align(alignment: Alignment.centerLeft, child: header),
+            ),
+          AnimatedSize(
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeOut,
+            alignment: Alignment.topCenter,
+            child: isExpanded
+                ? Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [const SizedBox(height: 16), child],
+                  )
+                : const SizedBox.shrink(),
+          ),
+        ],
       ),
     );
   }
@@ -9488,96 +10123,151 @@ class _SettingsScheduleEditor extends StatelessWidget {
     final theme = Theme.of(context);
     final values = [
       _SlimSettingsScheduleValue(
-        label: 'Ore',
+        label: 'Durata giornata',
         value: targetText.isEmpty ? '--' : targetText,
+        icon: Icons.timelapse_rounded,
+        kind: _SettingsValueKind.duration,
         onTap: onPickTarget,
       ),
       _SlimSettingsScheduleValue(
         label: 'Entrata',
         value: startTimeText.isEmpty ? '--:--' : startTimeText,
+        icon: Icons.login_rounded,
+        kind: _SettingsValueKind.schedule,
         onTap: onPickStartTime,
       ),
       _SlimSettingsScheduleValue(
         label: 'Uscita',
         value: endTimeText.isEmpty ? '--:--' : endTimeText,
+        icon: Icons.logout_rounded,
+        kind: _SettingsValueKind.schedule,
         onTap: onPickEndTime,
       ),
       _SlimSettingsScheduleValue(
         label: 'Pausa',
-        value: breakText.isEmpty ? '0:00' : breakText,
+        value: _formatSettingsBreakValue(breakText, isMinimumBreak: false),
+        icon: Icons.coffee_outlined,
+        kind: _SettingsValueKind.duration,
         onTap: onPickBreak,
       ),
     ];
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final useHorizontalLayout = constraints.maxWidth >= 720;
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (useHorizontalLayout)
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  SizedBox(
-                    width: 92,
-                    child: Padding(
-                      padding: const EdgeInsets.only(top: 6),
-                      child: Text(
-                        title,
-                        style: theme.textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.w800,
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.82),
+        ),
+      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final useHorizontalLayout = constraints.maxWidth >= 720;
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (useHorizontalLayout)
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SizedBox(
+                      width: 112,
+                      child: Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: Text(
+                          title,
+                          style: theme.textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w800,
+                          ),
                         ),
                       ),
                     ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Wrap(
+                        spacing: 10,
+                        runSpacing: 10,
+                        children: values,
+                      ),
+                    ),
+                  ],
+                )
+              else ...[
+                Text(
+                  title,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w800,
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Wrap(spacing: 10, runSpacing: 10, children: values),
-                  ),
-                ],
-              )
-            else ...[
-              Text(
-                title,
-                style: theme.textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.w800,
                 ),
-              ),
-              const SizedBox(height: 8),
-              Wrap(spacing: 10, runSpacing: 10, children: values),
+                const SizedBox(height: 8),
+                Wrap(spacing: 10, runSpacing: 10, children: values),
+              ],
             ],
-          ],
-        );
-      },
+          );
+        },
+      ),
     );
   }
 }
 
-class _WorkRulesEditor extends StatelessWidget {
-  const _WorkRulesEditor({
+class _WorkRulesCoreEditor extends StatelessWidget {
+  const _WorkRulesCoreEditor({
     required this.expectedDailyText,
     required this.minimumBreakText,
+    required this.onPickExpectedDaily,
+    required this.onPickMinimumBreak,
+  });
+
+  final String expectedDailyText;
+  final String minimumBreakText;
+  final Future<void> Function() onPickExpectedDaily;
+  final Future<void> Function() onPickMinimumBreak;
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      spacing: 10,
+      runSpacing: 10,
+      children: [
+        _SlimSettingsScheduleValue(
+          label: 'Ore attese',
+          value: expectedDailyText.isEmpty ? '--' : expectedDailyText,
+          icon: Icons.timer_outlined,
+          kind: _SettingsValueKind.duration,
+          onTap: onPickExpectedDaily,
+        ),
+        _SlimSettingsScheduleValue(
+          label: 'Pausa minima',
+          value: _formatSettingsBreakValue(
+            minimumBreakText,
+            isMinimumBreak: true,
+          ),
+          icon: Icons.free_breakfast_outlined,
+          kind: _SettingsValueKind.duration,
+          onTap: onPickMinimumBreak,
+        ),
+      ],
+    );
+  }
+}
+
+class _WorkRulesLimitsEditor extends StatelessWidget {
+  const _WorkRulesLimitsEditor({
     required this.maximumDailyCreditText,
     required this.maximumDailyDebitText,
     required this.maximumMonthlyCreditText,
     required this.maximumMonthlyDebitText,
-    required this.onPickExpectedDaily,
-    required this.onPickMinimumBreak,
     required this.onPickMaximumDailyCredit,
     required this.onPickMaximumDailyDebit,
     required this.onPickMaximumMonthlyCredit,
     required this.onPickMaximumMonthlyDebit,
   });
 
-  final String expectedDailyText;
-  final String minimumBreakText;
   final String maximumDailyCreditText;
   final String maximumDailyDebitText;
   final String maximumMonthlyCreditText;
   final String maximumMonthlyDebitText;
-  final Future<void> Function() onPickExpectedDaily;
-  final Future<void> Function() onPickMinimumBreak;
   final Future<void> Function() onPickMaximumDailyCredit;
   final Future<void> Function() onPickMaximumDailyDebit;
   final Future<void> Function() onPickMaximumMonthlyCredit;
@@ -9585,113 +10275,157 @@ class _WorkRulesEditor extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final values = [
-      _SlimSettingsScheduleValue(
-        label: 'Ore giornaliere attese',
-        value: expectedDailyText.isEmpty ? '--' : expectedDailyText,
-        onTap: onPickExpectedDaily,
-      ),
-      _SlimSettingsScheduleValue(
-        label: 'Pausa minima',
-        value: minimumBreakText.isEmpty ? '0:00' : minimumBreakText,
-        onTap: onPickMinimumBreak,
-      ),
-      _SlimSettingsScheduleValue(
-        label: 'Max credito giorno',
-        value: maximumDailyCreditText.isEmpty ? '0:00' : maximumDailyCreditText,
-        onTap: onPickMaximumDailyCredit,
-      ),
-      _SlimSettingsScheduleValue(
-        label: 'Max debito giorno',
-        value: maximumDailyDebitText.isEmpty ? '0:00' : maximumDailyDebitText,
-        onTap: onPickMaximumDailyDebit,
-      ),
-      _SlimSettingsScheduleValue(
-        label: 'Max credito mese',
-        value: maximumMonthlyCreditText.isEmpty
-            ? '0:00'
-            : maximumMonthlyCreditText,
-        onTap: onPickMaximumMonthlyCredit,
-      ),
-      _SlimSettingsScheduleValue(
-        label: 'Max debito mese',
-        value: maximumMonthlyDebitText.isEmpty
-            ? '0:00'
-            : maximumMonthlyDebitText,
-        onTap: onPickMaximumMonthlyDebit,
-      ),
-    ];
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    return Wrap(
+      spacing: 10,
+      runSpacing: 10,
       children: [
-        Text(
-          'Regole contratto',
-          style: theme.textTheme.titleMedium?.copyWith(
-            fontWeight: FontWeight.w800,
+        _SlimSettingsScheduleValue(
+          label: 'Max credito giorno',
+          value: _formatSettingsLimitValue(
+            maximumDailyCreditText,
+            unboundedMinutes: 24 * 60,
           ),
+          icon: Icons.trending_up_rounded,
+          kind: _SettingsValueKind.limit,
+          onTap: onPickMaximumDailyCredit,
         ),
-        const SizedBox(height: 6),
-        Text(
-          'Qui definisci il dovuto del contratto e i limiti validi di credito o debito che l app deve rispettare.',
-          style: theme.textTheme.bodyMedium,
+        _SlimSettingsScheduleValue(
+          label: 'Max debito giorno',
+          value: _formatSettingsLimitValue(
+            maximumDailyDebitText,
+            unboundedMinutes: 24 * 60,
+          ),
+          icon: Icons.trending_down_rounded,
+          kind: _SettingsValueKind.limit,
+          onTap: onPickMaximumDailyDebit,
         ),
-        const SizedBox(height: 12),
-        Wrap(spacing: 10, runSpacing: 10, children: values),
+        _SlimSettingsScheduleValue(
+          label: 'Max credito mese',
+          value: _formatSettingsLimitValue(
+            maximumMonthlyCreditText,
+            unboundedMinutes: 31 * 24 * 60,
+          ),
+          icon: Icons.calendar_month_outlined,
+          kind: _SettingsValueKind.limit,
+          onTap: onPickMaximumMonthlyCredit,
+        ),
+        _SlimSettingsScheduleValue(
+          label: 'Max debito mese',
+          value: _formatSettingsLimitValue(
+            maximumMonthlyDebitText,
+            unboundedMinutes: 31 * 24 * 60,
+          ),
+          icon: Icons.event_note_outlined,
+          kind: _SettingsValueKind.limit,
+          onTap: onPickMaximumMonthlyDebit,
+        ),
       ],
     );
   }
 }
 
+enum _SettingsValueKind { schedule, duration, limit }
+
 class _SlimSettingsScheduleValue extends StatelessWidget {
   const _SlimSettingsScheduleValue({
     required this.label,
     required this.value,
+    required this.icon,
+    required this.kind,
     required this.onTap,
   });
 
   final String label;
   final String value;
+  final IconData icon;
+  final _SettingsValueKind kind;
   final Future<void> Function() onTap;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final accentColor = switch (kind) {
+      _SettingsValueKind.schedule => theme.colorScheme.primary,
+      _SettingsValueKind.duration => theme.colorScheme.secondary,
+      _SettingsValueKind.limit => theme.colorScheme.tertiary,
+    };
 
-    return ActionChip(
-      onPressed: () => onTap(),
-      avatar: Icon(
-        CupertinoIcons.chevron_up_chevron_down,
-        size: 14,
-        color: theme.colorScheme.primary,
-      ),
-      label: RichText(
-        text: TextSpan(
-          style: theme.textTheme.labelLarge?.copyWith(
-            color: theme.colorScheme.onSurface,
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: () => onTap(),
+        child: Ink(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+          decoration: BoxDecoration(
+            color: accentColor.withValues(alpha: 0.08),
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: accentColor.withValues(alpha: 0.45)),
           ),
-          children: [
-            TextSpan(
-              text: '$label ',
-              style: const TextStyle(fontWeight: FontWeight.w700),
-            ),
-            TextSpan(
-              text: value,
-              style: TextStyle(
-                fontWeight: FontWeight.w800,
-                color: theme.colorScheme.primary,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 16, color: accentColor),
+              const SizedBox(width: 8),
+              Flexible(
+                child: RichText(
+                  text: TextSpan(
+                    style: theme.textTheme.labelLarge?.copyWith(
+                      color: theme.colorScheme.onSurface,
+                    ),
+                    children: [
+                      TextSpan(
+                        text: '$label ',
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                      TextSpan(
+                        text: value,
+                        style: TextStyle(
+                          fontWeight: FontWeight.w800,
+                          color: accentColor,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
-            ),
-          ],
+              const SizedBox(width: 8),
+              Icon(
+                CupertinoIcons.chevron_up_chevron_down,
+                size: 14,
+                color: accentColor,
+              ),
+            ],
+          ),
         ),
       ),
-      side: BorderSide(color: theme.colorScheme.outlineVariant),
-      backgroundColor: theme.colorScheme.surfaceContainerLow,
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
     );
   }
+}
+
+String _formatSettingsBreakValue(
+  String rawValue, {
+  required bool isMinimumBreak,
+}) {
+  final minutes = parseBreakDurationInput(rawValue) ?? 0;
+  if (minutes <= 0) {
+    return isMinimumBreak ? 'Nessuna pausa minima' : 'Nessuna pausa';
+  }
+  return _formatBreakInput(minutes);
+}
+
+String _formatSettingsLimitValue(
+  String rawValue, {
+  required int unboundedMinutes,
+}) {
+  final parsedMinutes = parseHoursInput(rawValue);
+  if (parsedMinutes == null) {
+    return '--';
+  }
+  if (parsedMinutes == unboundedMinutes) {
+    return 'Nessun limite';
+  }
+  return _formatHoursInput(parsedMinutes);
 }
 
 class _AppearanceSettingsPanel extends StatefulWidget {
@@ -10046,7 +10780,7 @@ class _DayCalendarSettingsCard extends StatelessWidget {
           ),
           const SizedBox(height: 6),
           Text(
-            'Entrata e ore restano sempre visibili. Attiva solo i campi opzionali che ti servono davvero.',
+            'Entrata e durata restano sempre visibili. Attiva solo i campi opzionali che ti servono davvero.',
             style: theme.textTheme.bodyMedium,
           ),
           const SizedBox(height: 12),
@@ -10651,12 +11385,6 @@ class _SupportTicketCard extends StatelessWidget {
     final selectedThread = selectedTrackedTicket == null
         ? null
         : ticketThreadsById[selectedTrackedTicket.id];
-    final normalizedTicketApiBaseUrl = ticketApiBaseUrl.trim().isEmpty
-        ? 'non configurata'
-        : ticketApiBaseUrl.trim();
-    final ticketApiHint = normalizedTicketApiBaseUrl == 'non configurata'
-        ? 'I ticket richiedono un backend HTTP attivo.'
-        : 'I ticket richiedono un backend HTTP attivo. API corrente: $normalizedTicketApiBaseUrl';
 
     return _SectionCard(
       title: 'Ticket',
@@ -10667,34 +11395,6 @@ class _SupportTicketCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Container(
-              key: const ValueKey('ticket-api-hint'),
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.surfaceContainerLow,
-                borderRadius: BorderRadius.circular(18),
-                border: Border.all(
-                  color: Theme.of(context).colorScheme.outlineVariant,
-                ),
-              ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Icon(
-                    Icons.cloud_outlined,
-                    color: Theme.of(context).colorScheme.primary,
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      ticketApiHint,
-                      style: Theme.of(context).textTheme.bodyMedium,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 18),
             Row(
               children: [
                 Text(
@@ -11919,6 +12619,18 @@ class _MonthMetrics {
   final int overrideCount;
 }
 
+class _DisplayedMonthBalanceInfo {
+  const _DisplayedMonthBalanceInfo({
+    required this.value,
+    this.supportingText,
+    this.accentColor,
+  });
+
+  final String value;
+  final String? supportingText;
+  final Color? accentColor;
+}
+
 class _WeekPlanDay {
   const _WeekPlanDay({
     required this.date,
@@ -11972,6 +12684,13 @@ String _formatSignedHoursInput(int minutes) {
   return '$prefix${_formatHoursInput(minutes.abs())}';
 }
 
+bool _matchesDaySchedule(DaySchedule left, DaySchedule right) {
+  return left.targetMinutes == right.targetMinutes &&
+      left.startTime == right.startTime &&
+      left.endTime == right.endTime &&
+      left.breakMinutes == right.breakMinutes;
+}
+
 bool _isExplicitDayOffSchedule(DaySchedule schedule) {
   final startTime = schedule.startTime?.trim() ?? '';
   final endTime = schedule.endTime?.trim() ?? '';
@@ -11998,7 +12717,9 @@ int _resolveDisplayedWorkedMinutes({
 }) {
   final startMinutes = parseTimeInput(quickEditorSchedule.startTime);
   final endMinutes = parseTimeInput(quickEditorSchedule.endTime);
-  if (startMinutes == null || endMinutes == null || endMinutes <= startMinutes) {
+  if (startMinutes == null ||
+      endMinutes == null ||
+      endMinutes <= startMinutes) {
     return quickEditorSchedule.targetMinutes;
   }
 
@@ -12043,6 +12764,95 @@ String _resolveSuggestedExitLabel({
   final normalizedMinutes = suggestedExitMinutes % (24 * 60);
   final nextDaySuffix = suggestedExitMinutes >= (24 * 60) ? ' +1g' : '';
   return '${formatTimeInput(normalizedMinutes)}$nextDaySuffix';
+}
+
+_DisplayedMonthBalanceInfo _buildDisplayedMonthBalanceInfo({
+  required String month,
+  required DateTime selectedDate,
+  required List<_CalendarDay> days,
+  required int liveExpectedMinutes,
+  required int liveWorkedMinutes,
+  required int liveLeaveMinutes,
+  required UserWorkRules workRules,
+}) {
+  final monthDate = _monthToDate(month);
+  final today = DateUtils.dateOnly(DateTime.now());
+  final selectedDay = DateUtils.dateOnly(selectedDate);
+  final firstDayOfMonth = DateTime(monthDate.year, monthDate.month, 1);
+  if (firstDayOfMonth.isAfter(today)) {
+    return const _DisplayedMonthBalanceInfo(
+      value: 'Non disponibile',
+      supportingText: 'Mese non iniziato',
+    );
+  }
+
+  final lastAvailableDay = _isSameMonth(monthDate, today)
+      ? today
+      : DateTime(monthDate.year, monthDate.month + 1, 0);
+  final cutoffDate = selectedDay.isBefore(lastAvailableDay)
+      ? selectedDay
+      : lastAvailableDay;
+  final elapsedDays = days
+      .where((day) => day.date != null)
+      .where((day) => !DateUtils.dateOnly(day.date!).isAfter(cutoffDate))
+      .toList(growable: false);
+  if (elapsedDays.isEmpty) {
+    return const _DisplayedMonthBalanceInfo(
+      value: 'Non disponibile',
+      supportingText: 'Nessun dato registrato',
+    );
+  }
+
+  var hasExpectedDay = false;
+  var hasMissingTrackedDay = false;
+  var runningRawBalanceMinutes = 0;
+  for (final day in elapsedDays) {
+    var expectedMinutes = day.expectedMinutes;
+    var workedMinutes = day.workedMinutes;
+    var leaveMinutes = day.leaveMinutes;
+
+    if (_isSameDay(day.date!, selectedDay)) {
+      expectedMinutes = liveExpectedMinutes;
+      workedMinutes = liveWorkedMinutes;
+      leaveMinutes = liveLeaveMinutes;
+    }
+
+    hasExpectedDay = hasExpectedDay || expectedMinutes > 0;
+    if (expectedMinutes > 0 && workedMinutes == 0 && leaveMinutes == 0) {
+      hasMissingTrackedDay = true;
+    }
+    runningRawBalanceMinutes +=
+        (workedMinutes + leaveMinutes) - expectedMinutes;
+  }
+
+  if (!hasExpectedDay) {
+    return const _DisplayedMonthBalanceInfo(
+      value: 'Non disponibile',
+      supportingText: 'Nessun giorno lavorativo nel periodo',
+    );
+  }
+
+  if (hasMissingTrackedDay) {
+    return const _DisplayedMonthBalanceInfo(
+      value: 'Dati incompleti',
+      supportingText: 'Saldo mese non disponibile',
+    );
+  }
+
+  final balanceMinutes = workRules.clampMonthlyBalance(
+    runningRawBalanceMinutes,
+  );
+  final accentColor = balanceMinutes == 0
+      ? null
+      : balanceMinutes > 0
+      ? const Color(0xFF0B6E69)
+      : const Color(0xFF9D3D2F);
+
+  return _DisplayedMonthBalanceInfo(
+    value: _formatSignedHoursInput(balanceMinutes),
+    supportingText: 'Aggiornato al ${_formatCompactDate(cutoffDate)}',
+    accentColor: accentColor,
+  );
 }
 
 DateTime _monthToDate(String month) {
@@ -13463,6 +14273,8 @@ extension on _HomeSection {
         return 'Calendario';
       case _HomeSection.recentActivity:
         return 'Settimana';
+      case _HomeSection.workSettings:
+        return 'Orari';
       case _HomeSection.profile:
         return 'Impostazioni';
       case _HomeSection.ticket:
@@ -13482,6 +14294,8 @@ extension on _HomeSection {
         return Icons.calendar_month_outlined;
       case _HomeSection.recentActivity:
         return Icons.view_week_outlined;
+      case _HomeSection.workSettings:
+        return Icons.schedule_outlined;
       case _HomeSection.profile:
         return Icons.settings_outlined;
       case _HomeSection.ticket:
