@@ -134,6 +134,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final _rulesMaximumDailyDebitController = TextEditingController();
   final _rulesMaximumMonthlyCreditController = TextEditingController();
   final _rulesMaximumMonthlyDebitController = TextEditingController();
+  final _rulesOvertimeDailyCapController = TextEditingController();
+  final _rulesOvertimeWeeklyCapController = TextEditingController();
+  final _rulesOvertimeMonthlyCapController = TextEditingController();
+  final _rulesFlexibleStartWindowController = TextEditingController();
+  final _rulesWalletDailyExitController = TextEditingController();
+  final _rulesWalletWeeklyExitController = TextEditingController();
+  final _rulesImplicitCreditDailyCapController = TextEditingController();
   final _entryDateController = TextEditingController();
   final _entryMinutesController = TextEditingController();
   final _entryNoteController = TextEditingController();
@@ -169,6 +176,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   late DateTime _selectedDate;
   _CalendarView _calendarView = _CalendarView.month;
   bool _useUniformDailyTarget = true;
+  bool _rulesOvertimeEnabled = false;
+  bool _rulesOvertimeCapEnabled = false;
+  bool _rulesFixedScheduleEnabled = false;
+  bool _rulesFlexibleStartEnabled = false;
+  bool _rulesWalletEnabled = false;
+  bool _rulesImplicitCreditEnabled = false;
+  List<WorkPermissionRule> _rulesAdditionalPermissions = const [];
+  List<WorkPermissionRule> _rulesLeaveBanks = const [];
   LeaveType _selectedLeaveType = LeaveType.vacation;
   _QuickEntryMode _selectedEntryMode = _QuickEntryMode.work;
   String? _errorMessage;
@@ -273,6 +288,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _rulesMaximumDailyDebitController.dispose();
     _rulesMaximumMonthlyCreditController.dispose();
     _rulesMaximumMonthlyDebitController.dispose();
+    _rulesOvertimeDailyCapController.dispose();
+    _rulesOvertimeWeeklyCapController.dispose();
+    _rulesOvertimeMonthlyCapController.dispose();
+    _rulesFlexibleStartWindowController.dispose();
+    _rulesWalletDailyExitController.dispose();
+    _rulesWalletWeeklyExitController.dispose();
+    _rulesImplicitCreditDailyCapController.dispose();
     _entryDateController.dispose();
     _entryMinutesController.dispose();
     _entryNoteController.dispose();
@@ -523,6 +545,40 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
     _rulesMaximumMonthlyDebitController.text = _formatHoursInput(
       snapshot.profile.workRules.maximumMonthlyDebitMinutes,
+    );
+    _rulesOvertimeEnabled = snapshot.profile.workRules.overtimeEnabled;
+    _rulesOvertimeCapEnabled = snapshot.profile.workRules.overtimeCapEnabled;
+    _rulesOvertimeDailyCapController.text = _formatHoursInput(
+      snapshot.profile.workRules.overtimeDailyCapMinutes,
+    );
+    _rulesOvertimeWeeklyCapController.text = _formatHoursInput(
+      snapshot.profile.workRules.overtimeWeeklyCapMinutes,
+    );
+    _rulesOvertimeMonthlyCapController.text = _formatHoursInput(
+      snapshot.profile.workRules.overtimeMonthlyCapMinutes,
+    );
+    _rulesFixedScheduleEnabled = snapshot.profile.workRules.fixedScheduleEnabled;
+    _rulesFlexibleStartEnabled =
+        snapshot.profile.workRules.flexibleStartEnabled;
+    _rulesFlexibleStartWindowController.text = _formatHoursInput(
+      snapshot.profile.workRules.flexibleStartWindowMinutes,
+    );
+    _rulesWalletEnabled = snapshot.profile.workRules.walletEnabled;
+    _rulesWalletDailyExitController.text = _formatHoursInput(
+      snapshot.profile.workRules.walletDailyExitEarlyMinutes,
+    );
+    _rulesWalletWeeklyExitController.text = _formatHoursInput(
+      snapshot.profile.workRules.walletWeeklyExitEarlyMinutes,
+    );
+    _rulesImplicitCreditEnabled = snapshot.profile.workRules.implicitCreditEnabled;
+    _rulesImplicitCreditDailyCapController.text = _formatHoursInput(
+      snapshot.profile.workRules.implicitCreditDailyCapMinutes,
+    );
+    _rulesAdditionalPermissions = List<WorkPermissionRule>.from(
+      snapshot.profile.workRules.additionalPermissions,
+    );
+    _rulesLeaveBanks = List<WorkPermissionRule>.from(
+      snapshot.profile.workRules.leaveBanks,
     );
     for (final weekday in WeekdayKey.values) {
       final daySchedule = snapshot.profile.weekdaySchedule.forWeekday(weekday);
@@ -2440,12 +2496,40 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final maximumMonthlyDebitMinutes = parseHoursInput(
       _rulesMaximumMonthlyDebitController.text,
     );
+    final overtimeDailyCapMinutes = parseHoursInput(
+      _rulesOvertimeDailyCapController.text,
+    );
+    final overtimeWeeklyCapMinutes = parseHoursInput(
+      _rulesOvertimeWeeklyCapController.text,
+    );
+    final overtimeMonthlyCapMinutes = parseHoursInput(
+      _rulesOvertimeMonthlyCapController.text,
+    );
+    final flexibleStartWindowMinutes = parseHoursInput(
+      _rulesFlexibleStartWindowController.text,
+    );
+    final walletDailyExitEarlyMinutes = parseHoursInput(
+      _rulesWalletDailyExitController.text,
+    );
+    final walletWeeklyExitEarlyMinutes = parseHoursInput(
+      _rulesWalletWeeklyExitController.text,
+    );
+    final implicitCreditDailyCapMinutes = parseHoursInput(
+      _rulesImplicitCreditDailyCapController.text,
+    );
 
     if (minimumBreakMinutes == null ||
         maximumDailyCreditMinutes == null ||
         maximumDailyDebitMinutes == null ||
         maximumMonthlyCreditMinutes == null ||
-        maximumMonthlyDebitMinutes == null) {
+        maximumMonthlyDebitMinutes == null ||
+        overtimeDailyCapMinutes == null ||
+        overtimeWeeklyCapMinutes == null ||
+        overtimeMonthlyCapMinutes == null ||
+        flexibleStartWindowMinutes == null ||
+        walletDailyExitEarlyMinutes == null ||
+        walletWeeklyExitEarlyMinutes == null ||
+        implicitCreditDailyCapMinutes == null) {
       return null;
     }
 
@@ -2456,6 +2540,23 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       maximumDailyDebitMinutes: maximumDailyDebitMinutes,
       maximumMonthlyCreditMinutes: maximumMonthlyCreditMinutes,
       maximumMonthlyDebitMinutes: maximumMonthlyDebitMinutes,
+      overtimeEnabled: _rulesOvertimeEnabled,
+      overtimeCapEnabled: _rulesOvertimeCapEnabled,
+      overtimeDailyCapMinutes: overtimeDailyCapMinutes,
+      overtimeWeeklyCapMinutes: overtimeWeeklyCapMinutes,
+      overtimeMonthlyCapMinutes: overtimeMonthlyCapMinutes,
+      fixedScheduleEnabled: _rulesFixedScheduleEnabled,
+      flexibleStartEnabled: _rulesFlexibleStartEnabled,
+      flexibleStartWindowMinutes: flexibleStartWindowMinutes,
+      walletEnabled: _rulesWalletEnabled,
+      walletDailyExitEarlyMinutes: walletDailyExitEarlyMinutes,
+      walletWeeklyExitEarlyMinutes: walletWeeklyExitEarlyMinutes,
+      implicitCreditEnabled: _rulesImplicitCreditEnabled,
+      implicitCreditDailyCapMinutes: implicitCreditDailyCapMinutes,
+      additionalPermissions: List<WorkPermissionRule>.from(
+        _rulesAdditionalPermissions,
+      ),
+      leaveBanks: List<WorkPermissionRule>.from(_rulesLeaveBanks),
     );
   }
 
@@ -2534,6 +2635,280 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       maxMinutes: 240 * 60,
       unboundedMinutes: 31 * 24 * 60,
     );
+  }
+
+  Future<void> _pickRulesOvertimeDailyCapMinutes() async {
+    await _pickRulesOptionalDuration(
+      title: 'Massimale straordinario giornaliero',
+      controller: _rulesOvertimeDailyCapController,
+      maxMinutes: 16 * 60,
+      zeroLabel: 'Nessun massimale',
+    );
+  }
+
+  Future<void> _pickRulesOvertimeWeeklyCapMinutes() async {
+    await _pickRulesOptionalDuration(
+      title: 'Massimale straordinario settimanale',
+      controller: _rulesOvertimeWeeklyCapController,
+      maxMinutes: 60 * 60,
+      zeroLabel: 'Nessun massimale',
+    );
+  }
+
+  Future<void> _pickRulesOvertimeMonthlyCapMinutes() async {
+    await _pickRulesOptionalDuration(
+      title: 'Massimale straordinario mensile',
+      controller: _rulesOvertimeMonthlyCapController,
+      maxMinutes: 240 * 60,
+      zeroLabel: 'Nessun massimale',
+    );
+  }
+
+  Future<void> _pickRulesFlexibleStartWindowMinutes() async {
+    await _pickRulesOptionalDuration(
+      title: 'Finestra flessibilita entrata',
+      controller: _rulesFlexibleStartWindowController,
+      maxMinutes: 4 * 60,
+      zeroLabel: 'Nessuna flessibilita',
+    );
+  }
+
+  Future<void> _pickRulesWalletDailyExitMinutes() async {
+    await _pickRulesOptionalDuration(
+      title: 'Borsellino: uscita anticipata max al giorno',
+      controller: _rulesWalletDailyExitController,
+      maxMinutes: 8 * 60,
+      zeroLabel: 'Nessun limite giornaliero',
+    );
+  }
+
+  Future<void> _pickRulesWalletWeeklyExitMinutes() async {
+    await _pickRulesOptionalDuration(
+      title: 'Borsellino: uscita anticipata max a settimana',
+      controller: _rulesWalletWeeklyExitController,
+      maxMinutes: 30 * 60,
+      zeroLabel: 'Nessun limite settimanale',
+    );
+  }
+
+  Future<void> _pickRulesImplicitCreditDailyCapMinutes() async {
+    await _pickRulesOptionalDuration(
+      title: 'Credito senza straordinario: max al giorno',
+      controller: _rulesImplicitCreditDailyCapController,
+      maxMinutes: 8 * 60,
+      zeroLabel: 'Nessun credito',
+    );
+  }
+
+  Future<void> _pickRulesOptionalDuration({
+    required String title,
+    required TextEditingController controller,
+    required int maxMinutes,
+    String? zeroLabel,
+  }) async {
+    final currentMinutes = parseHoursInput(controller.text) ?? 0;
+    final pickedMinutes = await _showDurationWheelPicker(
+      title: title,
+      initialMinutes: currentMinutes,
+      maxMinutes: maxMinutes,
+      stepMinutes: 5,
+      zeroLabel: zeroLabel,
+    );
+    if (pickedMinutes == null) {
+      return;
+    }
+
+    controller.text = _formatHoursInput(pickedMinutes);
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  Future<void> _addPermissionRule({required bool leaveBank}) async {
+    final rule = await _showPermissionRuleDialog(
+      title: leaveBank ? 'Nuova causale permesso' : 'Nuovo permesso extra',
+    );
+    if (rule == null || !mounted) {
+      return;
+    }
+
+    setState(() {
+      if (leaveBank) {
+        _rulesLeaveBanks = [..._rulesLeaveBanks, rule];
+      } else {
+        _rulesAdditionalPermissions = [..._rulesAdditionalPermissions, rule];
+      }
+    });
+  }
+
+  void _removePermissionRule({
+    required bool leaveBank,
+    required String ruleId,
+  }) {
+    setState(() {
+      if (leaveBank) {
+        _rulesLeaveBanks = _rulesLeaveBanks
+            .where((rule) => rule.id != ruleId)
+            .toList(growable: false);
+      } else {
+        _rulesAdditionalPermissions = _rulesAdditionalPermissions
+            .where((rule) => rule.id != ruleId)
+            .toList(growable: false);
+      }
+    });
+  }
+
+  Future<WorkPermissionRule?> _showPermissionRuleDialog({
+    required String title,
+  }) async {
+    final nameController = TextEditingController();
+    final allowanceController = TextEditingController(text: _formatHoursInput(0));
+    final usedController = TextEditingController(text: _formatHoursInput(0));
+    var selectedPeriod = WorkAllowancePeriod.monthly;
+    final selectedMovements = <WorkPermissionMovement>{
+      WorkPermissionMovement.entryLate,
+      WorkPermissionMovement.exitEarly,
+    };
+    var enabled = true;
+
+    final createdRule = await showDialog<WorkPermissionRule>(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: Text(title),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    TextField(
+                      controller: nameController,
+                      decoration: const InputDecoration(
+                        labelText: 'Nome permesso',
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<WorkAllowancePeriod>(
+                      value: selectedPeriod,
+                      decoration: const InputDecoration(labelText: 'Periodo'),
+                      items: WorkAllowancePeriod.values
+                          .map(
+                            (period) => DropdownMenuItem(
+                              value: period,
+                              child: Text(period.label),
+                            ),
+                          )
+                          .toList(growable: false),
+                      onChanged: (value) {
+                        if (value == null) {
+                          return;
+                        }
+                        setDialogState(() {
+                          selectedPeriod = value;
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: allowanceController,
+                      decoration: const InputDecoration(
+                        labelText: 'Monte ore previsto (hh:mm)',
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: usedController,
+                      decoration: const InputDecoration(
+                        labelText: 'Ore gia usate (hh:mm)',
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    SwitchListTile.adaptive(
+                      contentPadding: EdgeInsets.zero,
+                      value: enabled,
+                      onChanged: (value) {
+                        setDialogState(() {
+                          enabled = value;
+                        });
+                      },
+                      title: const Text('Permesso attivo'),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Movimenti consentiti',
+                      style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: WorkPermissionMovement.values.map((movement) {
+                        return FilterChip(
+                          label: Text(movement.label),
+                          selected: selectedMovements.contains(movement),
+                          onSelected: (selected) {
+                            setDialogState(() {
+                              if (selected) {
+                                selectedMovements.add(movement);
+                              } else {
+                                selectedMovements.remove(movement);
+                              }
+                            });
+                          },
+                        );
+                      }).toList(growable: false),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('Annulla'),
+                ),
+                FilledButton(
+                  onPressed: () {
+                    final name = nameController.text.trim();
+                    final allowanceMinutes = parseHoursInput(
+                      allowanceController.text,
+                    );
+                    final usedMinutes = parseHoursInput(usedController.text);
+                    if (name.isEmpty ||
+                        allowanceMinutes == null ||
+                        usedMinutes == null ||
+                        selectedMovements.isEmpty) {
+                      return;
+                    }
+
+                    Navigator.of(context).pop(
+                      WorkPermissionRule(
+                        id: DateTime.now().microsecondsSinceEpoch.toString(),
+                        name: name,
+                        enabled: enabled,
+                        period: selectedPeriod,
+                        allowanceMinutes: allowanceMinutes,
+                        usedMinutes: usedMinutes,
+                        movements: selectedMovements.toList(growable: false),
+                      ),
+                    );
+                  },
+                  child: const Text('Salva'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    nameController.dispose();
+    allowanceController.dispose();
+    usedController.dispose();
+    return createdRule;
   }
 
   Future<void> _pickRulesLimitDuration({
@@ -5009,6 +5384,22 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               _rulesMaximumMonthlyCreditController,
           rulesMaximumMonthlyDebitController:
               _rulesMaximumMonthlyDebitController,
+          rulesOvertimeEnabled: _rulesOvertimeEnabled,
+          rulesOvertimeCapEnabled: _rulesOvertimeCapEnabled,
+          rulesFixedScheduleEnabled: _rulesFixedScheduleEnabled,
+          rulesFlexibleStartEnabled: _rulesFlexibleStartEnabled,
+          rulesWalletEnabled: _rulesWalletEnabled,
+          rulesImplicitCreditEnabled: _rulesImplicitCreditEnabled,
+          rulesOvertimeDailyCapController: _rulesOvertimeDailyCapController,
+          rulesOvertimeWeeklyCapController: _rulesOvertimeWeeklyCapController,
+          rulesOvertimeMonthlyCapController: _rulesOvertimeMonthlyCapController,
+          rulesFlexibleStartWindowController: _rulesFlexibleStartWindowController,
+          rulesWalletDailyExitController: _rulesWalletDailyExitController,
+          rulesWalletWeeklyExitController: _rulesWalletWeeklyExitController,
+          rulesImplicitCreditDailyCapController:
+              _rulesImplicitCreditDailyCapController,
+          rulesAdditionalPermissions: _rulesAdditionalPermissions,
+          rulesLeaveBanks: _rulesLeaveBanks,
           weekdayControllers: _weekdayControllers,
           weekdayStartTimeControllers: _weekdayStartTimeControllers,
           weekdayEndTimeControllers: _weekdayEndTimeControllers,
@@ -5029,6 +5420,59 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               _pickRulesMaximumMonthlyCreditMinutes,
           onPickRulesMaximumMonthlyDebitMinutes:
               _pickRulesMaximumMonthlyDebitMinutes,
+          onRulesOvertimeEnabledChanged: (value) {
+            setState(() {
+              _rulesOvertimeEnabled = value;
+            });
+          },
+          onRulesOvertimeCapEnabledChanged: (value) {
+            setState(() {
+              _rulesOvertimeCapEnabled = value;
+            });
+          },
+          onRulesFixedScheduleEnabledChanged: (value) {
+            setState(() {
+              _rulesFixedScheduleEnabled = value;
+              if (value) {
+                _rulesFlexibleStartEnabled = false;
+              }
+            });
+          },
+          onRulesFlexibleStartEnabledChanged: (value) {
+            setState(() {
+              _rulesFlexibleStartEnabled = value;
+              if (value) {
+                _rulesFixedScheduleEnabled = false;
+              }
+            });
+          },
+          onRulesWalletEnabledChanged: (value) {
+            setState(() {
+              _rulesWalletEnabled = value;
+            });
+          },
+          onRulesImplicitCreditEnabledChanged: (value) {
+            setState(() {
+              _rulesImplicitCreditEnabled = value;
+            });
+          },
+          onPickRulesOvertimeDailyCapMinutes: _pickRulesOvertimeDailyCapMinutes,
+          onPickRulesOvertimeWeeklyCapMinutes:
+              _pickRulesOvertimeWeeklyCapMinutes,
+          onPickRulesOvertimeMonthlyCapMinutes:
+              _pickRulesOvertimeMonthlyCapMinutes,
+          onPickRulesFlexibleStartWindowMinutes:
+              _pickRulesFlexibleStartWindowMinutes,
+          onPickRulesWalletDailyExitMinutes: _pickRulesWalletDailyExitMinutes,
+          onPickRulesWalletWeeklyExitMinutes: _pickRulesWalletWeeklyExitMinutes,
+          onPickRulesImplicitCreditDailyCapMinutes:
+              _pickRulesImplicitCreditDailyCapMinutes,
+          onAddAdditionalPermission: () => _addPermissionRule(leaveBank: false),
+          onAddLeaveBank: () => _addPermissionRule(leaveBank: true),
+          onRemoveAdditionalPermission: (ruleId) =>
+              _removePermissionRule(leaveBank: false, ruleId: ruleId),
+          onRemoveLeaveBank: (ruleId) =>
+              _removePermissionRule(leaveBank: true, ruleId: ruleId),
           onPickWeekdayTargetMinutes: _pickWeekdayTargetMinutes,
           onPickWeekdayScheduleTime: _pickWeekdayScheduleTime,
           onPickWeekdayBreakMinutes: _pickWeekdayBreakMinutes,
@@ -9987,6 +10431,21 @@ class _WorkSettingsCard extends StatelessWidget {
     required this.rulesMaximumDailyDebitController,
     required this.rulesMaximumMonthlyCreditController,
     required this.rulesMaximumMonthlyDebitController,
+    required this.rulesOvertimeEnabled,
+    required this.rulesOvertimeCapEnabled,
+    required this.rulesFixedScheduleEnabled,
+    required this.rulesFlexibleStartEnabled,
+    required this.rulesWalletEnabled,
+    required this.rulesImplicitCreditEnabled,
+    required this.rulesOvertimeDailyCapController,
+    required this.rulesOvertimeWeeklyCapController,
+    required this.rulesOvertimeMonthlyCapController,
+    required this.rulesFlexibleStartWindowController,
+    required this.rulesWalletDailyExitController,
+    required this.rulesWalletWeeklyExitController,
+    required this.rulesImplicitCreditDailyCapController,
+    required this.rulesAdditionalPermissions,
+    required this.rulesLeaveBanks,
     required this.weekdayControllers,
     required this.weekdayStartTimeControllers,
     required this.weekdayEndTimeControllers,
@@ -10003,6 +10462,23 @@ class _WorkSettingsCard extends StatelessWidget {
     required this.onPickRulesMaximumDailyDebitMinutes,
     required this.onPickRulesMaximumMonthlyCreditMinutes,
     required this.onPickRulesMaximumMonthlyDebitMinutes,
+    required this.onRulesOvertimeEnabledChanged,
+    required this.onRulesOvertimeCapEnabledChanged,
+    required this.onRulesFixedScheduleEnabledChanged,
+    required this.onRulesFlexibleStartEnabledChanged,
+    required this.onRulesWalletEnabledChanged,
+    required this.onRulesImplicitCreditEnabledChanged,
+    required this.onPickRulesOvertimeDailyCapMinutes,
+    required this.onPickRulesOvertimeWeeklyCapMinutes,
+    required this.onPickRulesOvertimeMonthlyCapMinutes,
+    required this.onPickRulesFlexibleStartWindowMinutes,
+    required this.onPickRulesWalletDailyExitMinutes,
+    required this.onPickRulesWalletWeeklyExitMinutes,
+    required this.onPickRulesImplicitCreditDailyCapMinutes,
+    required this.onAddAdditionalPermission,
+    required this.onAddLeaveBank,
+    required this.onRemoveAdditionalPermission,
+    required this.onRemoveLeaveBank,
     required this.onPickWeekdayTargetMinutes,
     required this.onPickWeekdayScheduleTime,
     required this.onPickWeekdayBreakMinutes,
@@ -10026,6 +10502,21 @@ class _WorkSettingsCard extends StatelessWidget {
   final TextEditingController rulesMaximumDailyDebitController;
   final TextEditingController rulesMaximumMonthlyCreditController;
   final TextEditingController rulesMaximumMonthlyDebitController;
+  final bool rulesOvertimeEnabled;
+  final bool rulesOvertimeCapEnabled;
+  final bool rulesFixedScheduleEnabled;
+  final bool rulesFlexibleStartEnabled;
+  final bool rulesWalletEnabled;
+  final bool rulesImplicitCreditEnabled;
+  final TextEditingController rulesOvertimeDailyCapController;
+  final TextEditingController rulesOvertimeWeeklyCapController;
+  final TextEditingController rulesOvertimeMonthlyCapController;
+  final TextEditingController rulesFlexibleStartWindowController;
+  final TextEditingController rulesWalletDailyExitController;
+  final TextEditingController rulesWalletWeeklyExitController;
+  final TextEditingController rulesImplicitCreditDailyCapController;
+  final List<WorkPermissionRule> rulesAdditionalPermissions;
+  final List<WorkPermissionRule> rulesLeaveBanks;
   final Map<WeekdayKey, TextEditingController> weekdayControllers;
   final Map<WeekdayKey, TextEditingController> weekdayStartTimeControllers;
   final Map<WeekdayKey, TextEditingController> weekdayEndTimeControllers;
@@ -10043,6 +10534,23 @@ class _WorkSettingsCard extends StatelessWidget {
   final Future<void> Function() onPickRulesMaximumDailyDebitMinutes;
   final Future<void> Function() onPickRulesMaximumMonthlyCreditMinutes;
   final Future<void> Function() onPickRulesMaximumMonthlyDebitMinutes;
+  final ValueChanged<bool> onRulesOvertimeEnabledChanged;
+  final ValueChanged<bool> onRulesOvertimeCapEnabledChanged;
+  final ValueChanged<bool> onRulesFixedScheduleEnabledChanged;
+  final ValueChanged<bool> onRulesFlexibleStartEnabledChanged;
+  final ValueChanged<bool> onRulesWalletEnabledChanged;
+  final ValueChanged<bool> onRulesImplicitCreditEnabledChanged;
+  final Future<void> Function() onPickRulesOvertimeDailyCapMinutes;
+  final Future<void> Function() onPickRulesOvertimeWeeklyCapMinutes;
+  final Future<void> Function() onPickRulesOvertimeMonthlyCapMinutes;
+  final Future<void> Function() onPickRulesFlexibleStartWindowMinutes;
+  final Future<void> Function() onPickRulesWalletDailyExitMinutes;
+  final Future<void> Function() onPickRulesWalletWeeklyExitMinutes;
+  final Future<void> Function() onPickRulesImplicitCreditDailyCapMinutes;
+  final Future<void> Function() onAddAdditionalPermission;
+  final Future<void> Function() onAddLeaveBank;
+  final ValueChanged<String> onRemoveAdditionalPermission;
+  final ValueChanged<String> onRemoveLeaveBank;
   final Future<void> Function(WeekdayKey weekday) onPickWeekdayTargetMinutes;
   final Future<void> Function(WeekdayKey weekday, _CalendarTimeField field)
   onPickWeekdayScheduleTime;
@@ -10058,7 +10566,7 @@ class _WorkSettingsCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return _SectionCard(
       title: 'Orari e permessi',
-      subtitle: 'Definisci orario, ore attese e limiti.',
+      subtitle: 'Orario di lavoro, regole contratto e permessi personali.',
       child: Form(
         key: formKey,
         child: Column(
@@ -10163,7 +10671,7 @@ class _WorkSettingsCard extends StatelessWidget {
                     ),
                   const SizedBox(height: 10),
                   Text(
-                    'Inserisci solo ciò che vuoi. Il resto è automatico.',
+                    'Inserisci solo quello che ti serve. Il resto è automatico.',
                     style: Theme.of(context).textTheme.bodyMedium,
                   ),
                 ],
@@ -10223,6 +10731,147 @@ class _WorkSettingsCard extends StatelessWidget {
                     onPickRulesMaximumMonthlyCreditMinutes,
                 onPickMaximumMonthlyDebit:
                     onPickRulesMaximumMonthlyDebitMinutes,
+              ),
+            ),
+            const SizedBox(height: 16),
+            _SettingsSectionPanel(
+              icon: Icons.bolt_outlined,
+              title: 'Straordinario',
+              subtitle:
+                  'Attiva straordinario e definisci eventuali massimali giornalieri, settimanali o mensili.',
+              isExpanded: appearanceSettings.expandWorkSettingsOvertime,
+              toggleButtonKey: const ValueKey(
+                'work-settings-overtime-toggle-button',
+              ),
+              onToggleExpanded: (expanded) => unawaited(
+                onAppearanceSettingsChanged(
+                  appearanceSettings.copyWith(
+                    expandWorkSettingsOvertime: expanded,
+                  ),
+                ),
+              ),
+              child: _WorkRulesOvertimeEditor(
+                overtimeEnabled: rulesOvertimeEnabled,
+                overtimeCapEnabled: rulesOvertimeCapEnabled,
+                overtimeDailyCapText: rulesOvertimeDailyCapController.text,
+                overtimeWeeklyCapText: rulesOvertimeWeeklyCapController.text,
+                overtimeMonthlyCapText: rulesOvertimeMonthlyCapController.text,
+                onOvertimeEnabledChanged: onRulesOvertimeEnabledChanged,
+                onOvertimeCapEnabledChanged: onRulesOvertimeCapEnabledChanged,
+                onPickDailyCap: onPickRulesOvertimeDailyCapMinutes,
+                onPickWeeklyCap: onPickRulesOvertimeWeeklyCapMinutes,
+                onPickMonthlyCap: onPickRulesOvertimeMonthlyCapMinutes,
+              ),
+            ),
+            const SizedBox(height: 16),
+            _SettingsSectionPanel(
+              icon: Icons.login_outlined,
+              title: 'Ingresso e uscita',
+              subtitle:
+                  'Indica se hai orari fissi o una finestra di flessibilita in entrata.',
+              isExpanded: appearanceSettings.expandWorkSettingsAttendance,
+              toggleButtonKey: const ValueKey(
+                'work-settings-attendance-toggle-button',
+              ),
+              onToggleExpanded: (expanded) => unawaited(
+                onAppearanceSettingsChanged(
+                  appearanceSettings.copyWith(
+                    expandWorkSettingsAttendance: expanded,
+                  ),
+                ),
+              ),
+              child: _WorkRulesAttendanceEditor(
+                fixedScheduleEnabled: rulesFixedScheduleEnabled,
+                flexibleStartEnabled: rulesFlexibleStartEnabled,
+                flexibleStartWindowText: rulesFlexibleStartWindowController.text,
+                onFixedScheduleChanged: onRulesFixedScheduleEnabledChanged,
+                onFlexibleStartChanged: onRulesFlexibleStartEnabledChanged,
+                onPickFlexibleStartWindow: onPickRulesFlexibleStartWindowMinutes,
+              ),
+            ),
+            const SizedBox(height: 16),
+            _SettingsSectionPanel(
+              icon: Icons.account_balance_wallet_outlined,
+              title: 'Borsellino e credito',
+              subtitle:
+                  'Configura uscita anticipata consentita e credito extra senza straordinario.',
+              isExpanded: appearanceSettings.expandWorkSettingsWallet,
+              toggleButtonKey: const ValueKey(
+                'work-settings-wallet-toggle-button',
+              ),
+              onToggleExpanded: (expanded) => unawaited(
+                onAppearanceSettingsChanged(
+                  appearanceSettings.copyWith(
+                    expandWorkSettingsWallet: expanded,
+                  ),
+                ),
+              ),
+              child: _WorkRulesWalletEditor(
+                walletEnabled: rulesWalletEnabled,
+                walletDailyExitText: rulesWalletDailyExitController.text,
+                walletWeeklyExitText: rulesWalletWeeklyExitController.text,
+                implicitCreditEnabled: rulesImplicitCreditEnabled,
+                implicitCreditDailyCapText:
+                    rulesImplicitCreditDailyCapController.text,
+                onWalletEnabledChanged: onRulesWalletEnabledChanged,
+                onImplicitCreditEnabledChanged:
+                    onRulesImplicitCreditEnabledChanged,
+                onPickWalletDailyExit: onPickRulesWalletDailyExitMinutes,
+                onPickWalletWeeklyExit: onPickRulesWalletWeeklyExitMinutes,
+                onPickImplicitCreditDailyCap:
+                    onPickRulesImplicitCreditDailyCapMinutes,
+              ),
+            ),
+            const SizedBox(height: 16),
+            _SettingsSectionPanel(
+              icon: Icons.rule_folder_outlined,
+              title: 'Permessi aggiuntivi',
+              subtitle:
+                  'Crea regole flessibili personalizzate (es. P36) con movimenti consentiti e monte ore.',
+              isExpanded: appearanceSettings.expandWorkSettingsPermissions,
+              toggleButtonKey: const ValueKey(
+                'work-settings-permissions-toggle-button',
+              ),
+              onToggleExpanded: (expanded) => unawaited(
+                onAppearanceSettingsChanged(
+                  appearanceSettings.copyWith(
+                    expandWorkSettingsPermissions: expanded,
+                  ),
+                ),
+              ),
+              child: _PermissionRulesEditor(
+                rules: rulesAdditionalPermissions,
+                emptyMessage:
+                    'Nessun permesso aggiuntivo configurato. Usa Aggiungi permesso.',
+                addButtonLabel: 'Aggiungi permesso',
+                onAddRule: onAddAdditionalPermission,
+                onRemoveRule: onRemoveAdditionalPermission,
+              ),
+            ),
+            const SizedBox(height: 16),
+            _SettingsSectionPanel(
+              icon: Icons.event_available_outlined,
+              title: 'Causali e monte ore',
+              subtitle:
+                  'Gestisci ferie e altre causali con monte ore e consumo progressivo.',
+              isExpanded: appearanceSettings.expandWorkSettingsLeaveBanks,
+              toggleButtonKey: const ValueKey(
+                'work-settings-leave-banks-toggle-button',
+              ),
+              onToggleExpanded: (expanded) => unawaited(
+                onAppearanceSettingsChanged(
+                  appearanceSettings.copyWith(
+                    expandWorkSettingsLeaveBanks: expanded,
+                  ),
+                ),
+              ),
+              child: _PermissionRulesEditor(
+                rules: rulesLeaveBanks,
+                emptyMessage:
+                    'Nessuna causale configurata. Usa Aggiungi causale.',
+                addButtonLabel: 'Aggiungi causale',
+                onAddRule: onAddLeaveBank,
+                onRemoveRule: onRemoveLeaveBank,
               ),
             ),
             const SizedBox(height: 18),
@@ -10300,20 +10949,27 @@ class _SettingsSectionPanel extends StatelessWidget {
           const SizedBox(width: 10),
         ],
         Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w800,
-                ),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: () => onToggleExpanded(!isExpanded),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 2),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  if (isExpanded) ...[
+                    const SizedBox(height: 4),
+                    Text(subtitle, style: theme.textTheme.bodyMedium),
+                  ],
+                ],
               ),
-              if (isExpanded) ...[
-                const SizedBox(height: 4),
-                Text(subtitle, style: theme.textTheme.bodyMedium),
-              ],
-            ],
+            ),
           ),
         ),
         toggleButton,
@@ -10671,6 +11327,382 @@ class _WorkRulesLimitsEditor extends StatelessWidget {
   }
 }
 
+class _WorkRulesOvertimeEditor extends StatelessWidget {
+  const _WorkRulesOvertimeEditor({
+    required this.overtimeEnabled,
+    required this.overtimeCapEnabled,
+    required this.overtimeDailyCapText,
+    required this.overtimeWeeklyCapText,
+    required this.overtimeMonthlyCapText,
+    required this.onOvertimeEnabledChanged,
+    required this.onOvertimeCapEnabledChanged,
+    required this.onPickDailyCap,
+    required this.onPickWeeklyCap,
+    required this.onPickMonthlyCap,
+  });
+
+  final bool overtimeEnabled;
+  final bool overtimeCapEnabled;
+  final String overtimeDailyCapText;
+  final String overtimeWeeklyCapText;
+  final String overtimeMonthlyCapText;
+  final ValueChanged<bool> onOvertimeEnabledChanged;
+  final ValueChanged<bool> onOvertimeCapEnabledChanged;
+  final Future<void> Function() onPickDailyCap;
+  final Future<void> Function() onPickWeeklyCap;
+  final Future<void> Function() onPickMonthlyCap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SwitchListTile.adaptive(
+          contentPadding: EdgeInsets.zero,
+          value: overtimeEnabled,
+          onChanged: onOvertimeEnabledChanged,
+          title: const Text('Straordinario abilitato'),
+          subtitle: const Text(
+            'Se disattivo, il credito extra viene bloccato o limitato da altre regole.',
+          ),
+        ),
+        if (overtimeEnabled) ...[
+          const SizedBox(height: 6),
+          SwitchListTile.adaptive(
+            contentPadding: EdgeInsets.zero,
+            value: overtimeCapEnabled,
+            onChanged: onOvertimeCapEnabledChanged,
+            title: const Text('Massimale straordinario attivo'),
+            subtitle: const Text(
+              'Puoi limitare il massimo accumulabile su giorno, settimana e mese.',
+            ),
+          ),
+          if (overtimeCapEnabled) ...[
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                _SlimSettingsScheduleValue(
+                  label: 'Max giorno',
+                  value: _formatOptionalHoursValue(
+                    overtimeDailyCapText,
+                    zeroLabel: 'Nessun limite',
+                  ),
+                  icon: Icons.calendar_today_outlined,
+                  kind: _SettingsValueKind.limit,
+                  onTap: onPickDailyCap,
+                ),
+                _SlimSettingsScheduleValue(
+                  label: 'Max settimana',
+                  value: _formatOptionalHoursValue(
+                    overtimeWeeklyCapText,
+                    zeroLabel: 'Nessun limite',
+                  ),
+                  icon: Icons.date_range_rounded,
+                  kind: _SettingsValueKind.limit,
+                  onTap: onPickWeeklyCap,
+                ),
+                _SlimSettingsScheduleValue(
+                  label: 'Max mese',
+                  value: _formatOptionalHoursValue(
+                    overtimeMonthlyCapText,
+                    zeroLabel: 'Nessun limite',
+                  ),
+                  icon: Icons.calendar_month_outlined,
+                  kind: _SettingsValueKind.limit,
+                  onTap: onPickMonthlyCap,
+                ),
+              ],
+            ),
+          ],
+        ] else ...[
+          const SizedBox(height: 8),
+          Text(
+            'Nessun credito straordinario viene conteggiato.',
+            style: theme.textTheme.bodyMedium,
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _WorkRulesAttendanceEditor extends StatelessWidget {
+  const _WorkRulesAttendanceEditor({
+    required this.fixedScheduleEnabled,
+    required this.flexibleStartEnabled,
+    required this.flexibleStartWindowText,
+    required this.onFixedScheduleChanged,
+    required this.onFlexibleStartChanged,
+    required this.onPickFlexibleStartWindow,
+  });
+
+  final bool fixedScheduleEnabled;
+  final bool flexibleStartEnabled;
+  final String flexibleStartWindowText;
+  final ValueChanged<bool> onFixedScheduleChanged;
+  final ValueChanged<bool> onFlexibleStartChanged;
+  final Future<void> Function() onPickFlexibleStartWindow;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SwitchListTile.adaptive(
+          contentPadding: EdgeInsets.zero,
+          value: fixedScheduleEnabled,
+          onChanged: onFixedScheduleChanged,
+          title: const Text('Ho orari di ingresso e uscita fissi'),
+          subtitle: const Text(
+            'Quando attivo, la flessibilita in entrata viene disabilitata.',
+          ),
+        ),
+        const SizedBox(height: 6),
+        SwitchListTile.adaptive(
+          contentPadding: EdgeInsets.zero,
+          value: flexibleStartEnabled,
+          onChanged: fixedScheduleEnabled ? null : onFlexibleStartChanged,
+          title: const Text('Flessibilita in entrata'),
+          subtitle: Text(
+            fixedScheduleEnabled
+                ? 'Disattiva prima gli orari fissi.'
+                : 'Specifica la fascia massima di ingresso posticipato.',
+          ),
+        ),
+        if (!fixedScheduleEnabled && flexibleStartEnabled) ...[
+          const SizedBox(height: 10),
+          _SlimSettingsScheduleValue(
+            label: 'Finestra entrata',
+            value: _formatOptionalHoursValue(
+              flexibleStartWindowText,
+              zeroLabel: 'Nessuna flessibilita',
+            ),
+            icon: Icons.access_time_rounded,
+            kind: _SettingsValueKind.duration,
+            onTap: onPickFlexibleStartWindow,
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _WorkRulesWalletEditor extends StatelessWidget {
+  const _WorkRulesWalletEditor({
+    required this.walletEnabled,
+    required this.walletDailyExitText,
+    required this.walletWeeklyExitText,
+    required this.implicitCreditEnabled,
+    required this.implicitCreditDailyCapText,
+    required this.onWalletEnabledChanged,
+    required this.onImplicitCreditEnabledChanged,
+    required this.onPickWalletDailyExit,
+    required this.onPickWalletWeeklyExit,
+    required this.onPickImplicitCreditDailyCap,
+  });
+
+  final bool walletEnabled;
+  final String walletDailyExitText;
+  final String walletWeeklyExitText;
+  final bool implicitCreditEnabled;
+  final String implicitCreditDailyCapText;
+  final ValueChanged<bool> onWalletEnabledChanged;
+  final ValueChanged<bool> onImplicitCreditEnabledChanged;
+  final Future<void> Function() onPickWalletDailyExit;
+  final Future<void> Function() onPickWalletWeeklyExit;
+  final Future<void> Function() onPickImplicitCreditDailyCap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SwitchListTile.adaptive(
+          contentPadding: EdgeInsets.zero,
+          value: walletEnabled,
+          onChanged: onWalletEnabledChanged,
+          title: const Text('Borsellino uscita anticipata'),
+          subtitle: const Text(
+            'Permette di uscire prima entro i limiti giornalieri e settimanali.',
+          ),
+        ),
+        if (walletEnabled) ...[
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              _SlimSettingsScheduleValue(
+                label: 'Max giorno',
+                value: _formatOptionalHoursValue(
+                  walletDailyExitText,
+                  zeroLabel: 'Nessun limite',
+                ),
+                icon: Icons.today_outlined,
+                kind: _SettingsValueKind.limit,
+                onTap: onPickWalletDailyExit,
+              ),
+              _SlimSettingsScheduleValue(
+                label: 'Max settimana',
+                value: _formatOptionalHoursValue(
+                  walletWeeklyExitText,
+                  zeroLabel: 'Nessun limite',
+                ),
+                icon: Icons.view_week_outlined,
+                kind: _SettingsValueKind.limit,
+                onTap: onPickWalletWeeklyExit,
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+        ],
+        const Divider(),
+        const SizedBox(height: 4),
+        SwitchListTile.adaptive(
+          contentPadding: EdgeInsets.zero,
+          value: implicitCreditEnabled,
+          onChanged: onImplicitCreditEnabledChanged,
+          title: const Text('Credito extra senza straordinario'),
+          subtitle: const Text(
+            'Limita il credito maturabile se resti oltre l orario standard.',
+          ),
+        ),
+        if (implicitCreditEnabled) ...[
+          const SizedBox(height: 10),
+          _SlimSettingsScheduleValue(
+            label: 'Max credito giorno',
+            value: _formatOptionalHoursValue(
+              implicitCreditDailyCapText,
+              zeroLabel: 'Nessun credito',
+            ),
+            icon: Icons.trending_up_rounded,
+            kind: _SettingsValueKind.limit,
+            onTap: onPickImplicitCreditDailyCap,
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _PermissionRulesEditor extends StatelessWidget {
+  const _PermissionRulesEditor({
+    required this.rules,
+    required this.emptyMessage,
+    required this.addButtonLabel,
+    required this.onAddRule,
+    required this.onRemoveRule,
+  });
+
+  final List<WorkPermissionRule> rules;
+  final String emptyMessage;
+  final String addButtonLabel;
+  final Future<void> Function() onAddRule;
+  final ValueChanged<String> onRemoveRule;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        FilledButton.tonalIcon(
+          onPressed: () => onAddRule(),
+          icon: const Icon(Icons.add_rounded),
+          label: Text(addButtonLabel),
+        ),
+        const SizedBox(height: 12),
+        if (rules.isEmpty)
+          Text(
+            emptyMessage,
+            style: Theme.of(context).textTheme.bodyMedium,
+          )
+        else
+          Column(
+            children: rules
+                .map(
+                  (rule) => Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: _PermissionRuleTile(
+                      rule: rule,
+                      onRemove: () => onRemoveRule(rule.id),
+                    ),
+                  ),
+                )
+                .toList(growable: false),
+          ),
+      ],
+    );
+  }
+}
+
+class _PermissionRuleTile extends StatelessWidget {
+  const _PermissionRuleTile({required this.rule, required this.onRemove});
+
+  final WorkPermissionRule rule;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final safeUsedMinutes = math.min(rule.usedMinutes, rule.allowanceMinutes);
+    final remainingMinutes = math.max(rule.allowanceMinutes - safeUsedMinutes, 0);
+    final movementLabels = rule.movements.map((movement) => movement.label).join(
+      ', ',
+    );
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  rule.name,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Chip(
+                label: Text(rule.enabled ? 'Attivo' : 'Disattivato'),
+                visualDensity: VisualDensity.compact,
+              ),
+              IconButton(
+                onPressed: onRemove,
+                tooltip: 'Rimuovi ${rule.name}',
+                icon: const Icon(Icons.delete_outline_rounded),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            '${rule.period.label} - Disponibili ${_formatHoursInput(remainingMinutes)} su ${_formatHoursInput(rule.allowanceMinutes)}',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Usate ${_formatHoursInput(safeUsedMinutes)} - $movementLabels',
+            style: theme.textTheme.bodySmall,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 enum _SettingsValueKind { schedule, duration, limit }
 
 class _SlimSettingsScheduleValue extends StatelessWidget {
@@ -10771,6 +11803,17 @@ String _formatSettingsLimitValue(
   }
   if (parsedMinutes == unboundedMinutes) {
     return 'Nessun limite';
+  }
+  return _formatHoursInput(parsedMinutes);
+}
+
+String _formatOptionalHoursValue(
+  String rawValue, {
+  required String zeroLabel,
+}) {
+  final parsedMinutes = parseHoursInput(rawValue);
+  if (parsedMinutes == null || parsedMinutes <= 0) {
+    return zeroLabel;
   }
   return _formatHoursInput(parsedMinutes);
 }

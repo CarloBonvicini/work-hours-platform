@@ -18,6 +18,24 @@ export interface DaySchedule {
 
 export type WeekdaySchedule = Record<Weekday, DaySchedule>;
 
+export type WorkPermissionMovement =
+  | "entry_late"
+  | "exit_early"
+  | "entry_early"
+  | "exit_late";
+
+export type WorkAllowancePeriod = "daily" | "weekly" | "monthly" | "yearly";
+
+export interface WorkPermissionRule {
+  id: string;
+  name: string;
+  enabled: boolean;
+  period: WorkAllowancePeriod;
+  allowanceMinutes: number;
+  usedMinutes: number;
+  movements: WorkPermissionMovement[];
+}
+
 export interface UserWorkRules {
   expectedDailyMinutes: number;
   minimumBreakMinutes: number;
@@ -25,6 +43,21 @@ export interface UserWorkRules {
   maximumDailyDebitMinutes: number;
   maximumMonthlyCreditMinutes: number;
   maximumMonthlyDebitMinutes: number;
+  overtimeEnabled?: boolean;
+  overtimeCapEnabled?: boolean;
+  overtimeDailyCapMinutes?: number;
+  overtimeWeeklyCapMinutes?: number;
+  overtimeMonthlyCapMinutes?: number;
+  fixedScheduleEnabled?: boolean;
+  flexibleStartEnabled?: boolean;
+  flexibleStartWindowMinutes?: number;
+  walletEnabled?: boolean;
+  walletDailyExitEarlyMinutes?: number;
+  walletWeeklyExitEarlyMinutes?: number;
+  implicitCreditEnabled?: boolean;
+  implicitCreditDailyCapMinutes?: number;
+  additionalPermissions?: WorkPermissionRule[];
+  leaveBanks?: WorkPermissionRule[];
 }
 
 export interface Profile {

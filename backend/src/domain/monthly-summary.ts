@@ -5,6 +5,8 @@ import type {
   Profile,
   ScheduleOverride,
   UserWorkRules,
+  WorkPermissionMovement,
+  WorkPermissionRule,
   Weekday,
   WeekdaySchedule,
   WorkEntry
@@ -22,6 +24,13 @@ export const WEEKDAY_KEYS: Weekday[] = [
 
 const DEFAULT_UNBOUNDED_DAILY_LIMIT_MINUTES = 24 * 60;
 const DEFAULT_UNBOUNDED_MONTHLY_LIMIT_MINUTES = 31 * 24 * 60;
+const WORK_PERMISSION_PERIODS = ["daily", "weekly", "monthly", "yearly"] as const;
+const WORK_PERMISSION_MOVEMENTS = [
+  "entry_late",
+  "exit_early",
+  "entry_early",
+  "exit_late"
+] as const;
 
 export function isYearMonth(value: string): boolean {
   return /^\d{4}-(0[1-9]|1[0-2])$/.test(value);
@@ -176,8 +185,95 @@ export function buildDefaultWorkRules(
     maximumDailyCreditMinutes: DEFAULT_UNBOUNDED_DAILY_LIMIT_MINUTES,
     maximumDailyDebitMinutes: DEFAULT_UNBOUNDED_DAILY_LIMIT_MINUTES,
     maximumMonthlyCreditMinutes: DEFAULT_UNBOUNDED_MONTHLY_LIMIT_MINUTES,
-    maximumMonthlyDebitMinutes: DEFAULT_UNBOUNDED_MONTHLY_LIMIT_MINUTES
+    maximumMonthlyDebitMinutes: DEFAULT_UNBOUNDED_MONTHLY_LIMIT_MINUTES,
+    overtimeEnabled: false,
+    overtimeCapEnabled: false,
+    overtimeDailyCapMinutes: 0,
+    overtimeWeeklyCapMinutes: 0,
+    overtimeMonthlyCapMinutes: 0,
+    fixedScheduleEnabled: false,
+    flexibleStartEnabled: false,
+    flexibleStartWindowMinutes: 0,
+    walletEnabled: false,
+    walletDailyExitEarlyMinutes: 0,
+    walletWeeklyExitEarlyMinutes: 0,
+    implicitCreditEnabled: false,
+    implicitCreditDailyCapMinutes: 0,
+    additionalPermissions: [],
+    leaveBanks: []
   };
+}
+
+function sanitizePermissionMovements(value: unknown): WorkPermissionMovement[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.flatMap((entry) => {
+    if (
+      typeof entry === "string" &&
+      (WORK_PERMISSION_MOVEMENTS as readonly string[]).includes(entry)
+    ) {
+      return [entry as WorkPermissionMovement];
+    }
+    return [];
+  });
+}
+
+function sanitizeWorkPermissionRule(value: unknown): WorkPermissionRule | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const rule = value as Record<string, unknown>;
+  if (
+    typeof rule.id !== "string" ||
+    rule.id.trim().length === 0 ||
+    typeof rule.name !== "string" ||
+    rule.name.trim().length === 0
+  ) {
+    return null;
+  }
+
+  const period: WorkPermissionRule["period"] =
+    typeof rule.period === "string" &&
+      (WORK_PERMISSION_PERIODS as readonly string[]).includes(rule.period)
+      ? (rule.period as WorkPermissionRule["period"])
+      : "monthly";
+
+  const allowanceMinutes =
+    Number.isInteger(rule.allowanceMinutes) && (rule.allowanceMinutes as number) >= 0
+      ? (rule.allowanceMinutes as number)
+      : 0;
+  const usedMinutes =
+    Number.isInteger(rule.usedMinutes) && (rule.usedMinutes as number) >= 0
+      ? (rule.usedMinutes as number)
+      : 0;
+  const movements = sanitizePermissionMovements(rule.movements);
+  if (movements.length === 0) {
+    movements.push("entry_late", "exit_early");
+  }
+
+  return {
+    id: rule.id.trim(),
+    name: rule.name.trim(),
+    enabled: rule.enabled !== false,
+    period,
+    allowanceMinutes,
+    usedMinutes,
+    movements
+  };
+}
+
+function sanitizeWorkPermissionRules(value: unknown): WorkPermissionRule[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.flatMap((entry) => {
+    const rule = sanitizeWorkPermissionRule(entry);
+    return rule ? [rule] : [];
+  });
 }
 
 export function sanitizeWorkRules(
@@ -217,7 +313,50 @@ export function sanitizeWorkRules(
       Number.isInteger(value.maximumMonthlyDebitMinutes) &&
       value.maximumMonthlyDebitMinutes >= 0
         ? value.maximumMonthlyDebitMinutes
-        : fallback.maximumMonthlyDebitMinutes
+        : fallback.maximumMonthlyDebitMinutes,
+    overtimeEnabled: value.overtimeEnabled === true,
+    overtimeCapEnabled: value.overtimeCapEnabled === true,
+    overtimeDailyCapMinutes:
+      Number.isInteger(value.overtimeDailyCapMinutes) &&
+      (value.overtimeDailyCapMinutes as number) >= 0
+        ? (value.overtimeDailyCapMinutes as number)
+        : 0,
+    overtimeWeeklyCapMinutes:
+      Number.isInteger(value.overtimeWeeklyCapMinutes) &&
+      (value.overtimeWeeklyCapMinutes as number) >= 0
+        ? (value.overtimeWeeklyCapMinutes as number)
+        : 0,
+    overtimeMonthlyCapMinutes:
+      Number.isInteger(value.overtimeMonthlyCapMinutes) &&
+      (value.overtimeMonthlyCapMinutes as number) >= 0
+        ? (value.overtimeMonthlyCapMinutes as number)
+        : 0,
+    fixedScheduleEnabled: value.fixedScheduleEnabled === true,
+    flexibleStartEnabled: value.flexibleStartEnabled === true,
+    flexibleStartWindowMinutes:
+      Number.isInteger(value.flexibleStartWindowMinutes) &&
+      (value.flexibleStartWindowMinutes as number) >= 0
+        ? (value.flexibleStartWindowMinutes as number)
+        : 0,
+    walletEnabled: value.walletEnabled === true,
+    walletDailyExitEarlyMinutes:
+      Number.isInteger(value.walletDailyExitEarlyMinutes) &&
+      (value.walletDailyExitEarlyMinutes as number) >= 0
+        ? (value.walletDailyExitEarlyMinutes as number)
+        : 0,
+    walletWeeklyExitEarlyMinutes:
+      Number.isInteger(value.walletWeeklyExitEarlyMinutes) &&
+      (value.walletWeeklyExitEarlyMinutes as number) >= 0
+        ? (value.walletWeeklyExitEarlyMinutes as number)
+        : 0,
+    implicitCreditEnabled: value.implicitCreditEnabled === true,
+    implicitCreditDailyCapMinutes:
+      Number.isInteger(value.implicitCreditDailyCapMinutes) &&
+      (value.implicitCreditDailyCapMinutes as number) >= 0
+        ? (value.implicitCreditDailyCapMinutes as number)
+        : 0,
+    additionalPermissions: sanitizeWorkPermissionRules(value.additionalPermissions),
+    leaveBanks: sanitizeWorkPermissionRules(value.leaveBanks)
   };
 }
 

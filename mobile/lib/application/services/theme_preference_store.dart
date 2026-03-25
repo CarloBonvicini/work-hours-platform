@@ -21,6 +21,11 @@ class AppAppearanceSettings {
     required this.expandWorkSettingsSchedule,
     required this.expandWorkSettingsRules,
     required this.expandWorkSettingsLimits,
+    required this.expandWorkSettingsOvertime,
+    required this.expandWorkSettingsAttendance,
+    required this.expandWorkSettingsWallet,
+    required this.expandWorkSettingsPermissions,
+    required this.expandWorkSettingsLeaveBanks,
     required this.showDayTargetMinutes,
     required this.showDayEndTime,
     required this.showDayBreakMinutes,
@@ -40,6 +45,11 @@ class AppAppearanceSettings {
   final bool expandWorkSettingsSchedule;
   final bool expandWorkSettingsRules;
   final bool expandWorkSettingsLimits;
+  final bool expandWorkSettingsOvertime;
+  final bool expandWorkSettingsAttendance;
+  final bool expandWorkSettingsWallet;
+  final bool expandWorkSettingsPermissions;
+  final bool expandWorkSettingsLeaveBanks;
   final bool showDayTargetMinutes;
   final bool showDayEndTime;
   final bool showDayBreakMinutes;
@@ -58,6 +68,11 @@ class AppAppearanceSettings {
     expandWorkSettingsSchedule: true,
     expandWorkSettingsRules: true,
     expandWorkSettingsLimits: true,
+    expandWorkSettingsOvertime: true,
+    expandWorkSettingsAttendance: true,
+    expandWorkSettingsWallet: true,
+    expandWorkSettingsPermissions: true,
+    expandWorkSettingsLeaveBanks: true,
     showDayTargetMinutes: false,
     showDayEndTime: true,
     showDayBreakMinutes: true,
@@ -79,6 +94,11 @@ class AppAppearanceSettings {
     bool? expandWorkSettingsSchedule,
     bool? expandWorkSettingsRules,
     bool? expandWorkSettingsLimits,
+    bool? expandWorkSettingsOvertime,
+    bool? expandWorkSettingsAttendance,
+    bool? expandWorkSettingsWallet,
+    bool? expandWorkSettingsPermissions,
+    bool? expandWorkSettingsLeaveBanks,
     bool? showDayTargetMinutes,
     bool? showDayEndTime,
     bool? showDayBreakMinutes,
@@ -102,6 +122,16 @@ class AppAppearanceSettings {
           expandWorkSettingsRules ?? this.expandWorkSettingsRules,
       expandWorkSettingsLimits:
           expandWorkSettingsLimits ?? this.expandWorkSettingsLimits,
+      expandWorkSettingsOvertime:
+          expandWorkSettingsOvertime ?? this.expandWorkSettingsOvertime,
+      expandWorkSettingsAttendance:
+          expandWorkSettingsAttendance ?? this.expandWorkSettingsAttendance,
+      expandWorkSettingsWallet:
+          expandWorkSettingsWallet ?? this.expandWorkSettingsWallet,
+      expandWorkSettingsPermissions:
+          expandWorkSettingsPermissions ?? this.expandWorkSettingsPermissions,
+      expandWorkSettingsLeaveBanks:
+          expandWorkSettingsLeaveBanks ?? this.expandWorkSettingsLeaveBanks,
       showDayTargetMinutes: showDayTargetMinutes ?? this.showDayTargetMinutes,
       showDayEndTime: showDayEndTime ?? this.showDayEndTime,
       showDayBreakMinutes: showDayBreakMinutes ?? this.showDayBreakMinutes,
@@ -161,6 +191,21 @@ class AppAppearanceSettings {
       expandWorkSettingsLimits:
           json['expandWorkSettingsLimits'] as bool? ??
           AppAppearanceSettings.defaults.expandWorkSettingsLimits,
+      expandWorkSettingsOvertime:
+          json['expandWorkSettingsOvertime'] as bool? ??
+          AppAppearanceSettings.defaults.expandWorkSettingsOvertime,
+      expandWorkSettingsAttendance:
+          json['expandWorkSettingsAttendance'] as bool? ??
+          AppAppearanceSettings.defaults.expandWorkSettingsAttendance,
+      expandWorkSettingsWallet:
+          json['expandWorkSettingsWallet'] as bool? ??
+          AppAppearanceSettings.defaults.expandWorkSettingsWallet,
+      expandWorkSettingsPermissions:
+          json['expandWorkSettingsPermissions'] as bool? ??
+          AppAppearanceSettings.defaults.expandWorkSettingsPermissions,
+      expandWorkSettingsLeaveBanks:
+          json['expandWorkSettingsLeaveBanks'] as bool? ??
+          AppAppearanceSettings.defaults.expandWorkSettingsLeaveBanks,
       showDayTargetMinutes:
           json['showDayTargetMinutes'] as bool? ??
           AppAppearanceSettings.defaults.showDayTargetMinutes,
@@ -193,6 +238,11 @@ class AppAppearanceSettings {
       'expandWorkSettingsSchedule': expandWorkSettingsSchedule,
       'expandWorkSettingsRules': expandWorkSettingsRules,
       'expandWorkSettingsLimits': expandWorkSettingsLimits,
+      'expandWorkSettingsOvertime': expandWorkSettingsOvertime,
+      'expandWorkSettingsAttendance': expandWorkSettingsAttendance,
+      'expandWorkSettingsWallet': expandWorkSettingsWallet,
+      'expandWorkSettingsPermissions': expandWorkSettingsPermissions,
+      'expandWorkSettingsLeaveBanks': expandWorkSettingsLeaveBanks,
       'showDayTargetMinutes': showDayTargetMinutes,
       'showDayEndTime': showDayEndTime,
       'showDayBreakMinutes': showDayBreakMinutes,
@@ -238,6 +288,16 @@ class SharedPreferencesThemePreferenceStore implements ThemePreferenceStore {
       'appearance.expand_work_settings_rules';
   static const _expandWorkSettingsLimitsKey =
       'appearance.expand_work_settings_limits';
+  static const _expandWorkSettingsOvertimeKey =
+      'appearance.expand_work_settings_overtime';
+  static const _expandWorkSettingsAttendanceKey =
+      'appearance.expand_work_settings_attendance';
+  static const _expandWorkSettingsWalletKey =
+      'appearance.expand_work_settings_wallet';
+  static const _expandWorkSettingsPermissionsKey =
+      'appearance.expand_work_settings_permissions';
+  static const _expandWorkSettingsLeaveBanksKey =
+      'appearance.expand_work_settings_leave_banks';
   static const _showDayTargetMinutesKey = 'appearance.show_day_target_minutes';
   static const _showDayEndTimeKey = 'appearance.show_day_end_time';
   static const _showDayBreakMinutesKey = 'appearance.show_day_break_minutes';
@@ -319,6 +379,21 @@ class SharedPreferencesThemePreferenceStore implements ThemePreferenceStore {
       expandWorkSettingsLimits:
           preferences.getBool(_expandWorkSettingsLimitsKey) ??
           AppAppearanceSettings.defaults.expandWorkSettingsLimits,
+      expandWorkSettingsOvertime:
+          preferences.getBool(_expandWorkSettingsOvertimeKey) ??
+          AppAppearanceSettings.defaults.expandWorkSettingsOvertime,
+      expandWorkSettingsAttendance:
+          preferences.getBool(_expandWorkSettingsAttendanceKey) ??
+          AppAppearanceSettings.defaults.expandWorkSettingsAttendance,
+      expandWorkSettingsWallet:
+          preferences.getBool(_expandWorkSettingsWalletKey) ??
+          AppAppearanceSettings.defaults.expandWorkSettingsWallet,
+      expandWorkSettingsPermissions:
+          preferences.getBool(_expandWorkSettingsPermissionsKey) ??
+          AppAppearanceSettings.defaults.expandWorkSettingsPermissions,
+      expandWorkSettingsLeaveBanks:
+          preferences.getBool(_expandWorkSettingsLeaveBanksKey) ??
+          AppAppearanceSettings.defaults.expandWorkSettingsLeaveBanks,
       showDayTargetMinutes:
           preferences.getBool(_showDayTargetMinutesKey) ??
           AppAppearanceSettings.defaults.showDayTargetMinutes,
@@ -383,6 +458,26 @@ class SharedPreferencesThemePreferenceStore implements ThemePreferenceStore {
     await preferences.setBool(
       _expandWorkSettingsLimitsKey,
       settings.expandWorkSettingsLimits,
+    );
+    await preferences.setBool(
+      _expandWorkSettingsOvertimeKey,
+      settings.expandWorkSettingsOvertime,
+    );
+    await preferences.setBool(
+      _expandWorkSettingsAttendanceKey,
+      settings.expandWorkSettingsAttendance,
+    );
+    await preferences.setBool(
+      _expandWorkSettingsWalletKey,
+      settings.expandWorkSettingsWallet,
+    );
+    await preferences.setBool(
+      _expandWorkSettingsPermissionsKey,
+      settings.expandWorkSettingsPermissions,
+    );
+    await preferences.setBool(
+      _expandWorkSettingsLeaveBanksKey,
+      settings.expandWorkSettingsLeaveBanks,
     );
     await preferences.setBool(
       _showDayTargetMinutesKey,

@@ -29,6 +29,9 @@ import type {
   ScheduleOverride,
   WeekdaySchedule,
   WeekdayTargetMinutes,
+  WorkAllowancePeriod,
+  WorkPermissionMovement,
+  WorkPermissionRule,
   WorkEntry
 } from "./domain/types.js";
 
@@ -610,7 +613,9 @@ function isSuperAdminUser(user: Pick<AuthUser, "email" | "role">) {
 
 function getConfiguredSuperAdminCredentials() {
   const emailValue = process.env.SUPER_ADMIN_EMAIL?.trim();
-  const passwordValue = process.env.SUPER_ADMIN_PASSWORD;
+  const passwordValueRaw = process.env.SUPER_ADMIN_PASSWORD;
+  const passwordValue =
+    typeof passwordValueRaw === "string" ? passwordValueRaw.trim() : undefined;
 
   if (!emailValue && (!passwordValue || passwordValue.length === 0)) {
     return null;
@@ -627,7 +632,7 @@ function getConfiguredSuperAdminCredentials() {
     throw new Error("SUPER_ADMIN_EMAIL is not a valid email");
   }
 
-  if (passwordValue.trim().length < 8) {
+  if (passwordValue.length < 8) {
     throw new Error("SUPER_ADMIN_PASSWORD must be at least 8 characters");
   }
 
@@ -899,13 +904,102 @@ function parseWorkRulesPayload(payload: unknown): Profile["workRules"] | null {
     return null;
   }
 
+  const parseOptionalFlag = (value: unknown) => value === true;
+  const parseOptionalMinutes = (value: unknown) =>
+    isNonNegativeInteger(value) ? value : 0;
+  const permissionMovements = new Set<WorkPermissionMovement>([
+    "entry_late",
+    "exit_early",
+    "entry_early",
+    "exit_late"
+  ]);
+  const permissionPeriods = new Set<WorkAllowancePeriod>([
+    "daily",
+    "weekly",
+    "monthly",
+    "yearly"
+  ]);
+
+  const parsePermissionRules = (value: unknown): WorkPermissionRule[] => {
+    if (!Array.isArray(value)) {
+      return [];
+    }
+
+    return value.flatMap((entry) => {
+      if (!entry || typeof entry !== "object") {
+        return [];
+      }
+
+      const rule = entry as Record<string, unknown>;
+      if (
+        typeof rule.id !== "string" ||
+        rule.id.trim().length === 0 ||
+        typeof rule.name !== "string" ||
+        rule.name.trim().length === 0
+      ) {
+        return [];
+      }
+
+      const movements: WorkPermissionMovement[] = Array.isArray(rule.movements)
+        ? rule.movements.flatMap((movement) =>
+          typeof movement === "string" &&
+            permissionMovements.has(movement as WorkPermissionMovement)
+            ? [movement as WorkPermissionMovement]
+            : []
+        )
+        : [];
+
+      return [
+        {
+          id: rule.id.trim(),
+          name: rule.name.trim(),
+          enabled: rule.enabled !== false,
+          period:
+            typeof rule.period === "string" &&
+              permissionPeriods.has(rule.period as WorkAllowancePeriod)
+              ? (rule.period as WorkAllowancePeriod)
+              : "monthly",
+          allowanceMinutes: parseOptionalMinutes(rule.allowanceMinutes),
+          usedMinutes: parseOptionalMinutes(rule.usedMinutes),
+          movements:
+            movements.length > 0 ? movements : ["entry_late", "exit_early"]
+        }
+      ];
+    });
+  };
+
   return {
     expectedDailyMinutes: body.expectedDailyMinutes,
     minimumBreakMinutes: body.minimumBreakMinutes,
     maximumDailyCreditMinutes: body.maximumDailyCreditMinutes,
     maximumDailyDebitMinutes: body.maximumDailyDebitMinutes,
     maximumMonthlyCreditMinutes: body.maximumMonthlyCreditMinutes,
-    maximumMonthlyDebitMinutes: body.maximumMonthlyDebitMinutes
+    maximumMonthlyDebitMinutes: body.maximumMonthlyDebitMinutes,
+    overtimeEnabled: parseOptionalFlag(body.overtimeEnabled),
+    overtimeCapEnabled: parseOptionalFlag(body.overtimeCapEnabled),
+    overtimeDailyCapMinutes: parseOptionalMinutes(body.overtimeDailyCapMinutes),
+    overtimeWeeklyCapMinutes: parseOptionalMinutes(body.overtimeWeeklyCapMinutes),
+    overtimeMonthlyCapMinutes: parseOptionalMinutes(
+      body.overtimeMonthlyCapMinutes
+    ),
+    fixedScheduleEnabled: parseOptionalFlag(body.fixedScheduleEnabled),
+    flexibleStartEnabled: parseOptionalFlag(body.flexibleStartEnabled),
+    flexibleStartWindowMinutes: parseOptionalMinutes(
+      body.flexibleStartWindowMinutes
+    ),
+    walletEnabled: parseOptionalFlag(body.walletEnabled),
+    walletDailyExitEarlyMinutes: parseOptionalMinutes(
+      body.walletDailyExitEarlyMinutes
+    ),
+    walletWeeklyExitEarlyMinutes: parseOptionalMinutes(
+      body.walletWeeklyExitEarlyMinutes
+    ),
+    implicitCreditEnabled: parseOptionalFlag(body.implicitCreditEnabled),
+    implicitCreditDailyCapMinutes: parseOptionalMinutes(
+      body.implicitCreditDailyCapMinutes
+    ),
+    additionalPermissions: parsePermissionRules(body.additionalPermissions),
+    leaveBanks: parsePermissionRules(body.leaveBanks)
   };
 }
 
@@ -2286,7 +2380,7 @@ function renderAdminPage(options: {
                 </div>
               </article>
             </div>
-            <p class="auth-cta" id="admin-auth-cta">Il super admin si definisce nel runtime del backend con <code>SUPER_ADMIN_EMAIL</code> e <code>SUPER_ADMIN_PASSWORD</code>. Quel profilo potra poi creare e gestire gli altri admin.</p>
+            <p class="auth-cta" id="admin-auth-cta">La registrazione non rende admin in automatico. Solo il <code>super_admin</code> puo promuovere o revocare gli altri admin.</p>
           </section>
         </div>
       </section>
@@ -2910,7 +3004,7 @@ function renderAdminPage(options: {
       }
       async function loginAdmin() {
         const email = String(emailInput?.value || "").trim();
-        const password = String(passwordInput?.value || "").trim();
+        const password = String(passwordInput?.value || "");
         if (!email || !password) {
           setStatus("Inserisci email e password del profilo admin.", "error", "auth");
           return;
@@ -2949,7 +3043,7 @@ function renderAdminPage(options: {
       }
       async function registerAccount() {
         const email = String(registerEmailInput?.value || "").trim();
-        const password = String(registerPasswordInput?.value || "").trim();
+        const password = String(registerPasswordInput?.value || "");
         if (!email || !password) {
           setStatus("Inserisci email e password per creare il profilo.", "error", "auth");
           return;
