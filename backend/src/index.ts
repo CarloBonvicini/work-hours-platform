@@ -7,9 +7,21 @@ const host = process.env.HOST ?? "0.0.0.0";
 const port = Number(process.env.PORT ?? 8080);
 const dataProvider = process.env.DATA_PROVIDER ?? "memory";
 
+function normalizeDatabaseUrl(value: string) {
+  const trimmed = value.trim();
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
+    return trimmed.slice(1, -1).trim();
+  }
+
+  return trimmed;
+}
+
 async function createStore(): Promise<AppStore> {
   if (dataProvider === "postgres") {
-    const connectionString = process.env.DATABASE_URL ?? "";
+    const connectionString = normalizeDatabaseUrl(process.env.DATABASE_URL ?? "");
     return await PostgresStore.create({ connectionString });
   }
 
