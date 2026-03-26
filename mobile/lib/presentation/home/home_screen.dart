@@ -6113,7 +6113,7 @@ class _CalendarCard extends StatelessWidget {
     final hasQuickResultContext =
         hasRecordedWorkContext || hasQuickWorkedOverride;
     final manualStartMinutes = parseTimeInput(
-      _scheduleOverrideStartTimeController.text.trim(),
+      overrideStartTimeController.text.trim(),
     );
     final baseStartMinutes = parseTimeInput(baseDaySchedule.startTime);
     final hasManualStartEntry =
@@ -6141,8 +6141,8 @@ class _CalendarCard extends StatelessWidget {
       effectiveSchedule: effectiveDaySchedule,
       quickEditorSchedule: quickEditorDaySchedule,
       workRules: workRules,
-      rawStartTimeText: _scheduleOverrideStartTimeController.text,
-      rawEndTimeText: _scheduleOverrideEndTimeController.text,
+      rawStartTimeText: overrideStartTimeController.text,
+      rawEndTimeText: overrideEndTimeController.text,
     );
     final isQuickEditorDayOff = _isExplicitDayOffSchedule(
       quickEditorDaySchedule,
