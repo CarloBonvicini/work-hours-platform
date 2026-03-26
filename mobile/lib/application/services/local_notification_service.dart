@@ -18,6 +18,11 @@ class LocalNotificationService {
   static const _ticketChannelDescription =
       'Notifiche quando l admin risponde ai ticket.';
 
+  static const _overtimeChannelId = 'work_hours_overtime';
+  static const _overtimeChannelName = 'Limiti straordinario';
+  static const _overtimeChannelDescription =
+      'Notifiche quando superi il limite di straordinario.';
+
   static const _lastNotifiedUpdateVersionKey =
       'local_notifications.last_notified_update_version';
 
@@ -57,6 +62,14 @@ class LocalNotificationService {
             _ticketChannelId,
             _ticketChannelName,
             description: _ticketChannelDescription,
+            importance: Importance.high,
+          ),
+        );
+        await androidPlugin.createNotificationChannel(
+          const AndroidNotificationChannel(
+            _overtimeChannelId,
+            _overtimeChannelName,
+            description: _overtimeChannelDescription,
             importance: Importance.high,
           ),
         );
@@ -212,6 +225,42 @@ class LocalNotificationService {
         message,
         details,
         payload: 'ticket_replies',
+      );
+    } catch (_) {
+      _isAvailable = false;
+    }
+  }
+
+  Future<void> notifyOvertimeLimitExceeded({
+    required String message,
+  }) async {
+    if (kIsWeb || !_isAvailable || message.trim().isEmpty) {
+      return;
+    }
+    await initialize();
+    if (!_isAvailable) {
+      return;
+    }
+
+    try {
+      const details = NotificationDetails(
+        android: AndroidNotificationDetails(
+          _overtimeChannelId,
+          _overtimeChannelName,
+          channelDescription: _overtimeChannelDescription,
+          importance: Importance.high,
+          priority: Priority.high,
+        ),
+        iOS: DarwinNotificationDetails(),
+        macOS: DarwinNotificationDetails(),
+      );
+
+      await _plugin.show(
+        DateTime.now().millisecondsSinceEpoch.remainder(1 << 20),
+        'Limite straordinario superato',
+        message,
+        details,
+        payload: 'overtime_exceeded',
       );
     } catch (_) {
       _isAvailable = false;

@@ -2,17 +2,33 @@ name: Mobile CI
 
 on:
   push:
+    branches:
+      - main
     paths:
       - "mobile/**"
       - ".github/workflows/mobile-ci.yml"
   pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
     paths:
       - "mobile/**"
       - ".github/workflows/mobile-ci.yml"
 
+permissions:
+  contents: read
+
+concurrency:
+  group: mobile-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   analyze-and-test:
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
     runs-on: ubuntu-latest
+    timeout-minutes: 25
 
     steps:
       - name: Checkout
@@ -52,4 +68,4 @@ jobs:
       - name: Tests
         if: ${{ steps.detect.outputs.has_flutter == 'true' }}
         working-directory: mobile
-        run: flutter test
+        run: flutter test --concurrency=4

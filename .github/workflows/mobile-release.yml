@@ -306,12 +306,11 @@ jobs:
         run: |
           tag="${{ steps.meta.outputs.release_tag }}"
           title="${{ steps.meta.outputs.release_name }}"
-          version="${{ steps.meta.outputs.build_name }}"
-          build_number="${{ steps.meta.outputs.build_number }}"
-          notes="Android APK build $version."
 
           if ! gh release view "$tag" >/dev/null 2>&1; then
-            gh release create "$tag" --title "$title" --notes "$notes"
+            gh release create "$tag" --title "$title" --generate-notes
+          else
+            gh release edit "$tag" --title "$title"
           fi
 
           gh release upload "$tag" mobile/build/app/outputs/flutter-apk/app-release.apk --clobber
@@ -368,16 +367,30 @@ jobs:
             "${asset_api_url}" \
             -o "${deployed_file_path}"
 
-          cat > "$updates_dir/latest-release.json" <<EOF_META
-          {
-            "tag": "${RELEASE_TAG}",
-            "version": "${BUILD_NAME}",
-            "buildNumber": "${BUILD_NUMBER}",
-            "fileName": "${deployed_file_name}",
-            "releaseNotes": "Android APK build ${BUILD_NAME}.",
-            "publishedAt": "${published_at}"
+          RELEASE_NOTES="${release_notes}" \
+          PUBLISHED_AT="${published_at}" \
+          DEPLOYED_FILE_NAME="${deployed_file_name}" \
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          metadata = {
+              "tag": os.environ["RELEASE_TAG"],
+              "version": os.environ["BUILD_NAME"],
+              "buildNumber": os.environ["BUILD_NUMBER"],
+              "fileName": os.environ["DEPLOYED_FILE_NAME"],
+              "releaseNotes": os.environ.get("RELEASE_NOTES") or None,
+              "publishedAt": os.environ.get("PUBLISHED_AT") or None,
           }
-          EOF_META
+
+          target_path = Path("infra/updates/latest-release.json")
+          target_path.parent.mkdir(parents=True, exist_ok=True)
+          target_path.write_text(
+              json.dumps(metadata, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          PY
 
           rm -f "$updates_dir/release-status.json"
 

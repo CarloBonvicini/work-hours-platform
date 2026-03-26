@@ -4,15 +4,24 @@ on:
   push:
     branches:
       - main
+    paths:
+      - "backend/**"
+      - "infra/**"
+      - ".github/workflows/backend-cd.yml"
   workflow_dispatch:
 
 permissions:
   contents: read
   packages: write
 
+concurrency:
+  group: backend-cd-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build_and_push:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     steps:
       - name: Checkout
@@ -50,6 +59,7 @@ jobs:
     name: Deploy (Self-hosted runner)
     needs: build_and_push
     runs-on: self-hosted
+    timeout-minutes: 20
     permissions:
       contents: read
       packages: read

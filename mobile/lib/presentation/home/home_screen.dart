@@ -247,6 +247,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   int? _agendaPreviewPauseEndMinutes;
   int? _pendingExitConfirmationMinutes;
   String? _pendingExitConfirmationDateKey;
+  String? _lastOvertimeExceededNotificationKey;
   AccountSession? _accountSession;
   _AccountAuthMode _accountAuthMode = _AccountAuthMode.login;
   Timer? _ticketNotificationTimer;
@@ -273,8 +274,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     unawaited(_refreshTrackedSupportTickets());
     _startTicketNotificationPolling();
     _startLiveWorkedMinutesTicker();
-    unawaited(_initializeLocalNotifications());
-    unawaited(_checkForUpdate());
+    unawaited(_initializeUpdateExperience());
   }
 
   @override
@@ -431,6 +431,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     await widget.onboardingPreferenceStore.markInitialSetupCompleted();
   }
 
+  Future<void> _initializeUpdateExperience() async {
+    await _initializeLocalNotifications();
+    if (!mounted) {
+      return;
+    }
+
+    await _checkForUpdate();
+  }
+
   Future<void> _checkForUpdate() async {
     setState(() {
       _isCheckingForUpdate = true;
@@ -544,9 +553,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _rulesOvertimeMonthlyCapController.text = _formatHoursInput(
       snapshot.profile.workRules.overtimeMonthlyCapMinutes,
     );
-    _rulesFixedScheduleEnabled = snapshot.profile.workRules.fixedScheduleEnabled;
-    _rulesFlexibleStartEnabled =
+    _rulesFixedScheduleEnabled =
+        snapshot.profile.workRules.fixedScheduleEnabled ||
         snapshot.profile.workRules.flexibleStartEnabled;
+    _rulesFlexibleStartEnabled = snapshot.profile.workRules.flexibleStartEnabled;
     _rulesFlexibleStartWindowController.text = _formatHoursInput(
       snapshot.profile.workRules.flexibleStartWindowMinutes,
     );
@@ -1961,6 +1971,36 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
+  void _openWorkSettingsSectionFromSummary() {
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _selectedSection = _HomeSection.workSettings;
+    });
+  }
+
+  void _handleOvertimeLimitExceededNotification(int exceededMinutes) {
+    if (exceededMinutes <= 0 || !_isSameDay(_selectedDate, _todayDate)) {
+      _lastOvertimeExceededNotificationKey = null;
+      return;
+    }
+
+    final notificationKey =
+        DashboardService.defaultEntryDateOf(_selectedDate);
+    if (_lastOvertimeExceededNotificationKey == notificationKey) {
+      return;
+    }
+    _lastOvertimeExceededNotificationKey = notificationKey;
+
+    unawaited(
+      _localNotificationService.notifyOvertimeLimitExceeded(
+        message:
+            'Sei oltre il limite di straordinario di ${_formatHoursInput(exceededMinutes)}.',
+      ),
+    );
+  }
+
   void _openWorkQuickEntryForDate(
     DateTime date, {
     int? prefilledMinutes,
@@ -2665,193 +2705,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     await _autosaveScheduleOverride();
   }
 
-  Future<void> _toggleTodayConcludedFromQuickEditor() async {
-    if (!_isSameDay(_selectedDate, _todayDate)) {
-      return;
-    }
-
-    final nowMinutes = _currentMinutesOfDay();
-    final startMinutes = parseTimeInput(
-      _scheduleOverrideStartTimeController.text.trim(),
-    );
-    final currentEndMinutes = parseTimeInput(
-      _scheduleOverrideEndTimeController.text.trim(),
-    );
-    final isAlreadyConcluded =
-        currentEndMinutes != null && currentEndMinutes <= nowMinutes;
-
-    if (isAlreadyConcluded) {
-      final shouldReopen = await showDialog<bool>(
-        context: context,
-        builder: (dialogContext) {
-          return AlertDialog(
-            title: const Text('Riapri giornata'),
-            content: const Text(
-              'Tolgo l uscita registrata cosi puoi continuare o correggere gli orari.',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(dialogContext).pop(false),
-                child: const Text('Annulla'),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.of(dialogContext).pop(true),
-                child: const Text('Riapri'),
-              ),
-            ],
-          );
-        },
-      );
-
-      if (shouldReopen != true) {
-        return;
-      }
-
-      _seedScheduleOverrideDraftFromCurrentDisplay();
-      _scheduleOverrideEndTimeController.clear();
-      _clearPendingExitConfirmationForSelectedDate();
-      _normalizeSelectedDayPauseWindowForCurrentDraft();
-      _clearAgendaPreviewState();
-      if (mounted) {
-        setState(() {
-          _errorMessage = null;
-        });
-      }
-      _pushCurrentScheduleOverrideDraftToHistory();
-      await _autosaveScheduleOverride();
-      if (!mounted) {
-        return;
-      }
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Giornata riaperta.')),
-      );
-      return;
-    }
-
-    if (startMinutes == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Inserisci prima l entrata per concludere la giornata.'),
-        ),
-      );
-      return;
-    }
-
-    var resolvedEndMinutes = currentEndMinutes;
-    String? autoAdjustedMessage;
-    if (resolvedEndMinutes == null || resolvedEndMinutes > nowMinutes) {
-      resolvedEndMinutes = nowMinutes;
-      autoAdjustedMessage =
-          'Per chiudere oggi imposto l uscita all ora attuale (${formatTimeInput(nowMinutes)}).';
-    }
-
-    if (resolvedEndMinutes <= startMinutes) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'L uscita deve essere successiva all entrata per chiudere la giornata.',
-          ),
-        ),
-      );
-      return;
-    }
-    final confirmedEndMinutes = resolvedEndMinutes;
-
-    final breakMinutes =
-        parseBreakDurationInput(_scheduleOverrideBreakController.text) ?? 0;
-    final effectiveBreakMinutes = breakMinutes.clamp(
-      0,
-      confirmedEndMinutes - startMinutes,
-    );
-    final workedMinutes = math.max(
-      0,
-      confirmedEndMinutes - startMinutes - effectiveBreakMinutes,
-    );
-    final expectedMinutes =
-        parseHoursInput(_scheduleOverrideTargetController.text) ??
-        _fallbackScheduleForSelectedDate().targetMinutes;
-    final workRules =
-        _snapshot?.profile.workRules ??
-        UserWorkRules.unbounded(expectedDailyMinutes: expectedMinutes);
-    final balanceMinutes = workRules.clampDailyBalance(
-      workedMinutes - expectedMinutes,
-    );
-
-    final shouldConfirm = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) {
-        final theme = Theme.of(dialogContext);
-        final valueStyle = theme.textTheme.titleMedium?.copyWith(
-          fontWeight: FontWeight.w800,
-        );
-        return AlertDialog(
-          title: const Text('Conferma giornata'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Entrata: ${formatTimeInput(startMinutes)}', style: valueStyle),
-              const SizedBox(height: 6),
-              Text(
-                'Uscita: ${formatTimeInput(confirmedEndMinutes)}',
-                style: valueStyle,
-              ),
-              const SizedBox(height: 6),
-              Text('Pausa: ${_formatHoursInput(effectiveBreakMinutes)}'),
-              const SizedBox(height: 6),
-              Text('Lavorate: ${_formatHoursInput(workedMinutes)}'),
-              const SizedBox(height: 6),
-              Text('Saldo oggi: ${_formatSignedHoursInput(balanceMinutes)}'),
-              if (autoAdjustedMessage != null) ...[
-                const SizedBox(height: 12),
-                Text(
-                  autoAdjustedMessage,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: const Text('Modifica'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(dialogContext).pop(true),
-              child: const Text('Conferma'),
-            ),
-          ],
-        );
-      },
-    );
-
-    if (shouldConfirm != true) {
-      return;
-    }
-
-    _seedScheduleOverrideDraftFromCurrentDisplay();
-    _scheduleOverrideEndTimeController.text = formatTimeInput(confirmedEndMinutes);
-    _clearPendingExitConfirmationForSelectedDate();
-    _normalizeSelectedDayPauseWindowForCurrentDraft();
-    _clearAgendaPreviewState();
-    if (mounted) {
-      setState(() {
-        _errorMessage = null;
-      });
-    }
-    _pushCurrentScheduleOverrideDraftToHistory();
-    await _autosaveScheduleOverride();
-    if (!mounted) {
-      return;
-    }
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Giornata conclusa.')),
-    );
-  }
-
   Future<void> _pickUniformTargetMinutes() async {
     final currentTargetMinutes =
         parseHoursInput(_uniformDailyTargetController.text) ?? 8 * 60;
@@ -3145,6 +2998,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       return null;
     }
 
+    final effectiveFixedScheduleEnabled = _rulesFixedScheduleEnabled;
+    final effectiveFlexibleStartEnabled =
+        _rulesFlexibleStartEnabled && effectiveFixedScheduleEnabled;
+
     return UserWorkRules(
       expectedDailyMinutes: expectedDailyMinutes,
       minimumBreakMinutes: minimumBreakMinutes,
@@ -3157,8 +3014,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       overtimeDailyCapMinutes: overtimeDailyCapMinutes,
       overtimeWeeklyCapMinutes: overtimeWeeklyCapMinutes,
       overtimeMonthlyCapMinutes: overtimeMonthlyCapMinutes,
-      fixedScheduleEnabled: _rulesFixedScheduleEnabled,
-      flexibleStartEnabled: _rulesFlexibleStartEnabled,
+      fixedScheduleEnabled: effectiveFixedScheduleEnabled,
+      flexibleStartEnabled: effectiveFlexibleStartEnabled,
       flexibleStartWindowMinutes: flexibleStartWindowMinutes,
       walletEnabled: _rulesWalletEnabled,
       walletDailyExitEarlyMinutes: walletDailyExitEarlyMinutes,
@@ -6213,7 +6070,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       onMarkDayAsOff: _markSelectedDayAsDayOff,
       onRestoreWorkingDay: _removeScheduleOverride,
       onConfirmSuggestedExitMinutes: _confirmSuggestedExitMinutes,
-      onToggleTodayConcluded: _toggleTodayConcludedFromQuickEditor,
+      onOpenWorkSettings: _openWorkSettingsSectionFromSummary,
+      onOvertimeLimitExceeded: _handleOvertimeLimitExceededNotification,
     );
   }
 
@@ -6401,11 +6259,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           onRulesFixedScheduleEnabledChanged: (value) {
             setState(() {
               _rulesFixedScheduleEnabled = value;
+              if (!value && _rulesFlexibleStartEnabled) {
+                _rulesFlexibleStartEnabled = false;
+              }
             });
           },
           onRulesFlexibleStartEnabledChanged: (value) {
             setState(() {
               _rulesFlexibleStartEnabled = value;
+              if (value) {
+                _rulesFixedScheduleEnabled = true;
+              }
             });
           },
           onRulesWalletEnabledChanged: (value) {
@@ -6790,7 +6654,8 @@ class _CalendarCard extends StatelessWidget {
     required this.onMarkDayAsOff,
     required this.onRestoreWorkingDay,
     required this.onConfirmSuggestedExitMinutes,
-    required this.onToggleTodayConcluded,
+    required this.onOpenWorkSettings,
+    required this.onOvertimeLimitExceeded,
   });
 
   final String title;
@@ -6862,7 +6727,8 @@ class _CalendarCard extends StatelessWidget {
   final VoidCallback onMarkDayAsOff;
   final Future<void> Function() onRestoreWorkingDay;
   final Future<void> Function(int exitMinutes) onConfirmSuggestedExitMinutes;
-  final Future<void> Function() onToggleTodayConcluded;
+  final VoidCallback onOpenWorkSettings;
+  final ValueChanged<int> onOvertimeLimitExceeded;
 
   @override
   Widget build(BuildContext context) {
@@ -6911,9 +6777,6 @@ class _CalendarCard extends StatelessWidget {
         hasQuickWorkedOverride &&
         resolvedEndMinutesForToday != null &&
         resolvedEndMinutesForToday <= nowMinutes;
-    final isTodayConcluded =
-        isSelectedDateToday &&
-        ((workdaySession?.isCompleted ?? false) || hasElapsedManualExit);
     final liveWorkedMinutes = isSelectedDateToday
         ? _resolveLiveWorkedMinutes(
             quickEditorSchedule: quickEditorDaySchedule,
@@ -6941,27 +6804,42 @@ class _CalendarCard extends StatelessWidget {
     final displayedWorkedMinutes = hasQuickResultContext
         ? liveWorkedMinutes
         : 0;
-    final liveRawDayBalanceMinutes =
-        (displayedWorkedMinutes + dayMetrics.leaveMinutes) - liveExpectedMinutes;
-    final liveDayBalanceMinutes = workRules.clampDailyBalance(
-      liveRawDayBalanceMinutes,
+    final controlInsights = _buildQuickDayControlInsights(
+      selectedDate: selectedDate,
+      workRules: workRules,
+      days: days,
+      weekMetrics: weekMetrics,
+      liveExpectedMinutes: liveExpectedMinutes,
+      liveWorkedMinutes: displayedWorkedMinutes,
+      liveLeaveMinutes: dayMetrics.leaveMinutes,
+      hasLiveResultContext: hasQuickResultContext,
     );
+    final liveDayBalanceMinutes = controlInsights.controlledBalanceMinutes;
     final monthBalanceInfo = _buildDisplayedMonthBalanceInfo(
       selectedDate: selectedDate,
       days: days,
       liveExpectedMinutes: liveExpectedMinutes,
       liveWorkedMinutes: displayedWorkedMinutes,
+      liveLeaveMinutes: dayMetrics.leaveMinutes,
     );
     final periodBalanceInfo = _buildDisplayedPeriodBalanceInfo(
       selectedDate: selectedDate,
       days: days,
       weekMetrics: weekMetrics,
-      workRules: workRules,
       aggregation: appearanceSettings.dayBalanceAggregation,
       liveExpectedMinutes: liveExpectedMinutes,
       liveWorkedMinutes: displayedWorkedMinutes,
       liveLeaveMinutes: dayMetrics.leaveMinutes,
     );
+    if (isSelectedDateToday && controlInsights.exceededOvertimeMinutes > 0) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        onOvertimeLimitExceeded(controlInsights.exceededOvertimeMinutes);
+      });
+    } else if (isSelectedDateToday) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        onOvertimeLimitExceeded(0);
+      });
+    }
     final suggestedExitLabel = _resolveSuggestedExitLabel(
       effectiveSchedule: effectiveDaySchedule,
       quickEditorSchedule: quickEditorDaySchedule,
@@ -6976,6 +6854,22 @@ class _CalendarCard extends StatelessWidget {
       rawStartTimeText: overrideStartTimeController.text,
     );
     final hasScheduledExit = effectiveQuickEditorEndTime.trim().isNotEmpty;
+    final programmedExitMinutes = parseTimeInput(
+      effectiveQuickEditorEndTime.trim(),
+    );
+    final remainingToProgrammedExitLabel =
+        !isQuickEditorDayOff &&
+            isSelectedDateToday &&
+            hasQuickResultContext &&
+            programmedExitMinutes != null
+        ? (() {
+            final remainingMinutes = programmedExitMinutes - nowMinutes;
+            if (remainingMinutes > 0) {
+              return 'Mancano ${_formatHoursInput(remainingMinutes)} all\'uscita programmata';
+            }
+            return 'Uscita programmata raggiunta';
+          })()
+        : null;
     final hasPendingExitConfirmation = pendingExitConfirmationMinutes != null;
     final hasSuggestedTheoreticalExit =
         !isQuickEditorDayOff &&
@@ -7036,6 +6930,8 @@ class _CalendarCard extends StatelessWidget {
             targetText: effectiveQuickEditorTargetText,
             startTimeText: effectiveQuickEditorStartTime,
             endTimeText: effectiveQuickEditorEndTime,
+            suggestedExitLabel: suggestedExitLabel,
+            hasExitSuggestionContext: hasExitSuggestionContext,
             breakMinutes: effectiveQuickEditorBreakMinutes,
             showEndTime: appearanceSettings.showDayEndTime,
             showBreakMinutes: appearanceSettings.showDayBreakMinutes,
@@ -7058,6 +6954,12 @@ class _CalendarCard extends StatelessWidget {
             canRestoreWorkingDay: canRestoreWorkingDay,
             workedMinutes: displayedWorkedMinutes,
             todayBalanceMinutes: liveDayBalanceMinutes,
+            overtimeMinutes: controlInsights.todayOvertimeMinutes,
+            exceededOvertimeMinutes: controlInsights.exceededOvertimeMinutes,
+            showOvertimeConfigurationHint:
+                controlInsights.showConfigurationHint,
+            overtimeConfigurationHint: controlInsights.configurationHint,
+            limitWarningText: controlInsights.limitWarningText,
             monthBalanceInfo: monthBalanceInfo,
             periodBalanceInfo: periodBalanceInfo,
             dayBalanceAggregation: appearanceSettings.dayBalanceAggregation,
@@ -7066,18 +6968,17 @@ class _CalendarCard extends StatelessWidget {
                 appearanceSettings.copyWith(dayBalanceAggregation: aggregation),
               ),
             ),
-            suggestedExitLabel: suggestedExitLabel,
+            remainingToProgrammedExitLabel: remainingToProgrammedExitLabel,
             hasResultContext: hasQuickResultContext,
-            hasExitSuggestionContext: hasExitSuggestionContext,
             hasTheoreticalExit: hasTheoreticalExit,
             hasPendingExitConfirmation: hasPendingExitConfirmation,
             isUsingStandardWorkTarget: isUsingStandardWorkTarget,
+            onOpenWorkSettings: onOpenWorkSettings,
             isEndTimeFinalized:
                 effectiveQuickEditorEndTime.trim().isNotEmpty &&
-                (!isSelectedDateToday || isTodayConcluded),
-            showTodayConcludeToggle: isSelectedDateToday && !isQuickEditorDayOff,
-            isTodayConcluded: isTodayConcluded,
-            onToggleTodayConcluded: onToggleTodayConcluded,
+                (!isSelectedDateToday ||
+                    hasElapsedManualExit ||
+                    (workdaySession?.isCompleted ?? false)),
             onConfirmTheoreticalExit: confirmableTheoreticalExitMinutes == null
                 ? null
                 : () => onConfirmSuggestedExitMinutes(
@@ -7097,7 +6998,6 @@ class _CalendarCard extends StatelessWidget {
           isSelectedDateToday &&
           workdaySession != null &&
           !workdaySession!.isCompleted,
-      workRules: workRules,
       workdaySession: isSelectedDateToday ? workdaySession : null,
       weekMetrics: isSelectedDateToday
           ? weekMetrics
@@ -7115,9 +7015,7 @@ class _CalendarCard extends StatelessWidget {
                     workedMinutes: displayedWorkedMinutes,
                     leaveMinutes: metric.leaveMinutes,
                     rawBalanceMinutes: rawLiveBalanceMinutes,
-                    balanceMinutes: workRules.clampDailyBalance(
-                      rawLiveBalanceMinutes,
-                    ),
+                    balanceMinutes: rawLiveBalanceMinutes,
                     hasOverride:
                         metric.hasOverride ||
                         hasQuickWorkedOverride ||
@@ -7308,7 +7206,7 @@ class _CalendarPeriodSwitcher extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
+    final colorScheme = Theme.of(context).colorScheme;
 
     return ConstrainedBox(
       constraints: const BoxConstraints(maxWidth: 320),
@@ -7408,6 +7306,8 @@ class _CalendarQuickScheduleEditor extends StatelessWidget {
     required this.targetText,
     required this.startTimeText,
     required this.endTimeText,
+    required this.suggestedExitLabel,
+    required this.hasExitSuggestionContext,
     required this.breakMinutes,
     required this.showEndTime,
     required this.showBreakMinutes,
@@ -7426,20 +7326,22 @@ class _CalendarQuickScheduleEditor extends StatelessWidget {
     required this.canRestoreWorkingDay,
     required this.workedMinutes,
     required this.todayBalanceMinutes,
+    required this.overtimeMinutes,
+    required this.exceededOvertimeMinutes,
+    required this.showOvertimeConfigurationHint,
+    required this.overtimeConfigurationHint,
+    required this.limitWarningText,
     required this.monthBalanceInfo,
     required this.periodBalanceInfo,
     required this.dayBalanceAggregation,
     required this.onDayBalanceAggregationChanged,
-    required this.suggestedExitLabel,
+    required this.onOpenWorkSettings,
+    required this.remainingToProgrammedExitLabel,
     required this.hasResultContext,
-    required this.hasExitSuggestionContext,
     required this.hasTheoreticalExit,
     required this.hasPendingExitConfirmation,
     required this.isUsingStandardWorkTarget,
     required this.isEndTimeFinalized,
-    required this.showTodayConcludeToggle,
-    required this.isTodayConcluded,
-    required this.onToggleTodayConcluded,
     this.onConfirmTheoreticalExit,
   });
 
@@ -7447,6 +7349,8 @@ class _CalendarQuickScheduleEditor extends StatelessWidget {
   final String targetText;
   final String startTimeText;
   final String endTimeText;
+  final String suggestedExitLabel;
+  final bool hasExitSuggestionContext;
   final int breakMinutes;
   final bool showEndTime;
   final bool showBreakMinutes;
@@ -7465,20 +7369,22 @@ class _CalendarQuickScheduleEditor extends StatelessWidget {
   final bool canRestoreWorkingDay;
   final int workedMinutes;
   final int todayBalanceMinutes;
+  final int overtimeMinutes;
+  final int exceededOvertimeMinutes;
+  final bool showOvertimeConfigurationHint;
+  final String? overtimeConfigurationHint;
+  final String? limitWarningText;
   final _DisplayedMonthBalanceInfo monthBalanceInfo;
   final _DisplayedPeriodBalanceInfo periodBalanceInfo;
   final DayBalanceAggregation dayBalanceAggregation;
   final ValueChanged<DayBalanceAggregation> onDayBalanceAggregationChanged;
-  final String suggestedExitLabel;
+  final VoidCallback onOpenWorkSettings;
+  final String? remainingToProgrammedExitLabel;
   final bool hasResultContext;
-  final bool hasExitSuggestionContext;
   final bool hasTheoreticalExit;
   final bool hasPendingExitConfirmation;
   final bool isUsingStandardWorkTarget;
   final bool isEndTimeFinalized;
-  final bool showTodayConcludeToggle;
-  final bool isTodayConcluded;
-  final Future<void> Function() onToggleTodayConcluded;
   final Future<void> Function()? onConfirmTheoreticalExit;
 
   @override
@@ -7493,11 +7399,6 @@ class _CalendarQuickScheduleEditor extends StatelessWidget {
         endTimeText.trim().isNotEmpty &&
         hasExitSuggestionContext &&
         !isEndTimeFinalized;
-    final effectiveSummaryExitLabel = endTimeText.trim().isNotEmpty
-        ? endTimeText
-        : suggestedExitLabel;
-    final hasEffectiveSummaryExitContext =
-        hasExitSuggestionContext || endTimeText.trim().isNotEmpty;
     final standardScheduleColor = theme.colorScheme.onSurfaceVariant;
     const pendingExitColor = Color(0xFFBF7A24);
     final toggleButton = IconButton(
@@ -7670,26 +7571,6 @@ class _CalendarQuickScheduleEditor extends StatelessWidget {
                             }
                           },
                         ),
-                        if (showTodayConcludeToggle)
-                          FilterChip(
-                            key: const ValueKey(
-                              'calendar-override-day-concluded-toggle-button',
-                            ),
-                            selected: isTodayConcluded,
-                            showCheckmark: false,
-                            avatar: Icon(
-                              isTodayConcluded
-                                  ? Icons.check_circle_outline
-                                  : Icons.task_alt_outlined,
-                              size: 18,
-                            ),
-                            label: Text(
-                              isTodayConcluded ? 'Concluso' : 'Concludi',
-                            ),
-                            onSelected: (_) {
-                              unawaited(onToggleTodayConcluded());
-                            },
-                          ),
                       ],
                     ),
                     const SizedBox(height: 12),
@@ -7722,15 +7603,22 @@ class _CalendarQuickScheduleEditor extends StatelessWidget {
                     _QuickDayComputedSummary(
                       workedMinutes: workedMinutes,
                       todayBalanceMinutes: todayBalanceMinutes,
+                      overtimeMinutes: overtimeMinutes,
+                      exceededOvertimeMinutes: exceededOvertimeMinutes,
+                      showOvertimeConfigurationHint:
+                          showOvertimeConfigurationHint,
+                      overtimeConfigurationHint: overtimeConfigurationHint,
+                      limitWarningText: limitWarningText,
                       monthBalanceInfo: monthBalanceInfo,
                       periodBalanceInfo: periodBalanceInfo,
                       dayBalanceAggregation: dayBalanceAggregation,
                       onDayBalanceAggregationChanged:
                           onDayBalanceAggregationChanged,
-                      suggestedExitLabel: effectiveSummaryExitLabel,
+                      remainingToProgrammedExitLabel:
+                          remainingToProgrammedExitLabel,
+                      onOpenWorkSettings: onOpenWorkSettings,
                       isDayOff: isDayOff,
                       hasResultContext: hasResultContext,
-                      hasExitSuggestionContext: hasEffectiveSummaryExitContext,
                     ),
                     if (!hasExitSuggestionContext && !isDayOff) ...[
                       const SizedBox(height: 10),
@@ -8137,26 +8025,36 @@ class _QuickDayComputedSummary extends StatelessWidget {
   const _QuickDayComputedSummary({
     required this.workedMinutes,
     required this.todayBalanceMinutes,
+    required this.overtimeMinutes,
+    required this.exceededOvertimeMinutes,
+    required this.showOvertimeConfigurationHint,
+    required this.overtimeConfigurationHint,
+    required this.limitWarningText,
     required this.monthBalanceInfo,
     required this.periodBalanceInfo,
     required this.dayBalanceAggregation,
     required this.onDayBalanceAggregationChanged,
-    required this.suggestedExitLabel,
+    required this.remainingToProgrammedExitLabel,
+    required this.onOpenWorkSettings,
     required this.isDayOff,
     required this.hasResultContext,
-    required this.hasExitSuggestionContext,
   });
 
   final int workedMinutes;
   final int todayBalanceMinutes;
+  final int overtimeMinutes;
+  final int exceededOvertimeMinutes;
+  final bool showOvertimeConfigurationHint;
+  final String? overtimeConfigurationHint;
+  final String? limitWarningText;
   final _DisplayedMonthBalanceInfo monthBalanceInfo;
   final _DisplayedPeriodBalanceInfo periodBalanceInfo;
   final DayBalanceAggregation dayBalanceAggregation;
   final ValueChanged<DayBalanceAggregation> onDayBalanceAggregationChanged;
-  final String suggestedExitLabel;
+  final String? remainingToProgrammedExitLabel;
+  final VoidCallback onOpenWorkSettings;
   final bool isDayOff;
   final bool hasResultContext;
-  final bool hasExitSuggestionContext;
 
   @override
   Widget build(BuildContext context) {
@@ -8170,8 +8068,8 @@ class _QuickDayComputedSummary extends StatelessWidget {
     )) {
       (true, _, _) => 'Saldo oggi',
       (false, false, _) => 'Saldo oggi',
-      (false, true, > 0) => 'Credito oggi',
-      (false, true, < 0) => 'Debito oggi',
+      (false, true, > 0) => 'Credito',
+      (false, true, < 0) => 'Debito',
       _ => 'In pari oggi',
     };
     final dayBalanceValue = switch ((isDayOff, hasStartedDay)) {
@@ -8184,16 +8082,26 @@ class _QuickDayComputedSummary extends StatelessWidget {
       (false, false) => colorScheme.onSurfaceVariant,
       _ => _balanceColor(context, todayBalanceMinutes),
     };
-    final exitValue = switch ((isDayOff, hasExitSuggestionContext)) {
-      (true, _) => 'Libero',
+    final overtimeLabel = exceededOvertimeMinutes > 0
+        ? 'Oltre straordinario'
+        : 'Straordinario';
+    final overtimeValue = switch ((isDayOff, hasStartedDay)) {
+      (true, _) => '0:00',
       (false, false) => 'Da calcolare',
-      _ => suggestedExitLabel,
+      _ => _formatHoursInput(overtimeMinutes),
     };
-    final exitHelperText = switch ((isDayOff, hasExitSuggestionContext)) {
-      (true, _) => 'Nessuna uscita prevista',
-      (false, false) => 'Inserisci entrata per calcolare uscita',
-      _ => null,
+    final overtimeColor = switch ((isDayOff, hasStartedDay)) {
+      (true, _) => colorScheme.onSurfaceVariant,
+      (false, false) => colorScheme.onSurfaceVariant,
+      _ => exceededOvertimeMinutes > 0
+          ? const Color(0xFF9D3D2F)
+          : overtimeMinutes > 0
+          ? colorScheme.secondary
+          : colorScheme.onSurfaceVariant,
     };
+    final overtimeHelperText = exceededOvertimeMinutes > 0
+        ? 'Fuori limite di ${_formatHoursInput(exceededOvertimeMinutes)}'
+        : null;
 
     return _QuickDayHero(
       workedMinutes: workedMinutes,
@@ -8202,14 +8110,19 @@ class _QuickDayComputedSummary extends StatelessWidget {
       dayBalanceLabel: dayBalanceLabel,
       dayBalanceValue: dayBalanceValue,
       dayBalanceColor: dayBalanceColor,
-      exitValue: exitValue,
-      exitHelperText: exitHelperText,
-      hasExitSuggestionContext: hasExitSuggestionContext,
+      overtimeLabel: overtimeLabel,
+      overtimeValue: overtimeValue,
+      overtimeColor: overtimeColor,
+      overtimeHelperText: overtimeHelperText,
+      showOvertimeConfigurationHint: showOvertimeConfigurationHint,
+      overtimeConfigurationHint: overtimeConfigurationHint,
+      limitWarningText: limitWarningText,
+      onOpenWorkSettings: onOpenWorkSettings,
       monthBalanceInfo: monthBalanceInfo,
       periodBalanceInfo: periodBalanceInfo,
       dayBalanceAggregation: dayBalanceAggregation,
       onDayBalanceAggregationChanged: onDayBalanceAggregationChanged,
-      monthValueColor: colorScheme.onSurface,
+      remainingToProgrammedExitLabel: remainingToProgrammedExitLabel,
     );
   }
 }
@@ -8222,14 +8135,19 @@ class _QuickDayHero extends StatelessWidget {
     required this.dayBalanceLabel,
     required this.dayBalanceValue,
     required this.dayBalanceColor,
-    required this.exitValue,
-    required this.exitHelperText,
-    required this.hasExitSuggestionContext,
+    required this.overtimeLabel,
+    required this.overtimeValue,
+    required this.overtimeColor,
+    required this.overtimeHelperText,
+    required this.limitWarningText,
+    required this.showOvertimeConfigurationHint,
+    required this.overtimeConfigurationHint,
+    required this.onOpenWorkSettings,
     required this.monthBalanceInfo,
     required this.periodBalanceInfo,
     required this.dayBalanceAggregation,
     required this.onDayBalanceAggregationChanged,
-    required this.monthValueColor,
+    required this.remainingToProgrammedExitLabel,
   });
 
   final int workedMinutes;
@@ -8238,14 +8156,19 @@ class _QuickDayHero extends StatelessWidget {
   final String dayBalanceLabel;
   final String dayBalanceValue;
   final Color dayBalanceColor;
-  final String exitValue;
-  final String? exitHelperText;
-  final bool hasExitSuggestionContext;
+  final String overtimeLabel;
+  final String overtimeValue;
+  final Color overtimeColor;
+  final String? overtimeHelperText;
+  final String? limitWarningText;
+  final bool showOvertimeConfigurationHint;
+  final String? overtimeConfigurationHint;
+  final VoidCallback onOpenWorkSettings;
   final _DisplayedMonthBalanceInfo monthBalanceInfo;
   final _DisplayedPeriodBalanceInfo periodBalanceInfo;
   final DayBalanceAggregation dayBalanceAggregation;
   final ValueChanged<DayBalanceAggregation> onDayBalanceAggregationChanged;
-  final Color monthValueColor;
+  final String? remainingToProgrammedExitLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -8271,8 +8194,10 @@ class _QuickDayHero extends StatelessWidget {
     final workedHelperText = switch ((isDayOff, hasResultContext)) {
       (true, _) => 'Nessuna ora da registrare',
       (false, false) => 'Inserisci l\'entrata per iniziare',
-      _ => null,
+      _ => remainingToProgrammedExitLabel,
     };
+    final hasRemainingToProgrammedExit =
+        remainingToProgrammedExitLabel != null && !isDayOff && hasResultContext;
     final neutralValueColor = colorScheme.onSurfaceVariant;
     Widget metricBlock({
       required String label,
@@ -8316,7 +8241,17 @@ class _QuickDayHero extends StatelessWidget {
         ),
         if (workedHelperText != null) ...[
           const SizedBox(height: 2),
-          Text(workedHelperText, style: helperStyle),
+          Text(
+            workedHelperText,
+            style: helperStyle?.copyWith(
+              color: hasRemainingToProgrammedExit
+                  ? colorScheme.secondary
+                  : helperStyle.color,
+              fontWeight: hasRemainingToProgrammedExit
+                  ? FontWeight.w700
+                  : helperStyle.fontWeight,
+            ),
+          ),
         ],
       ],
     );
@@ -8328,14 +8263,12 @@ class _QuickDayHero extends StatelessWidget {
           ? dayBalanceColor
           : neutralValueColor,
     );
-    final exitBlock = metricBlock(
-      label: 'Esci alle',
-      value: exitValue,
-      valueKey: const ValueKey('calendar-live-suggested-exit-value'),
-      valueColor: hasExitSuggestionContext && !isDayOff
-          ? colorScheme.primary
-          : neutralValueColor,
-      helperText: exitHelperText,
+    final overtimeBlock = metricBlock(
+      label: overtimeLabel,
+      value: overtimeValue,
+      valueKey: const ValueKey('calendar-live-overtime-value'),
+      valueColor: overtimeColor,
+      helperText: overtimeHelperText,
     );
     final monthBlock = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -8349,13 +8282,9 @@ class _QuickDayHero extends StatelessWidget {
           overflow: TextOverflow.ellipsis,
           style: secondaryValueStyle?.copyWith(
             fontSize: 16,
-            color: monthValueColor,
+            color: colorScheme.onSurface,
           ),
         ),
-        if (monthBalanceInfo.supportingText != null) ...[
-          const SizedBox(height: 2),
-          Text(monthBalanceInfo.supportingText!, style: helperStyle),
-        ],
       ],
     );
     final periodSuffix = switch (dayBalanceAggregation) {
@@ -8454,7 +8383,7 @@ class _QuickDayHero extends StatelessWidget {
                         children: [
                           balanceBlock,
                           const SizedBox(height: 10),
-                          exitBlock,
+                          overtimeBlock,
                         ],
                       ),
                     ),
@@ -8468,11 +8397,59 @@ class _QuickDayHero extends StatelessWidget {
                   const SizedBox(height: 12),
                   balanceBlock,
                   const SizedBox(height: 10),
-                  exitBlock,
+                  overtimeBlock,
                 ],
               );
             },
           ),
+          if (showOvertimeConfigurationHint) ...[
+            const SizedBox(height: 10),
+            Wrap(
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                Text(
+                  overtimeConfigurationHint ??
+                      'Per attivare limiti credito/straordinario ',
+                  style: helperStyle,
+                ),
+                GestureDetector(
+                  onTap: onOpenWorkSettings,
+                  child: Text(
+                    'clicca qui',
+                    style: helperStyle?.copyWith(
+                      color: colorScheme.primary,
+                      fontWeight: FontWeight.w800,
+                      decoration: TextDecoration.underline,
+                    ),
+                  ),
+                ),
+                Text('.', style: helperStyle),
+              ],
+            ),
+          ],
+          if (limitWarningText != null) ...[
+            const SizedBox(height: 10),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(
+                  Icons.warning_amber_rounded,
+                  size: 16,
+                  color: const Color(0xFF9D3D2F),
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    limitWarningText!,
+                    style: helperStyle?.copyWith(
+                      color: const Color(0xFF9D3D2F),
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
           const SizedBox(height: 10),
           Divider(
             height: 1,
@@ -8605,7 +8582,6 @@ class _CalendarPeriodSummary extends StatelessWidget {
     required this.daySchedule,
     required this.dayPauseWindow,
     required this.isDayScheduleProvisional,
-    required this.workRules,
     required this.workdaySession,
     required this.weekMetrics,
     required this.monthMetrics,
@@ -8628,7 +8604,6 @@ class _CalendarPeriodSummary extends StatelessWidget {
   final DaySchedule daySchedule;
   final _CalendarPauseWindow? dayPauseWindow;
   final bool isDayScheduleProvisional;
-  final UserWorkRules workRules;
   final WorkdaySession? workdaySession;
   final List<_DayMetrics> weekMetrics;
   final _MonthMetrics monthMetrics;
@@ -8676,7 +8651,6 @@ class _CalendarPeriodSummary extends StatelessWidget {
       ),
       _CalendarView.week => _CalendarWeekSummary(
         metrics: weekMetrics,
-        workRules: workRules,
         selectedDate: selectedDate,
         todayWorkdaySession: workdaySession,
         onOpenDay: onOpenDay,
@@ -8876,14 +8850,12 @@ class _CalendarDaySummary extends StatelessWidget {
 class _CalendarWeekSummary extends StatelessWidget {
   const _CalendarWeekSummary({
     required this.metrics,
-    required this.workRules,
     required this.selectedDate,
     required this.todayWorkdaySession,
     required this.onOpenDay,
   });
 
   final List<_DayMetrics> metrics;
-  final UserWorkRules workRules;
   final DateTime selectedDate;
   final WorkdaySession? todayWorkdaySession;
   final Future<void> Function(DateTime date) onOpenDay;
@@ -8909,7 +8881,6 @@ class _CalendarWeekSummary extends StatelessWidget {
             if (useCompactLayout)
               _AgendaWeekCompactOverview(
                 metrics: metrics,
-                workRules: workRules,
                 todayWorkdaySession: todayWorkdaySession,
                 onOpenDay: onOpenDay,
               )
@@ -8931,13 +8902,11 @@ class _CalendarWeekSummary extends StatelessWidget {
 class _AgendaWeekCompactOverview extends StatelessWidget {
   const _AgendaWeekCompactOverview({
     required this.metrics,
-    required this.workRules,
     required this.todayWorkdaySession,
     required this.onOpenDay,
   });
 
   final List<_DayMetrics> metrics;
-  final UserWorkRules workRules;
   final WorkdaySession? todayWorkdaySession;
   final Future<void> Function(DateTime date) onOpenDay;
 
@@ -8958,7 +8927,6 @@ class _AgendaWeekCompactOverview extends StatelessWidget {
             final effectiveSession = isToday ? todayWorkdaySession : null;
             return _CompactWeekTimelineRow(
               metrics: day,
-              workRules: workRules,
               range: overviewRange,
               measurementSegments: _buildAgendaMeasurementSegments(
                 schedule: day.schedule,
@@ -8979,7 +8947,6 @@ class _AgendaWeekCompactOverview extends StatelessWidget {
 class _CompactWeekTimelineRow extends StatelessWidget {
   const _CompactWeekTimelineRow({
     required this.metrics,
-    required this.workRules,
     required this.range,
     required this.measurementSegments,
     required this.workdaySession,
@@ -8987,7 +8954,6 @@ class _CompactWeekTimelineRow extends StatelessWidget {
   });
 
   final _DayMetrics metrics;
-  final UserWorkRules workRules;
   final _AgendaRange range;
   final List<_AgendaMeasurementSegment> measurementSegments;
   final WorkdaySession? workdaySession;
@@ -9038,29 +9004,34 @@ class _CompactWeekTimelineRow extends StatelessWidget {
     final helperText = schedule.targetMinutes <= 0
         ? 'Giorno libero'
         : _compactWeekScheduleLabel(schedule);
-    final effectiveWorkedMinutes = dayDetails?.workedMinutes ?? metrics.workedMinutes;
-    final workedDeltaMinutes = workRules.clampDailyBalance(
-      (effectiveWorkedMinutes + metrics.leaveMinutes) - metrics.expectedMinutes,
-    );
+    final effectiveWorkedMinutes =
+        relation == _CalendarDayRelation.today && workdaySession == null
+        ? metrics.workedMinutes
+        : (dayDetails?.workedMinutes ?? metrics.workedMinutes);
     final hasRegisteredWorkOrLeave =
-        metrics.workedMinutes > 0 || metrics.leaveMinutes > 0;
-    final isPastWithoutRegistrations =
-        relation == _CalendarDayRelation.past &&
+        effectiveWorkedMinutes > 0 || metrics.leaveMinutes > 0;
+    final workedDeltaMinutes = hasRegisteredWorkOrLeave
+        ? (effectiveWorkedMinutes + metrics.leaveMinutes) - metrics.expectedMinutes
+        : 0;
+    final isCurrentWithoutRegistrations =
+        relation != _CalendarDayRelation.future &&
         !hasRegisteredWorkOrLeave &&
         schedule.targetMinutes > 0;
     final workedLabelColor = workedDeltaMinutes >= 0
         ? const Color(0xFF0B6E69)
         : const Color(0xFF9D3D2F);
-    final footerColor = isPastWithoutRegistrations
+    final footerColor = isCurrentWithoutRegistrations
         ? colorScheme.onSurfaceVariant
         : workedLabelColor;
     final workedFooterLabel = dayDetails == null
         ? null
-        : isPastWithoutRegistrations
+        : isCurrentWithoutRegistrations
         ? 'Nessuna timbratura'
-        : 'Ore ${_formatHoursInput(dayDetails.workedMinutes)}';
-    final balanceFooterLabel = isPastWithoutRegistrations
-        ? 'Da registrare'
+        : 'Ore ${_formatHoursInput(effectiveWorkedMinutes)}';
+    final balanceFooterLabel = isCurrentWithoutRegistrations
+        ? relation == _CalendarDayRelation.past
+              ? 'Da registrare'
+              : 'Da iniziare'
         : workedDeltaMinutes > 0
         ? 'Credito: ${_formatHoursInput(workedDeltaMinutes)}'
         : workedDeltaMinutes < 0
@@ -12259,7 +12230,7 @@ class _WorkSettingsCard extends StatelessWidget {
               icon: Icons.login_outlined,
               title: 'Ingresso e uscita',
               subtitle:
-                  'Configura orario fisso e, se previsto, una finestra di flessibilita in entrata.',
+                  'Imposta l ingresso fisso e, se ti serve, aggiungi la flessibilita: la fascia viene calcolata in automatico (es. 07:30 + 2:00 = 07:30-09:30).',
               isExpanded: appearanceSettings.expandWorkSettingsAttendance,
               toggleButtonKey: const ValueKey(
                 'work-settings-attendance-toggle-button',
@@ -13094,6 +13065,7 @@ class _WorkRulesAttendanceEditor extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final showRangeHints = flexibleStartRangeHints.isNotEmpty;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -13102,9 +13074,9 @@ class _WorkRulesAttendanceEditor extends StatelessWidget {
           contentPadding: EdgeInsets.zero,
           value: fixedScheduleEnabled,
           onChanged: onFixedScheduleChanged,
-          title: const Text('Ho orari di ingresso e uscita fissi'),
+          title: const Text('Uso un orario fisso di entrata'),
           subtitle: const Text(
-            'Quando attivo, la fascia flessibile parte dall ingresso fisso del giorno.',
+            'Serve come base per calcolare la fascia di ingresso consentita.',
           ),
         ),
         const SizedBox(height: 6),
@@ -13113,16 +13085,14 @@ class _WorkRulesAttendanceEditor extends StatelessWidget {
           value: flexibleStartEnabled,
           onChanged: onFlexibleStartChanged,
           title: const Text('Flessibilita in entrata'),
-          subtitle: Text(
-            fixedScheduleEnabled
-                ? 'Imposti il ritardo massimo. Esempio: 07:30 + 2:00 = 07:30-09:30.'
-                : 'Imposti solo il ritardo massimo rispetto all orario di entrata del giorno.',
+          subtitle: const Text(
+            'Imposti solo il ritardo massimo dall entrata fissa (esempio: 07:30 + 2:00 = 07:30-09:30).',
           ),
         ),
         if (flexibleStartEnabled) ...[
           const SizedBox(height: 10),
           _SlimSettingsScheduleValue(
-            label: 'Finestra entrata',
+            label: 'Ritardo massimo consentito',
             value: _formatOptionalHoursValue(
               flexibleStartWindowText,
               zeroLabel: 'Nessuna flessibilita',
@@ -13131,15 +13101,15 @@ class _WorkRulesAttendanceEditor extends StatelessWidget {
             kind: _SettingsValueKind.duration,
             onTap: onPickFlexibleStartWindow,
           ),
-          if (flexibleStartRangeHints.isNotEmpty) ...[
-            const SizedBox(height: 10),
-            Text(
-              'Fasce calcolate',
-              style: theme.textTheme.labelLarge?.copyWith(
-                fontWeight: FontWeight.w700,
-              ),
+          const SizedBox(height: 10),
+          Text(
+            'Fascia di ingresso calcolata',
+            style: theme.textTheme.labelLarge?.copyWith(
+              fontWeight: FontWeight.w700,
             ),
-            const SizedBox(height: 8),
+          ),
+          const SizedBox(height: 8),
+          if (showRangeHints)
             Wrap(
               spacing: 8,
               runSpacing: 8,
@@ -13165,8 +13135,14 @@ class _WorkRulesAttendanceEditor extends StatelessWidget {
                     ),
                   ),
               ],
+            )
+          else
+            Text(
+              fixedScheduleEnabled
+                  ? 'Imposta Entrata in Orario di lavoro per vedere l intervallo.'
+                  : 'Attiva l ingresso fisso e imposta Entrata in Orario di lavoro.',
+              style: theme.textTheme.bodyMedium,
             ),
-          ],
         ],
       ],
     );
@@ -15721,6 +15697,9 @@ class _UpdateDownloadDialogState extends State<_UpdateDownloadDialog> {
       if (cleaned.isEmpty) {
         continue;
       }
+      if (_isGenericBuildNote(cleaned)) {
+        continue;
+      }
 
       items.add(cleaned);
       if (items.length >= 5) {
@@ -15737,6 +15716,9 @@ class _UpdateDownloadDialogState extends State<_UpdateDownloadDialog> {
         .replaceAll(RegExp(r'\s+'), ' ')
         .trim();
     if (compact.isEmpty) {
+      return const [];
+    }
+    if (_isGenericBuildNote(compact)) {
       return const [];
     }
 
@@ -15758,6 +15740,13 @@ class _UpdateDownloadDialogState extends State<_UpdateDownloadDialog> {
       case _UpdateDownloadState.installing:
         return 'Avvio installazione';
     }
+  }
+
+  bool _isGenericBuildNote(String value) {
+    final normalized = value.toLowerCase().trim();
+    return RegExp(r'^android apk build[\s:]+v?\d+(\.\d+){1,4}\.?$').hasMatch(
+      normalized,
+    );
   }
 }
 
@@ -16261,19 +16250,33 @@ class _MonthMetrics {
 }
 
 class _DisplayedMonthBalanceInfo {
-  const _DisplayedMonthBalanceInfo({
-    required this.value,
-    this.supportingText,
-  });
+  const _DisplayedMonthBalanceInfo({required this.value});
 
   final String value;
-  final String? supportingText;
 }
 
 class _DisplayedPeriodBalanceInfo {
   const _DisplayedPeriodBalanceInfo({required this.balanceMinutes});
 
   final int balanceMinutes;
+}
+
+class _QuickDayControlInsights {
+  const _QuickDayControlInsights({
+    required this.controlledBalanceMinutes,
+    required this.todayOvertimeMinutes,
+    required this.exceededOvertimeMinutes,
+    required this.showConfigurationHint,
+    this.limitWarningText,
+    this.configurationHint,
+  });
+
+  final int controlledBalanceMinutes;
+  final int todayOvertimeMinutes;
+  final int exceededOvertimeMinutes;
+  final bool showConfigurationHint;
+  final String? limitWarningText;
+  final String? configurationHint;
 }
 
 class _WeekPlanDay {
@@ -16518,6 +16521,7 @@ _DisplayedMonthBalanceInfo _buildDisplayedMonthBalanceInfo({
   required List<_CalendarDay> days,
   required int liveExpectedMinutes,
   required int liveWorkedMinutes,
+  required int liveLeaveMinutes,
 }) {
   final selectedDay = DateUtils.dateOnly(selectedDate);
   final monthDays = days
@@ -16529,30 +16533,45 @@ _DisplayedMonthBalanceInfo _buildDisplayedMonthBalanceInfo({
 
   var monthWorkedMinutes = 0;
   var monthExpectedMinutes = 0;
-  for (final day in monthDays) {
-    var expectedMinutes = day.expectedMinutes;
-    var workedMinutes = _resolveWorkedMinutesForCalendarDay(day);
+  final hasLiveContext = _hasRegisteredBalanceContext(
+    workedMinutes: liveWorkedMinutes,
+    leaveMinutes: liveLeaveMinutes,
+  );
 
-    if (_isSameDay(day.date!, selectedDay)) {
-      expectedMinutes = liveExpectedMinutes;
-      workedMinutes = liveWorkedMinutes;
+  for (final day in monthDays) {
+    final date = day.date;
+    if (date == null) {
+      continue;
     }
 
-    monthWorkedMinutes += workedMinutes;
-    monthExpectedMinutes += expectedMinutes;
+    final isSelectedCalendarDay = _isSameDay(date, selectedDay);
+    monthExpectedMinutes += isSelectedCalendarDay
+        ? liveExpectedMinutes
+        : day.expectedMinutes;
+
+    if (day.relation == _CalendarDayRelation.future && !isSelectedCalendarDay) {
+      continue;
+    }
+
+    if (isSelectedCalendarDay) {
+      monthWorkedMinutes += hasLiveContext
+          ? liveWorkedMinutes
+          : _resolveWorkedMinutesForCalendarDay(day);
+      continue;
+    }
+
+    monthWorkedMinutes += _resolveWorkedMinutesForCalendarDay(day);
   }
 
   if (monthExpectedMinutes <= 0) {
     return _DisplayedMonthBalanceInfo(
       value: _formatHoursInput(monthWorkedMinutes),
-      supportingText: 'Ore fatte',
     );
   }
 
   return _DisplayedMonthBalanceInfo(
     value:
         '${_formatHoursInput(monthWorkedMinutes)} / ${_formatHoursInput(monthExpectedMinutes)}',
-    supportingText: 'Ore fatte / Ore totali',
   );
 }
 
@@ -16575,28 +16594,46 @@ _DisplayedPeriodBalanceInfo _buildDisplayedPeriodBalanceInfo({
   required DateTime selectedDate,
   required List<_CalendarDay> days,
   required List<_DayMetrics> weekMetrics,
-  required UserWorkRules workRules,
   required DayBalanceAggregation aggregation,
   required int liveExpectedMinutes,
   required int liveWorkedMinutes,
   required int liveLeaveMinutes,
 }) {
   final selectedDay = DateUtils.dateOnly(selectedDate);
-  final liveDayBalanceMinutes = workRules.clampDailyBalance(
-    (liveWorkedMinutes + liveLeaveMinutes) - liveExpectedMinutes,
+  final hasLiveContext = _hasRegisteredBalanceContext(
+    workedMinutes: liveWorkedMinutes,
+    leaveMinutes: liveLeaveMinutes,
   );
+  final liveDayBalanceMinutes =
+      (liveWorkedMinutes + liveLeaveMinutes) - liveExpectedMinutes;
 
   switch (aggregation) {
     case DayBalanceAggregation.weekly:
+      var hasWeeklyEntries = false;
       final weeklyBalanceMinutes = weekMetrics.fold<int>(0, (total, metric) {
         if (_isSameDay(metric.date, selectedDay)) {
+          if (!hasLiveContext) {
+            return total;
+          }
+          hasWeeklyEntries = true;
           return total + liveDayBalanceMinutes;
         }
-        return total + metric.balanceMinutes;
+        final hasMetricContext = _hasRegisteredBalanceContext(
+          workedMinutes: metric.workedMinutes,
+          leaveMinutes: metric.leaveMinutes,
+        );
+        if (!hasMetricContext) {
+          return total;
+        }
+        hasWeeklyEntries = true;
+        return total + metric.rawBalanceMinutes;
       });
-      return _DisplayedPeriodBalanceInfo(balanceMinutes: weeklyBalanceMinutes);
+      return _DisplayedPeriodBalanceInfo(
+        balanceMinutes: hasWeeklyEntries ? weeklyBalanceMinutes : 0,
+      );
     case DayBalanceAggregation.monthly:
       var monthlyBalanceMinutes = 0;
+      var hasMonthlyEntries = false;
       for (final day in days) {
         final date = day.date;
         if (date == null) {
@@ -16606,16 +16643,256 @@ _DisplayedPeriodBalanceInfo _buildDisplayedPeriodBalanceInfo({
           continue;
         }
         if (_isSameDay(date, selectedDay)) {
+          if (!hasLiveContext) {
+            continue;
+          }
+          hasMonthlyEntries = true;
           monthlyBalanceMinutes += liveDayBalanceMinutes;
           continue;
         }
         final workedMinutes = _resolveWorkedMinutesForCalendarDay(day);
-        monthlyBalanceMinutes += workRules.clampDailyBalance(
-          (workedMinutes + day.leaveMinutes) - day.expectedMinutes,
+        final hasDayContext = _hasRegisteredBalanceContext(
+          workedMinutes: workedMinutes,
+          leaveMinutes: day.leaveMinutes,
         );
+        if (!hasDayContext) {
+          continue;
+        }
+        hasMonthlyEntries = true;
+        monthlyBalanceMinutes +=
+            (workedMinutes + day.leaveMinutes) - day.expectedMinutes;
       }
-      return _DisplayedPeriodBalanceInfo(balanceMinutes: monthlyBalanceMinutes);
+      return _DisplayedPeriodBalanceInfo(
+        balanceMinutes: hasMonthlyEntries ? monthlyBalanceMinutes : 0,
+      );
   }
+}
+
+bool _hasRegisteredBalanceContext({
+  required int workedMinutes,
+  required int leaveMinutes,
+}) {
+  return workedMinutes > 0 || leaveMinutes > 0;
+}
+
+const int _unboundedDailyLimitMinutes = 24 * 60;
+const int _unboundedMonthlyLimitMinutes = 31 * 24 * 60;
+
+_QuickDayControlInsights _buildQuickDayControlInsights({
+  required DateTime selectedDate,
+  required UserWorkRules workRules,
+  required List<_CalendarDay> days,
+  required List<_DayMetrics> weekMetrics,
+  required int liveExpectedMinutes,
+  required int liveWorkedMinutes,
+  required int liveLeaveMinutes,
+  required bool hasLiveResultContext,
+}) {
+  final dailyCreditLimit = _resolveConfiguredDailyCreditLimit(workRules);
+  final dailyDebitLimit = _resolveConfiguredDailyDebitLimit(workRules);
+  final liveRawBalanceMinutes =
+      (liveWorkedMinutes + liveLeaveMinutes) - liveExpectedMinutes;
+
+  final controlledBalanceMinutes = _resolveControlledDayBalanceMinutes(
+    rawBalanceMinutes: liveRawBalanceMinutes,
+    dailyCreditLimitMinutes: dailyCreditLimit,
+    dailyDebitLimitMinutes: dailyDebitLimit,
+  );
+  final todayOvertimeMinutes = _resolveDailyOvertimeMinutes(
+    rawBalanceMinutes: liveRawBalanceMinutes,
+    dailyCreditLimitMinutes: dailyCreditLimit,
+  );
+
+  final selectedDay = DateUtils.dateOnly(selectedDate);
+  var weeklyOvertimeMinutes = 0;
+  for (final metric in weekMetrics) {
+    final isSelectedMetric = _isSameDay(metric.date, selectedDay);
+    final hasMetricContext = isSelectedMetric
+        ? hasLiveResultContext
+        : _hasRegisteredBalanceContext(
+            workedMinutes: metric.workedMinutes,
+            leaveMinutes: metric.leaveMinutes,
+          );
+    if (!hasMetricContext) {
+      continue;
+    }
+
+    final rawBalanceMinutes = isSelectedMetric
+        ? liveRawBalanceMinutes
+        : metric.rawBalanceMinutes;
+    weeklyOvertimeMinutes += _resolveDailyOvertimeMinutes(
+      rawBalanceMinutes: rawBalanceMinutes,
+      dailyCreditLimitMinutes: dailyCreditLimit,
+    );
+  }
+
+  var monthlyOvertimeMinutes = 0;
+  var monthlyRawBalanceMinutes = 0;
+  for (final day in days) {
+    final date = day.date;
+    if (date == null || day.relation == _CalendarDayRelation.future) {
+      continue;
+    }
+    final isSelectedCalendarDay = _isSameDay(date, selectedDay);
+    final hasDayContext = isSelectedCalendarDay
+        ? hasLiveResultContext
+        : _hasRegisteredBalanceContext(
+            workedMinutes: _resolveWorkedMinutesForCalendarDay(day),
+            leaveMinutes: day.leaveMinutes,
+          );
+    if (!hasDayContext) {
+      continue;
+    }
+
+    final rawBalanceMinutes = isSelectedCalendarDay
+        ? liveRawBalanceMinutes
+        : (_resolveWorkedMinutesForCalendarDay(day) +
+              day.leaveMinutes -
+              day.expectedMinutes);
+    monthlyRawBalanceMinutes += rawBalanceMinutes;
+    monthlyOvertimeMinutes += _resolveDailyOvertimeMinutes(
+      rawBalanceMinutes: rawBalanceMinutes,
+      dailyCreditLimitMinutes: dailyCreditLimit,
+    );
+  }
+
+  final exceedsWithoutOvertime = todayOvertimeMinutes > 0 && !workRules.overtimeEnabled;
+  final dailyOverflow = workRules.overtimeEnabled &&
+          workRules.overtimeCapEnabled &&
+          workRules.overtimeDailyCapMinutes > 0
+      ? math.max(0, todayOvertimeMinutes - workRules.overtimeDailyCapMinutes)
+      : 0;
+  final weeklyOverflow = workRules.overtimeEnabled &&
+          workRules.overtimeCapEnabled &&
+          workRules.overtimeWeeklyCapMinutes > 0
+      ? math.max(0, weeklyOvertimeMinutes - workRules.overtimeWeeklyCapMinutes)
+      : 0;
+  final monthlyOverflow = workRules.overtimeEnabled &&
+          workRules.overtimeCapEnabled &&
+          workRules.overtimeMonthlyCapMinutes > 0
+      ? math.max(0, monthlyOvertimeMinutes - workRules.overtimeMonthlyCapMinutes)
+      : 0;
+  final exceededOvertimeMinutes = exceedsWithoutOvertime
+      ? todayOvertimeMinutes
+      : [dailyOverflow, weeklyOverflow, monthlyOverflow].reduce(math.max);
+
+  final hasMissingCreditLimit = workRules.maximumDailyCreditMinutes <= 0;
+  final showConfigurationHint =
+      hasLiveResultContext &&
+      liveRawBalanceMinutes > 0 &&
+      hasMissingCreditLimit;
+
+  final configurationHint = hasMissingCreditLimit
+      ? 'Imposta il massimo credito giornaliero in Orari e permessi, '
+      : null;
+
+  final exceededDailyCreditLimitMinutes =
+      dailyCreditLimit != null && liveRawBalanceMinutes > dailyCreditLimit
+      ? liveRawBalanceMinutes - dailyCreditLimit
+      : 0;
+  final exceededDailyDebitLimitMinutes =
+      dailyDebitLimit != null && liveRawBalanceMinutes < -dailyDebitLimit
+      ? (-liveRawBalanceMinutes) - dailyDebitLimit
+      : 0;
+
+  final monthlyCreditLimit = _resolveConfiguredMonthlyCreditLimit(workRules);
+  final monthlyDebitLimit = _resolveConfiguredMonthlyDebitLimit(workRules);
+  final exceededMonthlyCreditLimitMinutes =
+      monthlyCreditLimit != null && monthlyRawBalanceMinutes > monthlyCreditLimit
+      ? monthlyRawBalanceMinutes - monthlyCreditLimit
+      : 0;
+  final exceededMonthlyDebitLimitMinutes =
+      monthlyDebitLimit != null && monthlyRawBalanceMinutes < -monthlyDebitLimit
+      ? (-monthlyRawBalanceMinutes) - monthlyDebitLimit
+      : 0;
+
+  final limitWarningText = switch ((
+    exceededMonthlyCreditLimitMinutes,
+    exceededMonthlyDebitLimitMinutes,
+    exceededDailyCreditLimitMinutes,
+    exceededDailyDebitLimitMinutes,
+  )) {
+    (> 0, _, _, _) =>
+      'Superato limite credito mensile di ${_formatHoursInput(exceededMonthlyCreditLimitMinutes)}',
+    (_, > 0, _, _) =>
+      'Superato limite debito mensile di ${_formatHoursInput(exceededMonthlyDebitLimitMinutes)}',
+    (_, _, > 0, _) =>
+      'Superato limite credito giornaliero di ${_formatHoursInput(exceededDailyCreditLimitMinutes)}',
+    (_, _, _, > 0) =>
+      'Superato limite debito giornaliero di ${_formatHoursInput(exceededDailyDebitLimitMinutes)}',
+    _ => null,
+  };
+
+  return _QuickDayControlInsights(
+    controlledBalanceMinutes: controlledBalanceMinutes,
+    todayOvertimeMinutes: todayOvertimeMinutes,
+    exceededOvertimeMinutes: exceededOvertimeMinutes,
+    showConfigurationHint: showConfigurationHint,
+    limitWarningText: limitWarningText,
+    configurationHint: configurationHint,
+  );
+}
+
+int _resolveControlledDayBalanceMinutes({
+  required int rawBalanceMinutes,
+  required int? dailyCreditLimitMinutes,
+  required int? dailyDebitLimitMinutes,
+}) {
+  if (rawBalanceMinutes > 0) {
+    if (dailyCreditLimitMinutes == null) {
+      return rawBalanceMinutes;
+    }
+    return math.min(rawBalanceMinutes, dailyCreditLimitMinutes);
+  }
+  if (rawBalanceMinutes < 0) {
+    if (dailyDebitLimitMinutes == null) {
+      return rawBalanceMinutes;
+    }
+    return -math.min(-rawBalanceMinutes, dailyDebitLimitMinutes);
+  }
+  return 0;
+}
+
+int _resolveDailyOvertimeMinutes({
+  required int rawBalanceMinutes,
+  required int? dailyCreditLimitMinutes,
+}) {
+  if (rawBalanceMinutes <= 0 || dailyCreditLimitMinutes == null) {
+    return 0;
+  }
+  return math.max(0, rawBalanceMinutes - dailyCreditLimitMinutes);
+}
+
+int? _resolveConfiguredDailyCreditLimit(UserWorkRules workRules) {
+  final creditLimit = workRules.maximumDailyCreditMinutes;
+  if (creditLimit <= 0 || creditLimit >= _unboundedDailyLimitMinutes) {
+    return null;
+  }
+  return creditLimit;
+}
+
+int? _resolveConfiguredDailyDebitLimit(UserWorkRules workRules) {
+  final debitLimit = workRules.maximumDailyDebitMinutes;
+  if (debitLimit <= 0 || debitLimit >= _unboundedDailyLimitMinutes) {
+    return null;
+  }
+  return debitLimit;
+}
+
+int? _resolveConfiguredMonthlyCreditLimit(UserWorkRules workRules) {
+  final creditLimit = workRules.maximumMonthlyCreditMinutes;
+  if (creditLimit <= 0 || creditLimit >= _unboundedMonthlyLimitMinutes) {
+    return null;
+  }
+  return creditLimit;
+}
+
+int? _resolveConfiguredMonthlyDebitLimit(UserWorkRules workRules) {
+  final debitLimit = workRules.maximumMonthlyDebitMinutes;
+  if (debitLimit <= 0 || debitLimit >= _unboundedMonthlyLimitMinutes) {
+    return null;
+  }
+  return debitLimit;
 }
 
 DateTime _monthToDate(String month) {
