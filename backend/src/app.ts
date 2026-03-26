@@ -2707,7 +2707,7 @@ function renderAdminPage(options: {
         if (authCta) {
           if (!state.superAdminConfigured) {
             authCta.innerHTML =
-              'Nessun super admin configurato. Aggiungi <code>SUPER_ADMIN_EMAIL</code> e <code>SUPER_ADMIN_PASSWORD</code> al secret <code>RUNTIME_ENV_FILE</code> del deploy backend, poi ridistribuisci.';
+              'La registrazione non rende admin in automatico. Solo il <code>super_admin</code> puo promuovere o revocare gli altri admin.';
           } else {
             authCta.innerHTML =
               'La registrazione non rende admin in automatico. Solo il <code>super_admin</code> puo promuovere o revocare gli altri admin.';

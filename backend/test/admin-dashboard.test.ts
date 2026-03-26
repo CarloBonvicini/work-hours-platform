@@ -68,7 +68,7 @@ describe("Admin dashboard", () => {
     expect(response.body).toContain(
       "Seleziona un ticket dall elenco per aprire messaggi, allegati e risposta admin."
     );
-    expect(response.body).toContain("SUPER_ADMIN_EMAIL");
+    expect(response.body).not.toContain("SUPER_ADMIN_EMAIL");
     expect(response.body).not.toContain("ADMIN_SETUP_TOKEN");
   });
 
