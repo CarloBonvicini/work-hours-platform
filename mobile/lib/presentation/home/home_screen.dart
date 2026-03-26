@@ -6593,9 +6593,13 @@ class _CalendarCard extends StatelessWidget {
         (isSelectedDateToday && workdaySession != null) ||
         dayMetrics.workedMinutes > 0 ||
         dayMetrics.leaveMinutes > 0;
+    final hasQuickTimeWindow =
+        (quickEditorDaySchedule.startTime?.trim().isNotEmpty ?? false) ||
+        (quickEditorDaySchedule.endTime?.trim().isNotEmpty ?? false);
     final hasQuickWorkedOverride =
-        quickEditorDaySchedule.startTime != baseDaySchedule.startTime ||
-        quickEditorDaySchedule.endTime != baseDaySchedule.endTime;
+        hasQuickTimeWindow &&
+        (quickEditorDaySchedule.startTime != baseDaySchedule.startTime ||
+            quickEditorDaySchedule.endTime != baseDaySchedule.endTime);
     final isQuickEditorDayOff = _isExplicitDayOffSchedule(
       quickEditorDaySchedule,
     );
@@ -6604,19 +6608,15 @@ class _CalendarCard extends StatelessWidget {
         parseTimeInput(effectiveQuickEditorStartTime);
     final hasStartForSuggestion =
         !isQuickEditorDayOff && resolvedStartMinutesForSuggestion != null;
-    final hasStartedFromClockContext =
-        hasStartForSuggestion &&
-        isSelectedDateToday &&
-        nowMinutes >= resolvedStartMinutesForSuggestion;
     final hasQuickResultContext =
-        hasRecordedWorkContext || hasQuickWorkedOverride || hasStartedFromClockContext;
+        hasRecordedWorkContext || hasQuickWorkedOverride;
     final hasExitSuggestionContext =
         hasQuickResultContext || hasStartForSuggestion;
     final displayedWorkedMinutes = hasQuickResultContext
         ? liveWorkedMinutes
         : 0;
     final liveRawDayBalanceMinutes =
-        (liveWorkedMinutes + dayMetrics.leaveMinutes) - liveExpectedMinutes;
+        (displayedWorkedMinutes + dayMetrics.leaveMinutes) - liveExpectedMinutes;
     final liveDayBalanceMinutes = workRules.clampDailyBalance(
       liveRawDayBalanceMinutes,
     );
@@ -6624,7 +6624,7 @@ class _CalendarCard extends StatelessWidget {
       selectedDate: selectedDate,
       days: days,
       liveExpectedMinutes: liveExpectedMinutes,
-      liveWorkedMinutes: liveWorkedMinutes,
+      liveWorkedMinutes: displayedWorkedMinutes,
     );
     final periodBalanceInfo = _buildDisplayedPeriodBalanceInfo(
       selectedDate: selectedDate,
@@ -6633,7 +6633,7 @@ class _CalendarCard extends StatelessWidget {
       workRules: workRules,
       aggregation: appearanceSettings.dayBalanceAggregation,
       liveExpectedMinutes: liveExpectedMinutes,
-      liveWorkedMinutes: liveWorkedMinutes,
+      liveWorkedMinutes: displayedWorkedMinutes,
       liveLeaveMinutes: dayMetrics.leaveMinutes,
     );
     final suggestedExitLabel = _resolveSuggestedExitLabel(
@@ -16414,26 +16414,6 @@ _AgendaRange _resolveCompactAgendaRangeForBounds({
   return _AgendaRange(
     startMinutes: stableStartMinutes,
     endMinutes: stableEndMinutes,
-  );
-}
-
-_AgendaRange _resolveStableAgendaRangeForSchedule(DaySchedule schedule) {
-  final startMinutes = parseTimeInput(schedule.startTime);
-  final endMinutes = parseTimeInput(schedule.endTime);
-  if (startMinutes == null ||
-      endMinutes == null ||
-      endMinutes <= startMinutes) {
-    return _resolveCompactAgendaRangeForBounds(
-      startMinutes: startMinutes,
-      endMinutes: endMinutes,
-    );
-  }
-
-  final bufferedStartMinutes = math.max(0, startMinutes - 60);
-  final bufferedEndMinutes = math.min((23 * 60) + 59, endMinutes + 60);
-  return _resolveCompactAgendaRangeForBounds(
-    startMinutes: bufferedStartMinutes,
-    endMinutes: bufferedEndMinutes,
   );
 }
 

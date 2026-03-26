@@ -1093,12 +1093,10 @@ void main() {
     await tester.tap(find.text('Agenda oraria'));
     await tester.pumpAndSettle();
     expect(
-      find.byWidgetPredicate(
-        (widget) =>
-            widget is Text &&
-            (widget.data == '06:00' || widget.data == '6:00'),
+      find.text(
+        'Nessun orario da mostrare. Inserisci entrata e uscita per vedere la timeline.',
       ),
-      findsWidgets,
+      findsOneWidget,
     );
   });
 
