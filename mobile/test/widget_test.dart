@@ -112,10 +112,10 @@ void main() {
     expect(
       tester
           .widget<Text>(
-            find.byKey(const ValueKey('calendar-live-suggested-exit-value')),
+            find.byKey(const ValueKey('calendar-live-overtime-value')),
           )
           .data,
-      '17:00',
+      'Da calcolare',
     );
     await tester.tap(
       find.byKey(const ValueKey('calendar-record-start-button')),
@@ -148,7 +148,7 @@ void main() {
     );
     expect(find.text('Lavorate'), findsOneWidget);
     expect(find.text('Saldo mese'), findsOneWidget);
-    expect(find.text('Esci alle'), findsOneWidget);
+    expect(find.text('Straordinario'), findsOneWidget);
     expect(
       find.byKey(const ValueKey('calendar-live-period-balance-label')),
       findsOneWidget,
@@ -170,7 +170,7 @@ void main() {
       findsOneWidget,
     );
     expect(
-      find.byKey(const ValueKey('calendar-live-suggested-exit-value')),
+      find.byKey(const ValueKey('calendar-live-overtime-value')),
       findsOneWidget,
     );
     expect(
@@ -268,10 +268,10 @@ void main() {
       expect(
       tester
           .widget<Text>(
-            find.byKey(const ValueKey('calendar-live-suggested-exit-value')),
+            find.byKey(const ValueKey('calendar-live-overtime-value')),
           )
           .data,
-      '17:00',
+      'Da calcolare',
       );
     },
   );
@@ -317,7 +317,6 @@ void main() {
       find.byKey(const ValueKey('calendar-week-row-2026-03-29')),
       findsOneWidget,
     );
-    expect(find.text('In pari'), findsNothing);
     expect(find.text('Pausa 0:30'), findsNothing);
     expect(find.text('08:30 - 15:00'), findsNothing);
   });
@@ -662,10 +661,10 @@ void main() {
     expect(
       tester
           .widget<Text>(
-            find.byKey(const ValueKey('calendar-live-suggested-exit-value')),
+            find.byKey(const ValueKey('calendar-live-overtime-value')),
           )
           .data,
-      'Libero',
+      '0:00',
     );
     expect(
       tester
