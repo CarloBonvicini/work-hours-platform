@@ -51,21 +51,18 @@ PORT=8080
 API_IMAGE=ghcr.io/carlobonvicini/work-hours-api:latest
 APP_DOMAIN=workhours.developerdomain.org
 MOBILE_UPDATES_PUBLIC_BASE_URL=https://workhours.developerdomain.org
-DATA_PROVIDER=memory
-```
-
-Per modalita scalabile con PostgreSQL:
-
-```dotenv
-COMPOSE_PROJECT_NAME=work-hours-platform
-HOST=0.0.0.0
-PORT=8080
-API_IMAGE=ghcr.io/carlobonvicini/work-hours-api:latest
-APP_DOMAIN=workhours.developerdomain.org
-MOBILE_UPDATES_PUBLIC_BASE_URL=https://workhours.developerdomain.org
 DATA_PROVIDER=postgres
-DATABASE_URL=postgres://<user>:<password>@<host>:5432/<database>
+POSTGRES_DB=workhours
+POSTGRES_USER=workhours
+POSTGRES_PASSWORD=change_me
+DATABASE_URL=postgres://workhours:change_me@db:5432/workhours
+SUPER_ADMIN_EMAIL=owner@example.com
+SUPER_ADMIN_PASSWORD=change_me_long
 ```
+
+Note:
+1. `POSTGRES_PASSWORD` deve essere cambiata con una password reale.
+2. `DATABASE_URL` deve usare la stessa password e nel setup Docker interno resta con host `db`.
 
 ## Step 3 - Cosa fa il workflow `Backend CD`
 
