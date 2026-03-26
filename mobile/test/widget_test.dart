@@ -99,7 +99,7 @@ void main() {
       find.byKey(const ValueKey('calendar-record-start-button')),
       findsOneWidget,
     );
-    expect(find.text('Orario standard'), findsOneWidget);
+    expect(find.text('Ore di lavoro standard'), findsOneWidget);
     expect(find.text('Inizia da qui'), findsOneWidget);
     expect(
       tester
@@ -147,9 +147,12 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('Lavorate'), findsOneWidget);
-    expect(find.text('Ore attese'), findsOneWidget);
     expect(find.text('Saldo mese'), findsOneWidget);
     expect(find.text('Esci alle'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('calendar-live-period-balance-label')),
+      findsOneWidget,
+    );
     expect(
       find.byKey(const ValueKey('calendar-live-worked-value')),
       findsOneWidget,
@@ -375,14 +378,6 @@ void main() {
     expect(
       find.byKey(const ValueKey('work-settings-lunch-break-monday')),
       findsOneWidget,
-    );
-    expect(
-      find.byWidgetPredicate(
-        (widget) =>
-            widget is RichText &&
-            widget.text.toPlainText().contains('Ore attese'),
-      ),
-      findsWidgets,
     );
     expect(
       find.byWidgetPredicate(

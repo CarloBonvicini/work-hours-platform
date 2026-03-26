@@ -5,6 +5,8 @@ enum AppFontFamily { system, sansSerif, serif, monospace, rounded, condensed }
 
 enum DayCalendarLayoutMode { quickEditorFirst, agendaFirst }
 
+enum DayBalanceAggregation { monthly, weekly }
+
 class AppAppearanceSettings {
   const AppAppearanceSettings({
     required this.themeMode,
@@ -29,6 +31,7 @@ class AppAppearanceSettings {
     required this.showDayTargetMinutes,
     required this.showDayEndTime,
     required this.showDayBreakMinutes,
+    required this.dayBalanceAggregation,
   });
 
   final ThemeMode themeMode;
@@ -53,6 +56,7 @@ class AppAppearanceSettings {
   final bool showDayTargetMinutes;
   final bool showDayEndTime;
   final bool showDayBreakMinutes;
+  final DayBalanceAggregation dayBalanceAggregation;
 
   static const defaults = AppAppearanceSettings(
     themeMode: ThemeMode.light,
@@ -76,6 +80,7 @@ class AppAppearanceSettings {
     showDayTargetMinutes: false,
     showDayEndTime: true,
     showDayBreakMinutes: true,
+    dayBalanceAggregation: DayBalanceAggregation.monthly,
   );
 
   AppAppearanceSettings copyWith({
@@ -102,6 +107,7 @@ class AppAppearanceSettings {
     bool? showDayTargetMinutes,
     bool? showDayEndTime,
     bool? showDayBreakMinutes,
+    DayBalanceAggregation? dayBalanceAggregation,
   }) {
     return AppAppearanceSettings(
       themeMode: themeMode ?? this.themeMode,
@@ -135,6 +141,8 @@ class AppAppearanceSettings {
       showDayTargetMinutes: showDayTargetMinutes ?? this.showDayTargetMinutes,
       showDayEndTime: showDayEndTime ?? this.showDayEndTime,
       showDayBreakMinutes: showDayBreakMinutes ?? this.showDayBreakMinutes,
+      dayBalanceAggregation:
+          dayBalanceAggregation ?? this.dayBalanceAggregation,
     );
   }
 
@@ -215,6 +223,10 @@ class AppAppearanceSettings {
       showDayBreakMinutes:
           json['showDayBreakMinutes'] as bool? ??
           AppAppearanceSettings.defaults.showDayBreakMinutes,
+      dayBalanceAggregation: switch (json['dayBalanceAggregation'] as String?) {
+        'weekly' => DayBalanceAggregation.weekly,
+        _ => DayBalanceAggregation.monthly,
+      },
     );
   }
 
@@ -246,6 +258,7 @@ class AppAppearanceSettings {
       'showDayTargetMinutes': showDayTargetMinutes,
       'showDayEndTime': showDayEndTime,
       'showDayBreakMinutes': showDayBreakMinutes,
+      'dayBalanceAggregation': dayBalanceAggregation.name,
     };
   }
 }
@@ -301,6 +314,7 @@ class SharedPreferencesThemePreferenceStore implements ThemePreferenceStore {
   static const _showDayTargetMinutesKey = 'appearance.show_day_target_minutes';
   static const _showDayEndTimeKey = 'appearance.show_day_end_time';
   static const _showDayBreakMinutesKey = 'appearance.show_day_break_minutes';
+  static const _dayBalanceAggregationKey = 'appearance.day_balance_aggregation';
 
   @override
   Future<ThemeMode> loadThemeMode() async {
@@ -348,6 +362,12 @@ class SharedPreferencesThemePreferenceStore implements ThemePreferenceStore {
     )) {
       'agendaFirst' => DayCalendarLayoutMode.agendaFirst,
       _ => DayCalendarLayoutMode.quickEditorFirst,
+    };
+    final dayBalanceAggregation = switch (preferences.getString(
+      _dayBalanceAggregationKey,
+    )) {
+      'weekly' => DayBalanceAggregation.weekly,
+      _ => DayBalanceAggregation.monthly,
     };
 
     return AppAppearanceSettings(
@@ -403,6 +423,7 @@ class SharedPreferencesThemePreferenceStore implements ThemePreferenceStore {
       showDayBreakMinutes:
           preferences.getBool(_showDayBreakMinutesKey) ??
           AppAppearanceSettings.defaults.showDayBreakMinutes,
+      dayBalanceAggregation: dayBalanceAggregation,
     );
   }
 
@@ -487,6 +508,10 @@ class SharedPreferencesThemePreferenceStore implements ThemePreferenceStore {
     await preferences.setBool(
       _showDayBreakMinutesKey,
       settings.showDayBreakMinutes,
+    );
+    await preferences.setString(
+      _dayBalanceAggregationKey,
+      settings.dayBalanceAggregation.name,
     );
   }
 }
