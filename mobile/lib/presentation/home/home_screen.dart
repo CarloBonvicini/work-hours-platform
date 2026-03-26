@@ -6765,8 +6765,37 @@ class _CalendarCard extends StatelessWidget {
           isSelectedDateToday &&
           workdaySession != null &&
           !workdaySession!.isCompleted,
+      workRules: workRules,
       workdaySession: isSelectedDateToday ? workdaySession : null,
-      weekMetrics: weekMetrics,
+      weekMetrics: isSelectedDateToday
+          ? weekMetrics
+                .map((metric) {
+                  if (!_isSameDay(metric.date, selectedDate)) {
+                    return metric;
+                  }
+
+                  final rawLiveBalanceMinutes =
+                      (displayedWorkedMinutes + metric.leaveMinutes) -
+                      liveExpectedMinutes;
+                  return _DayMetrics(
+                    date: metric.date,
+                    expectedMinutes: liveExpectedMinutes,
+                    workedMinutes: displayedWorkedMinutes,
+                    leaveMinutes: metric.leaveMinutes,
+                    rawBalanceMinutes: rawLiveBalanceMinutes,
+                    balanceMinutes: workRules.clampDailyBalance(
+                      rawLiveBalanceMinutes,
+                    ),
+                    hasOverride:
+                        metric.hasOverride ||
+                        hasQuickWorkedOverride ||
+                        hasPendingExitConfirmation,
+                    schedule: quickEditorDaySchedule,
+                    overrideNote: metric.overrideNote,
+                  );
+                })
+                .toList(growable: false)
+          : weekMetrics,
       monthMetrics: monthMetrics,
       yearMetrics: yearMetrics,
       selectedDate: selectedDate,
@@ -8209,6 +8238,7 @@ class _CalendarPeriodSummary extends StatelessWidget {
     required this.daySchedule,
     required this.dayPauseWindow,
     required this.isDayScheduleProvisional,
+    required this.workRules,
     required this.workdaySession,
     required this.weekMetrics,
     required this.monthMetrics,
@@ -8231,6 +8261,7 @@ class _CalendarPeriodSummary extends StatelessWidget {
   final DaySchedule daySchedule;
   final _CalendarPauseWindow? dayPauseWindow;
   final bool isDayScheduleProvisional;
+  final UserWorkRules workRules;
   final WorkdaySession? workdaySession;
   final List<_DayMetrics> weekMetrics;
   final _MonthMetrics monthMetrics;
@@ -8278,7 +8309,9 @@ class _CalendarPeriodSummary extends StatelessWidget {
       ),
       _CalendarView.week => _CalendarWeekSummary(
         metrics: weekMetrics,
+        workRules: workRules,
         selectedDate: selectedDate,
+        todayWorkdaySession: workdaySession,
         onOpenDay: onOpenDay,
       ),
       _CalendarView.month => _CalendarMonthSummary(
@@ -8476,12 +8509,16 @@ class _CalendarDaySummary extends StatelessWidget {
 class _CalendarWeekSummary extends StatelessWidget {
   const _CalendarWeekSummary({
     required this.metrics,
+    required this.workRules,
     required this.selectedDate,
+    required this.todayWorkdaySession,
     required this.onOpenDay,
   });
 
   final List<_DayMetrics> metrics;
+  final UserWorkRules workRules;
   final DateTime selectedDate;
+  final WorkdaySession? todayWorkdaySession;
   final Future<void> Function(DateTime date) onOpenDay;
 
   @override
@@ -8505,12 +8542,15 @@ class _CalendarWeekSummary extends StatelessWidget {
             if (useCompactLayout)
               _AgendaWeekCompactOverview(
                 metrics: metrics,
+                workRules: workRules,
+                todayWorkdaySession: todayWorkdaySession,
                 onOpenDay: onOpenDay,
               )
             else
               _AgendaWeekTimeline(
                 metrics: metrics,
                 selectedDate: selectedDate,
+                todayWorkdaySession: todayWorkdaySession,
                 onOpenDay: onOpenDay,
                 range: agendaRange,
               ),
@@ -8524,10 +8564,14 @@ class _CalendarWeekSummary extends StatelessWidget {
 class _AgendaWeekCompactOverview extends StatelessWidget {
   const _AgendaWeekCompactOverview({
     required this.metrics,
+    required this.workRules,
+    required this.todayWorkdaySession,
     required this.onOpenDay,
   });
 
   final List<_DayMetrics> metrics;
+  final UserWorkRules workRules;
+  final WorkdaySession? todayWorkdaySession;
   final Future<void> Function(DateTime date) onOpenDay;
 
   @override
@@ -8541,16 +8585,23 @@ class _AgendaWeekCompactOverview extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         for (var index = 0; index < metrics.length; index += 1) ...[
-          _CompactWeekTimelineRow(
-            metrics: metrics[index],
-            range: overviewRange,
-            measurementSegments: _buildAgendaMeasurementSegments(
-              schedule: metrics[index].schedule,
-              session: null,
-              nowMinutes: nowMinutes,
-            ),
-            onTap: () => unawaited(onOpenDay(metrics[index].date)),
-          ),
+          (() {
+            final day = metrics[index];
+            final isToday = _isSameDay(day.date, DateUtils.dateOnly(now));
+            final effectiveSession = isToday ? todayWorkdaySession : null;
+            return _CompactWeekTimelineRow(
+              metrics: day,
+              workRules: workRules,
+              range: overviewRange,
+              measurementSegments: _buildAgendaMeasurementSegments(
+                schedule: day.schedule,
+                session: effectiveSession,
+                nowMinutes: nowMinutes,
+              ),
+              workdaySession: effectiveSession,
+              onTap: () => unawaited(onOpenDay(day.date)),
+            );
+          })(),
           if (index < metrics.length - 1) const SizedBox(height: 12),
         ],
       ],
@@ -8561,14 +8612,18 @@ class _AgendaWeekCompactOverview extends StatelessWidget {
 class _CompactWeekTimelineRow extends StatelessWidget {
   const _CompactWeekTimelineRow({
     required this.metrics,
+    required this.workRules,
     required this.range,
     required this.measurementSegments,
+    required this.workdaySession,
     this.onTap,
   });
 
   final _DayMetrics metrics;
+  final UserWorkRules workRules;
   final _AgendaRange range;
   final List<_AgendaMeasurementSegment> measurementSegments;
+  final WorkdaySession? workdaySession;
   final VoidCallback? onTap;
 
   @override
@@ -8611,12 +8666,15 @@ class _CompactWeekTimelineRow extends StatelessWidget {
       schedule: schedule,
       workedMinutes: metrics.workedMinutes,
       leaveMinutes: metrics.leaveMinutes,
-      session: null,
+      session: relation == _CalendarDayRelation.today ? workdaySession : null,
     );
     final helperText = schedule.targetMinutes <= 0
         ? 'Giorno libero'
         : _compactWeekScheduleLabel(schedule);
-    final workedDeltaMinutes = metrics.balanceMinutes;
+    final effectiveWorkedMinutes = dayDetails?.workedMinutes ?? metrics.workedMinutes;
+    final workedDeltaMinutes = workRules.clampDailyBalance(
+      (effectiveWorkedMinutes + metrics.leaveMinutes) - metrics.expectedMinutes,
+    );
     final hasRegisteredWorkOrLeave =
         metrics.workedMinutes > 0 || metrics.leaveMinutes > 0;
     final isPastWithoutRegistrations =
@@ -8952,12 +9010,14 @@ class _AgendaWeekTimeline extends StatelessWidget {
   const _AgendaWeekTimeline({
     required this.metrics,
     required this.selectedDate,
+    required this.todayWorkdaySession,
     required this.onOpenDay,
     required this.range,
   });
 
   final List<_DayMetrics> metrics;
   final DateTime selectedDate;
+  final WorkdaySession? todayWorkdaySession;
   final Future<void> Function(DateTime date) onOpenDay;
   final _AgendaRange range;
 
@@ -8991,36 +9051,40 @@ class _AgendaWeekTimeline extends StatelessWidget {
             ),
             const SizedBox(width: 12),
             for (final day in metrics) ...[
-              SizedBox(
-                width: columnWidth,
-                child: Column(
-                  children: [
-                    SizedBox(
-                      height: headerHeight,
-                      child: _AgendaDayHeader(
+              (() {
+                final isToday = _isSameDay(day.date, DateUtils.dateOnly(now));
+                final effectiveSession = isToday ? todayWorkdaySession : null;
+                return SizedBox(
+                  width: columnWidth,
+                  child: Column(
+                    children: [
+                      SizedBox(
+                        height: headerHeight,
+                        child: _AgendaDayHeader(
+                          metrics: day,
+                          isSelected: _isSameDay(day.date, selectedDate),
+                          onTap: () => unawaited(onOpenDay(day.date)),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      _AgendaDaySurface(
                         metrics: day,
+                        schedule: day.schedule,
+                        range: range,
+                        height: timelineHeight,
+                        displayMode: _AgendaSurfaceDisplayMode.week,
                         isSelected: _isSameDay(day.date, selectedDate),
+                        measurementSegments: _buildAgendaMeasurementSegments(
+                          schedule: day.schedule,
+                          session: effectiveSession,
+                          nowMinutes: nowMinutes,
+                        ),
                         onTap: () => unawaited(onOpenDay(day.date)),
                       ),
-                    ),
-                    const SizedBox(height: 10),
-                    _AgendaDaySurface(
-                      metrics: day,
-                      schedule: day.schedule,
-                      range: range,
-                      height: timelineHeight,
-                      displayMode: _AgendaSurfaceDisplayMode.week,
-                      isSelected: _isSameDay(day.date, selectedDate),
-                      measurementSegments: _buildAgendaMeasurementSegments(
-                        schedule: day.schedule,
-                        session: null,
-                        nowMinutes: nowMinutes,
-                      ),
-                      onTap: () => unawaited(onOpenDay(day.date)),
-                    ),
-                  ],
-                ),
-              ),
+                    ],
+                  ),
+                );
+              })(),
               if (day != metrics.last) const SizedBox(width: 12),
             ],
           ],
