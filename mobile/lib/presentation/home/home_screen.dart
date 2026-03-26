@@ -7151,6 +7151,11 @@ class _CalendarQuickScheduleEditor extends StatelessWidget {
         : Icons.keyboard_arrow_down_rounded;
     final isProgrammedExit =
         endTimeText.trim().isNotEmpty && hasExitSuggestionContext;
+    final effectiveSummaryExitLabel = endTimeText.trim().isNotEmpty
+        ? endTimeText
+        : suggestedExitLabel;
+    final hasEffectiveSummaryExitContext =
+        hasExitSuggestionContext || endTimeText.trim().isNotEmpty;
     final standardScheduleColor = theme.colorScheme.onSurfaceVariant;
     const pendingExitColor = Color(0xFFBF7A24);
     final toggleButton = IconButton(
@@ -7360,10 +7365,10 @@ class _CalendarQuickScheduleEditor extends StatelessWidget {
                       dayBalanceAggregation: dayBalanceAggregation,
                       onDayBalanceAggregationChanged:
                           onDayBalanceAggregationChanged,
-                      suggestedExitLabel: suggestedExitLabel,
+                      suggestedExitLabel: effectiveSummaryExitLabel,
                       isDayOff: isDayOff,
                       hasResultContext: hasResultContext,
-                      hasExitSuggestionContext: hasExitSuggestionContext,
+                      hasExitSuggestionContext: hasEffectiveSummaryExitContext,
                     ),
                     if (!hasExitSuggestionContext && !isDayOff) ...[
                       const SizedBox(height: 10),
