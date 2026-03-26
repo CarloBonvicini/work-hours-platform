@@ -520,4 +520,153 @@ describe("Admin dashboard", () => {
       error: "Super admin required"
     });
   });
+
+  it("allows the super admin to reset passwords for managed users", async () => {
+    process.env.SUPER_ADMIN_EMAIL = "owner@example.com";
+    process.env.SUPER_ADMIN_PASSWORD = "super-segreta";
+    app = buildApp();
+
+    const superAdminLoginResponse = await app.inject({
+      method: "POST",
+      url: "/auth/login",
+      headers: {
+        "content-type": "application/json"
+      },
+      payload: {
+        email: "owner@example.com",
+        password: "super-segreta"
+      }
+    });
+    expect(superAdminLoginResponse.statusCode).toBe(200);
+
+    const registerResponse = await app.inject({
+      method: "POST",
+      url: "/auth/register",
+      headers: {
+        "content-type": "application/json"
+      },
+      payload: {
+        email: "user@example.com",
+        password: "password-vecchia"
+      }
+    });
+    expect(registerResponse.statusCode).toBe(201);
+
+    const resetResponse = await app.inject({
+      method: "POST",
+      url: `/admin/api/users/${registerResponse.json().user.id as string}/password`,
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${superAdminLoginResponse.json().token as string}`
+      },
+      payload: {
+        newPassword: "password-nuova"
+      }
+    });
+    expect(resetResponse.statusCode).toBe(200);
+    expect(resetResponse.json()).toMatchObject({
+      email: "user@example.com",
+      role: "user"
+    });
+
+    const oldPasswordLoginResponse = await app.inject({
+      method: "POST",
+      url: "/auth/login",
+      headers: {
+        "content-type": "application/json"
+      },
+      payload: {
+        email: "user@example.com",
+        password: "password-vecchia"
+      }
+    });
+    expect(oldPasswordLoginResponse.statusCode).toBe(401);
+
+    const newPasswordLoginResponse = await app.inject({
+      method: "POST",
+      url: "/auth/login",
+      headers: {
+        "content-type": "application/json"
+      },
+      payload: {
+        email: "user@example.com",
+        password: "password-nuova"
+      }
+    });
+    expect(newPasswordLoginResponse.statusCode).toBe(200);
+  });
+
+  it("allows only the super admin to reset user passwords", async () => {
+    process.env.SUPER_ADMIN_EMAIL = "owner@example.com";
+    process.env.SUPER_ADMIN_PASSWORD = "super-segreta";
+    app = buildApp();
+
+    const superAdminLoginResponse = await app.inject({
+      method: "POST",
+      url: "/auth/login",
+      headers: {
+        "content-type": "application/json"
+      },
+      payload: {
+        email: "owner@example.com",
+        password: "super-segreta"
+      }
+    });
+    expect(superAdminLoginResponse.statusCode).toBe(200);
+
+    const adminCandidateResponse = await app.inject({
+      method: "POST",
+      url: "/auth/register",
+      headers: {
+        "content-type": "application/json"
+      },
+      payload: {
+        email: "admin@example.com",
+        password: "admin-password"
+      }
+    });
+    expect(adminCandidateResponse.statusCode).toBe(201);
+
+    const promoteResponse = await app.inject({
+      method: "POST",
+      url: `/admin/api/users/${adminCandidateResponse.json().user.id as string}/admin`,
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${superAdminLoginResponse.json().token as string}`
+      },
+      payload: {
+        isAdmin: true
+      }
+    });
+    expect(promoteResponse.statusCode).toBe(200);
+
+    const managedUserResponse = await app.inject({
+      method: "POST",
+      url: "/auth/register",
+      headers: {
+        "content-type": "application/json"
+      },
+      payload: {
+        email: "target@example.com",
+        password: "target-password"
+      }
+    });
+    expect(managedUserResponse.statusCode).toBe(201);
+
+    const forbiddenResetResponse = await app.inject({
+      method: "POST",
+      url: `/admin/api/users/${managedUserResponse.json().user.id as string}/password`,
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${adminCandidateResponse.json().token as string}`
+      },
+      payload: {
+        newPassword: "nuova-password"
+      }
+    });
+    expect(forbiddenResetResponse.statusCode).toBe(403);
+    expect(forbiddenResetResponse.json()).toEqual({
+      error: "Super admin required"
+    });
+  });
 });

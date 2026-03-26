@@ -766,6 +766,28 @@ function parseAdminRolePayload(payload: unknown) {
   };
 }
 
+function parseAdminPasswordPayload(payload: unknown) {
+  if (!payload || typeof payload !== "object") {
+    return { value: null, error: "Invalid body" as const };
+  }
+
+  const body = payload as Record<string, unknown>;
+  const newPassword =
+    typeof body.newPassword === "string" ? body.newPassword : null;
+  if (!newPassword || newPassword.trim().length < 8) {
+    return {
+      value: null,
+      error: "newPassword must be at least 8 characters" as const
+    };
+  }
+
+  return {
+    value: {
+      newPassword
+    }
+  };
+}
+
 function parseAuthCredentials(payload: unknown) {
   if (!payload || typeof payload !== "object") {
     return { value: null, error: "Invalid body" as const };
@@ -2541,7 +2563,7 @@ function renderAdminPage(options: {
                 <div class="toolbar">
                   <div>
                     <h3 style="margin-bottom:6px;">Accessi e ruoli</h3>
-                    <p class="lede">Solo il super admin puo promuovere o revocare gli accessi admin.</p>
+                    <p class="lede">Solo il super admin puo promuovere, revocare accessi admin e resettare password.</p>
                   </div>
                   <button type="button" id="admin-refresh-users-btn">Aggiorna utenti</button>
                 </div>
@@ -2963,38 +2985,93 @@ function renderAdminPage(options: {
             : user.isAdmin
               ? "success"
               : "info";
-          const actionButton = user.isSuperAdmin
+          const actionButtons = user.isSuperAdmin
             ? ""
-            : user.isAdmin
-              ? '<button type="button" data-user-id="' + escapeHtml(user.id) + '" data-next-admin="false">Rimuovi admin</button>'
-              : '<button type="button" class="primary" data-user-id="' + escapeHtml(user.id) + '" data-next-admin="true">Rendi admin</button>';
+            : (
+                (user.isAdmin
+                  ? '<button type="button" data-user-id="' + escapeHtml(user.id) + '" data-user-action="toggle-admin" data-next-admin="false">Rimuovi admin</button>'
+                  : '<button type="button" class="primary" data-user-id="' + escapeHtml(user.id) + '" data-user-action="toggle-admin" data-next-admin="true">Rendi admin</button>') +
+                '<button type="button" data-user-id="' + escapeHtml(user.id) + '" data-user-action="reset-password">Reset password</button>'
+              );
 
-          return '<article class="user-row"><div class="user-row-main"><div class="user-row-email">' + escapeHtml(user.email) + '</div><div class="user-row-meta"><span class="pill ' + roleTone + '">' + roleLabel + '</span>' + (isCurrentUser ? '<span class="pill info">Sessione corrente</span>' : "") + '<span>Creato ' + formatDateTime(user.createdAt) + '</span><span>Aggiornato ' + formatDateTime(user.updatedAt) + '</span></div></div><div class="user-actions">' + actionButton + '</div></article>';
+          return '<article class="user-row"><div class="user-row-main"><div class="user-row-email">' + escapeHtml(user.email) + '</div><div class="user-row-meta"><span class="pill ' + roleTone + '">' + roleLabel + '</span>' + (isCurrentUser ? '<span class="pill info">Sessione corrente</span>' : "") + '<span>Creato ' + formatDateTime(user.createdAt) + '</span><span>Aggiornato ' + formatDateTime(user.updatedAt) + '</span></div></div><div class="user-actions">' + actionButtons + '</div></article>';
         }).join("");
 
-        userList.querySelectorAll("[data-user-id]").forEach((node) => {
+        userList.querySelectorAll("[data-user-action]").forEach((node) => {
           node.addEventListener("click", async () => {
             const userId = node.getAttribute("data-user-id");
-            const nextAdmin = node.getAttribute("data-next-admin") === "true";
-            if (!userId) return;
+            const action = node.getAttribute("data-user-action");
+            if (!userId || !action) return;
 
-            try {
-              setStatus("Aggiornamento ruolo in corso...", "info", "dashboard");
-              await api(
-                "/admin/api/users/" + encodeURIComponent(userId) + "/admin",
-                {
-                  method: "POST",
-                  body: JSON.stringify({ isAdmin: nextAdmin })
-                }
+            if (action === "toggle-admin") {
+              const nextAdmin = node.getAttribute("data-next-admin") === "true";
+              try {
+                setStatus("Aggiornamento ruolo in corso...", "info", "dashboard");
+                await api(
+                  "/admin/api/users/" + encodeURIComponent(userId) + "/admin",
+                  {
+                    method: "POST",
+                    body: JSON.stringify({ isAdmin: nextAdmin })
+                  }
+                );
+                await loadDashboard();
+                setStatus("Ruolo aggiornato.", "success", "dashboard");
+              } catch (error) {
+                setStatus(
+                  error.message || "Impossibile aggiornare il ruolo.",
+                  "error",
+                  "dashboard"
+                );
+              }
+              return;
+            }
+
+            if (action === "reset-password") {
+              const newPassword = window.prompt(
+                "Nuova password per questo utente (minimo 8 caratteri):",
+                ""
               );
-              await loadDashboard();
-              setStatus("Ruolo aggiornato.", "success", "dashboard");
-            } catch (error) {
-              setStatus(
-                error.message || "Impossibile aggiornare il ruolo.",
-                "error",
-                "dashboard"
-              );
+              if (newPassword === null) {
+                return;
+              }
+
+              if (String(newPassword).trim().length < 8) {
+                setStatus(
+                  "La password deve avere almeno 8 caratteri.",
+                  "error",
+                  "dashboard"
+                );
+                return;
+              }
+
+              const confirmation = window.prompt("Conferma la nuova password:", "");
+              if (confirmation === null) {
+                return;
+              }
+
+              if (confirmation !== newPassword) {
+                setStatus("Le password non coincidono.", "error", "dashboard");
+                return;
+              }
+
+              try {
+                setStatus("Aggiornamento password in corso...", "info", "dashboard");
+                await api(
+                  "/admin/api/users/" + encodeURIComponent(userId) + "/password",
+                  {
+                    method: "POST",
+                    body: JSON.stringify({ newPassword })
+                  }
+                );
+                await loadDashboard();
+                setStatus("Password aggiornata.", "success", "dashboard");
+              } catch (error) {
+                setStatus(
+                  error.message || "Impossibile aggiornare la password.",
+                  "error",
+                  "dashboard"
+                );
+              }
             }
           });
         });
@@ -3771,6 +3848,58 @@ export function buildApp(options: BuildAppOptions = {}) {
       targetUser.id,
       parsedPayload.value.isAdmin ? "admin" : "user"
     );
+    if (!updatedUser) {
+      return reply.code(404).send({ error: "User not found" });
+    }
+
+    return serializeAuthUser(updatedUser);
+  });
+
+  app.post("/admin/api/users/:userId/password", async (request, reply) => {
+    const adminAccess = await authorizeSuperAdminProfileRequest(request, store);
+    if (!adminAccess.authorized || !adminAccess.user) {
+      return reply
+        .code(adminAccess.statusCode ?? 401)
+        .send({ error: adminAccess.error ?? "Unauthorized" });
+    }
+
+    const params = request.params as { userId?: unknown };
+    if (typeof params.userId !== "string" || params.userId.length === 0) {
+      return reply.code(400).send({ error: "userId is required" });
+    }
+
+    const parsedPayload = parseAdminPasswordPayload(request.body);
+    if (!parsedPayload.value) {
+      return reply.code(400).send({
+        error: parsedPayload.error ?? "Invalid password payload"
+      });
+    }
+
+    const users = await store.listAuthUsers();
+    const targetUser = users.find((user) => user.id === params.userId) ?? null;
+    if (!targetUser) {
+      return reply.code(404).send({ error: "User not found" });
+    }
+
+    if (isSuperAdminUser(targetUser)) {
+      return reply.code(409).send({
+        error:
+          "The super admin password is managed from SUPER_ADMIN_PASSWORD and cannot be changed here."
+      });
+    }
+
+    const storedTargetUser = await store.findAuthUserByEmail(targetUser.email);
+    if (!storedTargetUser) {
+      return reply.code(404).send({ error: "User not found" });
+    }
+
+    const passwordDigest = createPasswordDigest(parsedPayload.value.newPassword);
+    const updatedUser = await store.updateStoredAuthUser({
+      ...storedTargetUser,
+      passwordHash: passwordDigest.hash,
+      passwordSalt: passwordDigest.salt,
+      updatedAt: new Date().toISOString()
+    });
     if (!updatedUser) {
       return reply.code(404).send({ error: "User not found" });
     }
