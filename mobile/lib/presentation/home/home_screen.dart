@@ -6639,7 +6639,7 @@ class _CalendarCard extends StatelessWidget {
     final hasStartedFromClockContext =
         hasStartForSuggestion &&
         isSelectedDateToday &&
-        nowMinutes >= resolvedStartMinutesForSuggestion!;
+        nowMinutes >= resolvedStartMinutesForSuggestion;
     final hasQuickResultContext =
         hasRecordedWorkContext || hasQuickWorkedOverride || hasStartedFromClockContext;
     final hasExitSuggestionContext =
@@ -7734,7 +7734,6 @@ class _QuickScheduleValue extends StatelessWidget {
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-              ],
               ],
             ],
           ),
@@ -12142,7 +12141,7 @@ class _CenteredSettingsValuesWrap extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final itemWidth = math.max(190, math.min(260, constraints.maxWidth - 8));
+    final itemWidth = math.max(190.0, math.min(260.0, constraints.maxWidth - 8));
     return Wrap(
       spacing: 10,
       runSpacing: 10,
