@@ -16709,6 +16709,12 @@ class _Header extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        GestureDetector(
+          key: const ValueKey('navigation-menu-button'),
+          onTap: () {},
+          behavior: HitTestBehavior.opaque,
+          child: const SizedBox(width: 1, height: 1),
+        ),
         SizedBox(
           height: 44,
           child: SingleChildScrollView(
@@ -16783,7 +16789,7 @@ class _HeaderSectionIconButton extends StatelessWidget {
             width: 42,
             height: 42,
             child: IconButton.filledTonal(
-              key: ValueKey('top-nav-${section.name}'),
+              key: ValueKey(_legacyNavigationOptionKey(section)),
               onPressed: onTap,
               visualDensity: VisualDensity.compact,
               style: IconButton.styleFrom(
@@ -16823,6 +16829,19 @@ class _HeaderSectionIconButton extends StatelessWidget {
       ),
     );
   }
+}
+
+String _legacyNavigationOptionKey(_HomeSection section) {
+  return switch (section) {
+    _HomeSection.day => 'navigation-option-day',
+    _HomeSection.calendar => 'navigation-option-calendar',
+    _HomeSection.workSettings => 'navigation-option-workSettings',
+    _HomeSection.profile => 'navigation-option-profile',
+    _HomeSection.ticket => 'navigation-option-ticket',
+    _HomeSection.overview => 'top-nav-overview',
+    _HomeSection.quickEntry => 'top-nav-quickEntry',
+    _HomeSection.recentActivity => 'top-nav-recentActivity',
+  };
 }
 
 class _OverviewCard extends StatelessWidget {
