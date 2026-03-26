@@ -217,14 +217,14 @@ jobs:
             compose_files+=(-f docker-compose.public.yml)
           fi
 
-          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+          for attempt in $(seq 1 30); do
             if curl -fsS http://127.0.0.1:8080/health >/dev/null; then
               echo "Backend health check OK."
               exit 0
             fi
 
-            echo "Backend non ancora pronto (tentativo ${attempt}/10)."
-            sleep 3
+            echo "Backend non ancora pronto (tentativo ${attempt}/30)."
+            sleep 5
           done
 
           echo "Backend non raggiungibile su http://127.0.0.1:8080/health"
