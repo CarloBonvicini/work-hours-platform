@@ -1915,6 +1915,52 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     return DateTime(now.year, now.month, now.day);
   }
 
+  WeekdayKey _weekdayKeyForDate(DateTime date) {
+    switch (date.weekday) {
+      case DateTime.monday:
+        return WeekdayKey.monday;
+      case DateTime.tuesday:
+        return WeekdayKey.tuesday;
+      case DateTime.wednesday:
+        return WeekdayKey.wednesday;
+      case DateTime.thursday:
+        return WeekdayKey.thursday;
+      case DateTime.friday:
+        return WeekdayKey.friday;
+      case DateTime.saturday:
+        return WeekdayKey.saturday;
+      default:
+        return WeekdayKey.sunday;
+    }
+  }
+
+  Future<void> _openSelectedWeekdayStandardWorkSettings() async {
+    final weekday = _weekdayKeyForDate(_selectedDate);
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _selectedSection = _HomeSection.workSettings;
+    });
+    final appearanceSettings = widget.appearanceSettings;
+    if (!appearanceSettings.expandWorkSettingsSchedule) {
+      await _updateAppearanceSettings(
+        appearanceSettings.copyWith(expandWorkSettingsSchedule: true),
+      );
+    }
+    if (!mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Apri Orario di lavoro e modifica il giorno ${weekday.label}.',
+        ),
+      ),
+    );
+  }
+
   void _openWorkQuickEntryForDate(
     DateTime date, {
     int? prefilledMinutes,
@@ -2549,8 +2595,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Future<void> _pickScheduleOverrideBreakMinutes() async {
     final currentBreakMinutes =
         _displayedScheduleStateForSelectedDate().schedule.breakMinutes;
+    final weekday = _weekdayKeyForDate(_selectedDate);
     final pickedMinutes = await _showScheduleBreakWheelPicker(
       initialMinutes: currentBreakMinutes,
+      standardScheduleLinkLabel:
+          'Vai a Orario di lavoro (${weekday.label})',
+      onOpenStandardScheduleLink: _openSelectedWeekdayStandardWorkSettings,
     );
     if (pickedMinutes == null) {
       return;
@@ -2562,9 +2612,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Future<void> _pickScheduleOverrideTargetMinutes() async {
     final currentTargetMinutes =
         _displayedScheduleStateForSelectedDate().schedule.targetMinutes;
+    final weekday = _weekdayKeyForDate(_selectedDate);
     final pickedMinutes = await _showScheduleTargetWheelPicker(
       title: 'Durata del giorno',
       initialMinutes: currentTargetMinutes,
+      standardScheduleLinkLabel:
+          'Vai a Orario di lavoro (${weekday.label})',
+      onOpenStandardScheduleLink: _openSelectedWeekdayStandardWorkSettings,
     );
     if (pickedMinutes == null) {
       return;
@@ -3617,9 +3671,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   Future<int?> _showScheduleBreakWheelPicker({
     required int initialMinutes,
+    String? standardScheduleLinkLabel,
+    Future<void> Function()? onOpenStandardScheduleLink,
   }) async {
     final allowedValues = List<int>.generate(241, (index) => index);
     final initialIndex = initialMinutes.clamp(0, allowedValues.length - 1);
+    var openStandardScheduleRequested = false;
     final pickedMinutes = await showModalBottomSheet<int>(
       context: context,
       showDragHandle: true,
@@ -3628,12 +3685,39 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         initialValue: allowedValues[initialIndex],
         valueBuilder: (controller) => ValueListenableBuilder<int>(
           valueListenable: controller,
-          builder: (context, value, _) => Text(
-            value == 0 ? 'Nessuna pausa' : '$value min',
-            style: Theme.of(
-              context,
-            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
-          ),
+          builder: (context, value, _) {
+            final linkLabel = standardScheduleLinkLabel;
+            if (linkLabel != null && onOpenStandardScheduleLink != null) {
+              return Align(
+                alignment: Alignment.centerLeft,
+                child: InkWell(
+                  onTap: () {
+                    openStandardScheduleRequested = true;
+                    Navigator.of(context).pop();
+                  },
+                  borderRadius: BorderRadius.circular(8),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 2),
+                    child: Text(
+                      linkLabel,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: Theme.of(context).colorScheme.primary,
+                        decoration: TextDecoration.underline,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            }
+
+            return Text(
+              value == 0 ? 'Nessuna pausa' : '$value min',
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+            );
+          },
         ),
         pickerBuilder: (controller) => SizedBox(
           height: 220,
@@ -3655,12 +3739,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         ),
       ),
     );
+    if (openStandardScheduleRequested && onOpenStandardScheduleLink != null) {
+      await onOpenStandardScheduleLink();
+      return null;
+    }
     return pickedMinutes;
   }
 
   Future<int?> _showScheduleTargetWheelPicker({
     required String title,
     required int initialMinutes,
+    String? standardScheduleLinkLabel,
+    Future<void> Function()? onOpenStandardScheduleLink,
   }) async {
     const maxHours = 16;
     final normalizedInitialMinutes = initialMinutes
@@ -3670,6 +3760,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final initialMinute = normalizedInitialMinutes % 60;
     final hourValues = List<int>.generate(maxHours + 1, (index) => index);
     final minuteValues = List<int>.generate(60, (index) => index);
+    var openStandardScheduleRequested = false;
 
     final pickedMinutes = await showModalBottomSheet<int>(
       context: context,
@@ -3682,12 +3773,39 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           initialValue: normalizedInitialMinutes,
           valueBuilder: (controller) => ValueListenableBuilder<int>(
             valueListenable: controller,
-            builder: (context, value, _) => Text(
-              _formatHoursInput(value),
-              style: Theme.of(
-                context,
-              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
-            ),
+            builder: (context, value, _) {
+              final linkLabel = standardScheduleLinkLabel;
+              if (linkLabel != null && onOpenStandardScheduleLink != null) {
+                return Align(
+                  alignment: Alignment.centerLeft,
+                  child: InkWell(
+                    onTap: () {
+                      openStandardScheduleRequested = true;
+                      Navigator.of(context).pop();
+                    },
+                    borderRadius: BorderRadius.circular(8),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 2),
+                      child: Text(
+                        linkLabel,
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: Theme.of(context).colorScheme.primary,
+                          decoration: TextDecoration.underline,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              }
+
+              return Text(
+                _formatHoursInput(value),
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+              );
+            },
           ),
           pickerBuilder: (controller) => SizedBox(
             height: 220,
@@ -3737,6 +3855,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         );
       },
     );
+    if (openStandardScheduleRequested && onOpenStandardScheduleLink != null) {
+      await onOpenStandardScheduleLink();
+      return null;
+    }
     return pickedMinutes;
   }
 
