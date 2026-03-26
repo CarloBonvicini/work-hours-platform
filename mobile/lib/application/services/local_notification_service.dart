@@ -23,165 +23,198 @@ class LocalNotificationService {
 
   final FlutterLocalNotificationsPlugin _plugin;
   bool _isInitialized = false;
+  bool _isAvailable = true;
 
   Future<void> initialize() async {
-    if (_isInitialized || kIsWeb) {
+    if (_isInitialized || kIsWeb || !_isAvailable) {
       return;
     }
 
-    const initializationSettings = InitializationSettings(
-      android: AndroidInitializationSettings('@mipmap/ic_launcher'),
-      iOS: DarwinInitializationSettings(),
-      macOS: DarwinInitializationSettings(),
-    );
-
-    await _plugin.initialize(initializationSettings);
-
-    final androidPlugin = _plugin
-        .resolvePlatformSpecificImplementation<
-          AndroidFlutterLocalNotificationsPlugin
-        >();
-    if (androidPlugin != null) {
-      await androidPlugin.createNotificationChannel(
-        const AndroidNotificationChannel(
-          _updateChannelId,
-          _updateChannelName,
-          description: _updateChannelDescription,
-          importance: Importance.high,
-        ),
+    try {
+      const initializationSettings = InitializationSettings(
+        android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+        iOS: DarwinInitializationSettings(),
+        macOS: DarwinInitializationSettings(),
       );
-      await androidPlugin.createNotificationChannel(
-        const AndroidNotificationChannel(
-          _ticketChannelId,
-          _ticketChannelName,
-          description: _ticketChannelDescription,
-          importance: Importance.high,
-        ),
-      );
+
+      await _plugin.initialize(initializationSettings);
+
+      final androidPlugin = _plugin
+          .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin
+          >();
+      if (androidPlugin != null) {
+        await androidPlugin.createNotificationChannel(
+          const AndroidNotificationChannel(
+            _updateChannelId,
+            _updateChannelName,
+            description: _updateChannelDescription,
+            importance: Importance.high,
+          ),
+        );
+        await androidPlugin.createNotificationChannel(
+          const AndroidNotificationChannel(
+            _ticketChannelId,
+            _ticketChannelName,
+            description: _ticketChannelDescription,
+            importance: Importance.high,
+          ),
+        );
+      }
+
+      _isInitialized = true;
+    } catch (_) {
+      _isAvailable = false;
     }
-
-    _isInitialized = true;
   }
 
   Future<void> requestPermissions() async {
-    if (kIsWeb) {
+    if (kIsWeb || !_isAvailable) {
       return;
     }
     await initialize();
+    if (!_isAvailable) {
+      return;
+    }
 
-    final androidPlugin = _plugin
-        .resolvePlatformSpecificImplementation<
-          AndroidFlutterLocalNotificationsPlugin
-        >();
-    await androidPlugin?.requestNotificationsPermission();
+    try {
+      final androidPlugin = _plugin
+          .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin
+          >();
+      await androidPlugin?.requestNotificationsPermission();
 
-    final iosPlugin = _plugin
-        .resolvePlatformSpecificImplementation<
-          IOSFlutterLocalNotificationsPlugin
-        >();
-    await iosPlugin?.requestPermissions(alert: true, badge: true, sound: true);
+      final iosPlugin = _plugin
+          .resolvePlatformSpecificImplementation<
+            IOSFlutterLocalNotificationsPlugin
+          >();
+      await iosPlugin?.requestPermissions(alert: true, badge: true, sound: true);
 
-    final macOsPlugin = _plugin
-        .resolvePlatformSpecificImplementation<
-          MacOSFlutterLocalNotificationsPlugin
-        >();
-    await macOsPlugin?.requestPermissions(alert: true, badge: true, sound: true);
+      final macOsPlugin = _plugin
+          .resolvePlatformSpecificImplementation<
+            MacOSFlutterLocalNotificationsPlugin
+          >();
+      await macOsPlugin?.requestPermissions(alert: true, badge: true, sound: true);
+    } catch (_) {
+      _isAvailable = false;
+    }
   }
 
   Future<void> notifyUpdateAvailable(AppUpdate update) async {
-    if (kIsWeb) {
+    if (kIsWeb || !_isAvailable) {
       return;
     }
     await initialize();
-
-    final preferences = await SharedPreferences.getInstance();
-    final lastNotifiedVersion = preferences.getString(
-      _lastNotifiedUpdateVersionKey,
-    );
-    if (lastNotifiedVersion == update.latestVersion) {
+    if (!_isAvailable) {
       return;
     }
 
-    const details = NotificationDetails(
-      android: AndroidNotificationDetails(
-        _updateChannelId,
-        _updateChannelName,
-        channelDescription: _updateChannelDescription,
-        importance: Importance.high,
-        priority: Priority.high,
-      ),
-      iOS: DarwinNotificationDetails(),
-      macOS: DarwinNotificationDetails(),
-    );
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      final lastNotifiedVersion = preferences.getString(
+        _lastNotifiedUpdateVersionKey,
+      );
+      if (lastNotifiedVersion == update.latestVersion) {
+        return;
+      }
 
-    await _plugin.show(
-      1001,
-      'Nuovo aggiornamento disponibile',
-      'Versione ${update.latestVersion} pronta da installare.',
-      details,
-      payload: 'update:${update.latestVersion}',
-    );
-    await preferences.setString(
-      _lastNotifiedUpdateVersionKey,
-      update.latestVersion,
-    );
+      const details = NotificationDetails(
+        android: AndroidNotificationDetails(
+          _updateChannelId,
+          _updateChannelName,
+          channelDescription: _updateChannelDescription,
+          importance: Importance.high,
+          priority: Priority.high,
+        ),
+        iOS: DarwinNotificationDetails(),
+        macOS: DarwinNotificationDetails(),
+      );
+
+      await _plugin.show(
+        1001,
+        'Nuovo aggiornamento disponibile',
+        'Versione ${update.latestVersion} pronta da installare.',
+        details,
+        payload: 'update:${update.latestVersion}',
+      );
+      await preferences.setString(
+        _lastNotifiedUpdateVersionKey,
+        update.latestVersion,
+      );
+    } catch (_) {
+      _isAvailable = false;
+    }
   }
 
   Future<void> notifyUpdateReadyToInstall({
     required String latestVersion,
   }) async {
-    if (kIsWeb) {
+    if (kIsWeb || !_isAvailable) {
       return;
     }
     await initialize();
+    if (!_isAvailable) {
+      return;
+    }
 
-    const details = NotificationDetails(
-      android: AndroidNotificationDetails(
-        _updateChannelId,
-        _updateChannelName,
-        channelDescription: _updateChannelDescription,
-        importance: Importance.high,
-        priority: Priority.high,
-      ),
-      iOS: DarwinNotificationDetails(),
-      macOS: DarwinNotificationDetails(),
-    );
+    try {
+      const details = NotificationDetails(
+        android: AndroidNotificationDetails(
+          _updateChannelId,
+          _updateChannelName,
+          channelDescription: _updateChannelDescription,
+          importance: Importance.high,
+          priority: Priority.high,
+        ),
+        iOS: DarwinNotificationDetails(),
+        macOS: DarwinNotificationDetails(),
+      );
 
-    await _plugin.show(
-      1002,
-      'Download completato',
-      'Versione $latestVersion pronta. Apri l app per installare.',
-      details,
-      payload: 'update_ready:$latestVersion',
-    );
+      await _plugin.show(
+        1002,
+        'Download completato',
+        'Versione $latestVersion pronta. Apri l app per installare.',
+        details,
+        payload: 'update_ready:$latestVersion',
+      );
+    } catch (_) {
+      _isAvailable = false;
+    }
   }
 
   Future<void> notifyTicketReplies({
     required String message,
   }) async {
-    if (kIsWeb || message.trim().isEmpty) {
+    if (kIsWeb || !_isAvailable || message.trim().isEmpty) {
       return;
     }
     await initialize();
+    if (!_isAvailable) {
+      return;
+    }
 
-    const details = NotificationDetails(
-      android: AndroidNotificationDetails(
-        _ticketChannelId,
-        _ticketChannelName,
-        channelDescription: _ticketChannelDescription,
-        importance: Importance.high,
-        priority: Priority.high,
-      ),
-      iOS: DarwinNotificationDetails(),
-      macOS: DarwinNotificationDetails(),
-    );
+    try {
+      const details = NotificationDetails(
+        android: AndroidNotificationDetails(
+          _ticketChannelId,
+          _ticketChannelName,
+          channelDescription: _ticketChannelDescription,
+          importance: Importance.high,
+          priority: Priority.high,
+        ),
+        iOS: DarwinNotificationDetails(),
+        macOS: DarwinNotificationDetails(),
+      );
 
-    await _plugin.show(
-      DateTime.now().millisecondsSinceEpoch.remainder(1 << 20),
-      'Nuove risposte ai ticket',
-      message,
-      details,
-      payload: 'ticket_replies',
-    );
+      await _plugin.show(
+        DateTime.now().millisecondsSinceEpoch.remainder(1 << 20),
+        'Nuove risposte ai ticket',
+        message,
+        details,
+        payload: 'ticket_replies',
+      );
+    } catch (_) {
+      _isAvailable = false;
+    }
   }
 }

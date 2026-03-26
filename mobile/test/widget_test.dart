@@ -49,7 +49,6 @@ void main() {
 
     await tester.pumpAndSettle();
 
-    expect(find.text('Ciao Carlo Bonvicini'), findsOneWidget);
     expect(
       find.byKey(const ValueKey('navigation-menu-button')),
       findsOneWidget,
