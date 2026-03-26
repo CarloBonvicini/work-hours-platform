@@ -6112,6 +6112,14 @@ class _CalendarCard extends StatelessWidget {
         quickEditorDaySchedule.endTime != baseDaySchedule.endTime;
     final hasQuickResultContext =
         hasRecordedWorkContext || hasQuickWorkedOverride;
+    final manualStartMinutes = parseTimeInput(
+      _scheduleOverrideStartTimeController.text.trim(),
+    );
+    final baseStartMinutes = parseTimeInput(baseDaySchedule.startTime);
+    final hasManualStartEntry =
+        manualStartMinutes != null && manualStartMinutes != baseStartMinutes;
+    final hasExitSuggestionContext =
+        hasQuickResultContext || hasManualStartEntry;
     final displayedWorkedMinutes = hasQuickResultContext
         ? liveWorkedMinutes
         : 0;
@@ -6133,6 +6141,8 @@ class _CalendarCard extends StatelessWidget {
       effectiveSchedule: effectiveDaySchedule,
       quickEditorSchedule: quickEditorDaySchedule,
       workRules: workRules,
+      rawStartTimeText: _scheduleOverrideStartTimeController.text,
+      rawEndTimeText: _scheduleOverrideEndTimeController.text,
     );
     final isQuickEditorDayOff = _isExplicitDayOffSchedule(
       quickEditorDaySchedule,
@@ -6201,6 +6211,7 @@ class _CalendarCard extends StatelessWidget {
             monthBalanceInfo: monthBalanceInfo,
             suggestedExitLabel: suggestedExitLabel,
             hasResultContext: hasQuickResultContext,
+            hasExitSuggestionContext: hasExitSuggestionContext,
           ),
         ],
       ),
@@ -6519,6 +6530,7 @@ class _CalendarQuickScheduleEditor extends StatelessWidget {
     required this.monthBalanceInfo,
     required this.suggestedExitLabel,
     required this.hasResultContext,
+    required this.hasExitSuggestionContext,
   });
 
   final bool isExpanded;
@@ -6547,6 +6559,7 @@ class _CalendarQuickScheduleEditor extends StatelessWidget {
   final _DisplayedMonthBalanceInfo monthBalanceInfo;
   final String suggestedExitLabel;
   final bool hasResultContext;
+  final bool hasExitSuggestionContext;
 
   @override
   Widget build(BuildContext context) {
@@ -6728,8 +6741,9 @@ class _CalendarQuickScheduleEditor extends StatelessWidget {
                       suggestedExitLabel: suggestedExitLabel,
                       isDayOff: isDayOff,
                       hasResultContext: hasResultContext,
+                      hasExitSuggestionContext: hasExitSuggestionContext,
                     ),
-                    if (!hasResultContext && !isDayOff) ...[
+                    if (!hasExitSuggestionContext && !isDayOff) ...[
                       const SizedBox(height: 10),
                       Text(
                         'Inserisci l\'entrata per iniziare.',
@@ -7103,6 +7117,7 @@ class _QuickDayComputedSummary extends StatelessWidget {
     required this.suggestedExitLabel,
     required this.isDayOff,
     required this.hasResultContext,
+    required this.hasExitSuggestionContext,
   });
 
   final int workedMinutes;
@@ -7112,6 +7127,7 @@ class _QuickDayComputedSummary extends StatelessWidget {
   final String suggestedExitLabel;
   final bool isDayOff;
   final bool hasResultContext;
+  final bool hasExitSuggestionContext;
 
   @override
   Widget build(BuildContext context) {
@@ -7139,12 +7155,12 @@ class _QuickDayComputedSummary extends StatelessWidget {
       (false, false) => colorScheme.onSurfaceVariant,
       _ => _balanceColor(context, todayBalanceMinutes),
     };
-    final exitValue = switch ((isDayOff, hasStartedDay)) {
+    final exitValue = switch ((isDayOff, hasExitSuggestionContext)) {
       (true, _) => 'Libero',
       (false, false) => 'Da calcolare',
       _ => suggestedExitLabel,
     };
-    final exitHelperText = switch ((isDayOff, hasStartedDay)) {
+    final exitHelperText = switch ((isDayOff, hasExitSuggestionContext)) {
       (true, _) => 'Nessuna uscita prevista',
       (false, false) => 'Inserisci entrata per calcolare uscita',
       _ => null,
@@ -7159,6 +7175,7 @@ class _QuickDayComputedSummary extends StatelessWidget {
       dayBalanceColor: dayBalanceColor,
       exitValue: exitValue,
       exitHelperText: exitHelperText,
+      hasExitSuggestionContext: hasExitSuggestionContext,
       expectedMinutes: expectedMinutes,
       monthBalanceInfo: monthBalanceInfo,
       expectedValueColor: colorScheme.primary,
@@ -7177,6 +7194,7 @@ class _QuickDayHero extends StatelessWidget {
     required this.dayBalanceColor,
     required this.exitValue,
     required this.exitHelperText,
+    required this.hasExitSuggestionContext,
     required this.expectedMinutes,
     required this.monthBalanceInfo,
     required this.expectedValueColor,
@@ -7191,6 +7209,7 @@ class _QuickDayHero extends StatelessWidget {
   final Color dayBalanceColor;
   final String exitValue;
   final String? exitHelperText;
+  final bool hasExitSuggestionContext;
   final int expectedMinutes;
   final _DisplayedMonthBalanceInfo monthBalanceInfo;
   final Color expectedValueColor;
@@ -7281,7 +7300,7 @@ class _QuickDayHero extends StatelessWidget {
       label: 'Esci alle',
       value: exitValue,
       valueKey: const ValueKey('calendar-live-suggested-exit-value'),
-      valueColor: hasResultContext && !isDayOff
+      valueColor: hasExitSuggestionContext && !isDayOff
           ? colorScheme.primary
           : neutralValueColor,
       helperText: exitHelperText,
@@ -14426,6 +14445,8 @@ String _resolveSuggestedExitLabel({
   required DaySchedule effectiveSchedule,
   required DaySchedule quickEditorSchedule,
   required UserWorkRules workRules,
+  String? rawStartTimeText,
+  String? rawEndTimeText,
 }) {
   final expectedMinutes = _resolveDisplayedExpectedMinutes(
     effectiveSchedule: effectiveSchedule,
@@ -14436,10 +14457,12 @@ String _resolveSuggestedExitLabel({
   }
 
   final startMinutes =
+      parseTimeInput(rawStartTimeText?.trim()) ??
       parseTimeInput(quickEditorSchedule.startTime) ??
       parseTimeInput(effectiveSchedule.startTime);
   if (startMinutes == null) {
     final fallbackEndMinutes =
+        parseTimeInput(rawEndTimeText?.trim()) ??
         parseTimeInput(effectiveSchedule.endTime) ??
         parseTimeInput(quickEditorSchedule.endTime);
     return fallbackEndMinutes == null
