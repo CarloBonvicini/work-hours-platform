@@ -21,6 +21,10 @@ on:
         required: true
         default: "Work Hours Mobile"
         type: string
+      release_notes:
+        description: Novita della release (testo libero mostrato in app nel banner New Feature)
+        required: false
+        type: string
       api_base_url:
         description: Base URL backend per l'app mobile (es. https://api.example.com)
         required: false
@@ -137,11 +141,16 @@ jobs:
         shell: bash
         working-directory: .
         run: |
+          sanitize_value() {
+            printf '%s' "$1" | tr -d '\r'
+          }
+
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "release_tag=${{ inputs.release_tag }}" >> "$GITHUB_OUTPUT"
             echo "build_name=${{ inputs.build_name }}" >> "$GITHUB_OUTPUT"
             echo "build_number=${{ inputs.build_number }}" >> "$GITHUB_OUTPUT"
             echo "release_name=${{ inputs.release_name }}" >> "$GITHUB_OUTPUT"
+            release_notes="$(sanitize_value "${{ inputs.release_notes }}")"
           else
             tag="${GITHUB_REF_NAME}"
             version="${tag#mobile-v}"
@@ -149,7 +158,18 @@ jobs:
             echo "build_name=$version" >> "$GITHUB_OUTPUT"
             echo "build_number=${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
             echo "release_name=Work Hours Mobile $version" >> "$GITHUB_OUTPUT"
+            release_notes="$(git log -1 --pretty=%s)"
           fi
+
+          if [ -z "${release_notes// }" ]; then
+            release_notes="Aggiornamenti di stabilita e miglioramenti."
+          fi
+
+          {
+            echo "release_notes<<EOF_NOTES"
+            printf '%s\n' "$release_notes"
+            echo "EOF_NOTES"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Resolve mobile API base URL
         shell: bash
@@ -306,14 +326,19 @@ jobs:
         run: |
           tag="${{ steps.meta.outputs.release_tag }}"
           title="${{ steps.meta.outputs.release_name }}"
+          notes_file="$(mktemp)"
+          cat > "$notes_file" <<'EOF_NOTES'
+          ${{ steps.meta.outputs.release_notes }}
+          EOF_NOTES
 
           if ! gh release view "$tag" >/dev/null 2>&1; then
-            gh release create "$tag" --title "$title" --generate-notes
+            gh release create "$tag" --title "$title" --notes-file "$notes_file"
           else
-            gh release edit "$tag" --title "$title"
+            gh release edit "$tag" --title "$title" --notes-file "$notes_file"
           fi
 
           gh release upload "$tag" mobile/build/app/outputs/flutter-apk/app-release.apk --clobber
+          rm -f "$notes_file"
 
   publish-mobile-update-feed:
     name: Publish Mobile Update Feed

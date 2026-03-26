@@ -4278,24 +4278,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         schedule.targetMinutes +
                         effectiveBreakMinutes
                   : null);
-    final shouldDeriveTargetFromWindow =
-        session.endMinutes != null ||
-        (explicitStartMinutes != null &&
-            explicitEndMinutes != null &&
-            (explicitStartMinutes != baseStartMinutes ||
-                explicitEndMinutes != baseEndMinutes));
-    final derivedTargetMinutes =
-        shouldDeriveTargetFromWindow &&
-            computedEndMinutes != null &&
-            computedEndMinutes >= displayedStartMinutes
-        ? math.max(
-            0,
-            computedEndMinutes - displayedStartMinutes - effectiveBreakMinutes,
-          )
-        : schedule.targetMinutes;
-
     return DaySchedule(
-      targetMinutes: derivedTargetMinutes,
+      // Keep daily target stable: editing start/end must not rewrite "Ore di lavoro".
+      targetMinutes: schedule.targetMinutes,
       startTime: formatTimeInput(displayedStartMinutes),
       endTime: computedEndMinutes == null
           ? schedule.endTime
@@ -15686,6 +15671,13 @@ class _UpdateDownloadDialogState extends State<_UpdateDownloadDialog> {
         continue;
       }
 
+      final lowerLine = line.toLowerCase();
+      if (lowerLine.startsWith('what\'s changed') ||
+          lowerLine.startsWith("what’s changed") ||
+          lowerLine.startsWith('new contributors')) {
+        continue;
+      }
+
       if (line.toLowerCase().startsWith('full changelog')) {
         continue;
       }
@@ -15693,6 +15685,9 @@ class _UpdateDownloadDialogState extends State<_UpdateDownloadDialog> {
       final cleaned = line
           .replaceFirst(RegExp(r'^[-*+]\s+'), '')
           .replaceFirst(RegExp(r'^\d+\.\s+'), '')
+          .replaceAll(RegExp(r'\[([^\]]+)\]\([^)]+\)'), r'$1')
+          .replaceAll(RegExp(r'\s*\(#\d+\)$'), '')
+          .replaceAll(RegExp(r'\s+by\s+@[\w-]+\s*$', caseSensitive: false), '')
           .trim();
       if (cleaned.isEmpty) {
         continue;
