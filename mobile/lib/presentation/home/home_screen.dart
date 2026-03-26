@@ -16081,7 +16081,7 @@ _DisplayedMonthBalanceInfo _buildDisplayedMonthBalanceInfo({
   var monthExpectedMinutes = 0;
   for (final day in monthDays) {
     var expectedMinutes = day.expectedMinutes;
-    var workedMinutes = day.workedMinutes;
+    var workedMinutes = _resolveWorkedMinutesForCalendarDay(day);
 
     if (_isSameDay(day.date!, selectedDay)) {
       expectedMinutes = liveExpectedMinutes;
@@ -16104,6 +16104,21 @@ _DisplayedMonthBalanceInfo _buildDisplayedMonthBalanceInfo({
         '${_formatHoursInput(monthWorkedMinutes)} / ${_formatHoursInput(monthExpectedMinutes)}',
     supportingText: 'Ore fatte / Ore totali',
   );
+}
+
+int _resolveWorkedMinutesForCalendarDay(_CalendarDay day) {
+  if (day.workedMinutes > 0) {
+    return day.workedMinutes;
+  }
+
+  if (day.relation == _CalendarDayRelation.past && day.hasOverride) {
+    final derivedWorkedMinutes = day.details?.workedMinutes ?? 0;
+    if (derivedWorkedMinutes > 0) {
+      return derivedWorkedMinutes;
+    }
+  }
+
+  return 0;
 }
 
 _DisplayedPeriodBalanceInfo _buildDisplayedPeriodBalanceInfo({
@@ -16144,8 +16159,9 @@ _DisplayedPeriodBalanceInfo _buildDisplayedPeriodBalanceInfo({
           monthlyBalanceMinutes += liveDayBalanceMinutes;
           continue;
         }
+        final workedMinutes = _resolveWorkedMinutesForCalendarDay(day);
         monthlyBalanceMinutes += workRules.clampDailyBalance(
-          (day.workedMinutes + day.leaveMinutes) - day.expectedMinutes,
+          (workedMinutes + day.leaveMinutes) - day.expectedMinutes,
         );
       }
       return _DisplayedPeriodBalanceInfo(balanceMinutes: monthlyBalanceMinutes);
