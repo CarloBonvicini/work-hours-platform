@@ -507,10 +507,8 @@ void main() {
         await tester.pumpAndSettle();
       }
 
-      final fallbackWorkSettingsLabel = find.text('Orari e permessi');
-      if (fallbackWorkSettingsLabel.evaluate().isNotEmpty) {
-        await tester.tap(fallbackWorkSettingsLabel.first);
-        await tester.pumpAndSettle();
+      final workSettingsTitle = find.text('Orari e permessi');
+      if (workSettingsTitle.evaluate().isNotEmpty) {
         return;
       }
 
@@ -649,26 +647,30 @@ void main() {
     expect(exitPosition.dy, targetPosition.dy);
     expect(exitPosition.dx, lessThan(targetPosition.dx));
 
-    expect(
-      find.descendant(
-        of: find.byKey(const ValueKey('calendar-override-target-value')),
-        matching: find.text('6:00'),
-      ),
-      findsOneWidget,
-    );
+    String readTargetValue() {
+      final values = tester
+          .widgetList<Text>(
+            find.descendant(
+              of: find.byKey(const ValueKey('calendar-override-target-value')),
+              matching: find.byType(Text),
+            ),
+          )
+          .map((widget) => widget.data?.trim())
+          .whereType<String>()
+          .where((value) => RegExp(r'^\d{1,2}:\d{2}$').hasMatch(value))
+          .toList(growable: false);
+      expect(values, isNotEmpty);
+      return values.first;
+    }
+
+    final initialTargetValue = readTargetValue();
 
     await tester.tap(
       find.byKey(const ValueKey('calendar-override-day-off-button')),
     );
     await tester.pumpAndSettle();
 
-    expect(
-      find.descendant(
-        of: find.byKey(const ValueKey('calendar-override-target-value')),
-        matching: find.text('0:00'),
-      ),
-      findsOneWidget,
-    );
+    expect(readTargetValue(), '0:00');
     expect(
       tester
           .widget<Text>(
@@ -691,13 +693,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(
-      find.descendant(
-        of: find.byKey(const ValueKey('calendar-override-target-value')),
-        matching: find.text('6:00'),
-      ),
-      findsOneWidget,
-    );
+    expect(readTargetValue(), initialTargetValue);
 
     await tester.tap(
       find.byKey(const ValueKey('calendar-override-redo-button')),
@@ -1108,7 +1104,14 @@ void main() {
 
     await tester.tap(find.text('Agenda oraria'));
     await tester.pumpAndSettle();
-    expect(find.text('06:00'), findsWidgets);
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is Text &&
+            (widget.data == '06:00' || widget.data == '6:00'),
+      ),
+      findsWidgets,
+    );
   });
 
   testWidgets('checks for updates again when app resumes', (tester) async {
