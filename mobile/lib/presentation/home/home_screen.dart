@@ -16137,6 +16137,9 @@ _DisplayedPeriodBalanceInfo _buildDisplayedPeriodBalanceInfo({
         if (date == null) {
           continue;
         }
+        if (day.relation == _CalendarDayRelation.future) {
+          continue;
+        }
         if (_isSameDay(date, selectedDay)) {
           monthlyBalanceMinutes += liveDayBalanceMinutes;
           continue;
