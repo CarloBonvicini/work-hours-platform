@@ -175,10 +175,20 @@ jobs:
           compose "${compose_files[@]}" pull
           compose "${compose_files[@]}" stop api || true
           compose "${compose_files[@]}" rm -f api || true
-          port_holders="$(docker ps -q --filter publish=8080)"
-          if [ -n "$port_holders" ]; then
-            docker ps --filter publish=8080 --format 'Libero porta 8080 da {{.ID}} {{.Names}} {{.Ports}}'
-            docker rm -f $port_holders || true
+
+          release_port() {
+            port="$1"
+            port_holders="$(docker ps -q --filter publish="$port")"
+            if [ -n "$port_holders" ]; then
+              docker ps --filter publish="$port" --format "Libero porta ${port} da {{.ID}} {{.Names}} {{.Ports}}"
+              docker rm -f $port_holders || true
+            fi
+          }
+
+          release_port 8080
+          if [ -n "$app_domain" ]; then
+            release_port 80
+            release_port 443
           fi
           compose "${compose_files[@]}" up -d --remove-orphans
           docker image prune -f
