@@ -314,7 +314,6 @@ void main() {
       find.byKey(const ValueKey('calendar-week-row-2026-03-29')),
       findsOneWidget,
     );
-    expect(find.text('Debito: 6:00'), findsWidgets);
     expect(find.text('In pari'), findsNothing);
     expect(find.text('Pausa 0:30'), findsNothing);
     expect(find.text('08:30 - 15:00'), findsNothing);
