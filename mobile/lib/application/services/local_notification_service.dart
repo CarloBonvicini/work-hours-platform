@@ -127,6 +127,35 @@ class LocalNotificationService {
     );
   }
 
+  Future<void> notifyUpdateReadyToInstall({
+    required String latestVersion,
+  }) async {
+    if (kIsWeb) {
+      return;
+    }
+    await initialize();
+
+    const details = NotificationDetails(
+      android: AndroidNotificationDetails(
+        _updateChannelId,
+        _updateChannelName,
+        channelDescription: _updateChannelDescription,
+        importance: Importance.high,
+        priority: Priority.high,
+      ),
+      iOS: DarwinNotificationDetails(),
+      macOS: DarwinNotificationDetails(),
+    );
+
+    await _plugin.show(
+      1002,
+      'Download completato',
+      'Versione $latestVersion pronta. Apri l app per installare.',
+      details,
+      payload: 'update_ready:$latestVersion',
+    );
+  }
+
   Future<void> notifyTicketReplies({
     required String message,
   }) async {

@@ -218,7 +218,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _isRecoveringAccountPassword = false;
   bool _isRestoringCloudBackup = false;
   bool _isSyncingCloudBackup = false;
+  bool _isBackgroundUpdateDownloadInProgress = false;
+  bool _isPromptingBackgroundUpdateInstall = false;
   bool _cloudBackupQueued = false;
+  AppUpdate? _backgroundUpdate;
+  DownloadedAppUpdate? _backgroundDownloadedUpdate;
+  UpdateDownloadProgress _backgroundUpdateProgress =
+      const UpdateDownloadProgress(receivedBytes: 0, totalBytes: null);
   late bool _hasCompletedInitialSetup;
   _HomeSection _selectedSection = _HomeSection.calendar;
   SupportTicketCategory _selectedTicketCategory = SupportTicketCategory.bug;
@@ -239,6 +245,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   int? _agendaPreviewBreakMinutes;
   int? _agendaPreviewPauseStartMinutes;
   int? _agendaPreviewPauseEndMinutes;
+  int? _pendingExitConfirmationMinutes;
+  String? _pendingExitConfirmationDateKey;
   AccountSession? _accountSession;
   _AccountAuthMode _accountAuthMode = _AccountAuthMode.login;
   Timer? _ticketNotificationTimer;
@@ -1573,6 +1581,19 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       return;
     }
 
+    final selectedThread = _ticketThreadsById[selectedTicketId];
+    if (selectedThread != null &&
+        selectedThread.status == SupportTicketStatus.closed) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Questo ticket e chiuso e non puo ricevere altre risposte.',
+          ),
+        ),
+      );
+      return;
+    }
+
     final message = _ticketReplyController.text.trim();
     if (message.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -2475,10 +2496,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     } else {
       controller.text = formatTimeInput(pickedSelection.minutes!);
     }
-    if (field == _CalendarTimeField.start && _usesTargetDrivenDayQuickEditor) {
-      _syncScheduleOverrideEndFromTarget();
+    if (field == _CalendarTimeField.start) {
+      _syncScheduleOverrideEndFromTarget(
+        markPendingConfirmation: widget.appearanceSettings.showDayEndTime,
+      );
     } else {
-      _syncScheduleOverrideTargetFromTimes();
+      _clearPendingExitConfirmationForSelectedDate();
     }
     _normalizeSelectedDayPauseWindowForCurrentDraft();
     _clearAgendaPreviewState();
@@ -2488,6 +2511,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       });
     }
     _pushCurrentScheduleOverrideDraftToHistory();
+    if (_hasPendingExitConfirmationForSelectedDate) {
+      return;
+    }
     await _autosaveScheduleOverride();
   }
 
@@ -2546,6 +2572,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
     _seedScheduleOverrideDraftFromCurrentDisplay();
     _scheduleOverrideTargetController.text = _formatHoursInput(pickedMinutes);
+    _clearPendingExitConfirmationForSelectedDate();
     final startMinutes = parseTimeInput(
       _scheduleOverrideStartTimeController.text,
     );
@@ -2557,9 +2584,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _scheduleOverrideEndTimeController.text = formatTimeInput(
         normalizedEndMinutes,
       );
-      if (normalizedEndMinutes != targetEndMinutes) {
-        _syncScheduleOverrideTargetFromTimes();
-      }
     }
     _normalizeSelectedDayPauseWindowForCurrentDraft();
     _clearAgendaPreviewState();
@@ -2575,7 +2599,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Future<void> _confirmSuggestedExitMinutes(int exitMinutes) async {
     final clampedExitMinutes = exitMinutes.clamp(0, (23 * 60) + 59).toInt();
     _scheduleOverrideEndTimeController.text = formatTimeInput(clampedExitMinutes);
-    _syncScheduleOverrideTargetFromTimes();
+    _clearPendingExitConfirmationForSelectedDate();
     _normalizeSelectedDayPauseWindowForCurrentDraft();
     _clearAgendaPreviewState();
     if (mounted) {
@@ -3333,17 +3357,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _scheduleOverrideBreakController.text = _formatBreakInput(
       normalizedMinutes,
     );
-    if (_usesTargetDrivenDayQuickEditor) {
-      _syncScheduleOverrideEndFromTarget();
-    } else {
-      _syncScheduleOverrideTargetFromTimes();
-    }
+    _syncScheduleOverrideEndFromTarget(
+      markPendingConfirmation: widget.appearanceSettings.showDayEndTime,
+    );
     _normalizeSelectedDayPauseWindowForCurrentDraft();
     _clearAgendaPreviewState();
     setState(() {
       _errorMessage = null;
     });
     _pushCurrentScheduleOverrideDraftToHistory();
+    if (_hasPendingExitConfirmationForSelectedDate) {
+      return;
+    }
     await _autosaveScheduleOverride();
   }
 
@@ -3631,7 +3656,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _scheduleOverrideEndTimeController.clear();
     _scheduleOverrideBreakController.clear();
     _setSelectedDayPauseWindowDraft(null);
-    _syncScheduleOverrideTargetFromTimes();
+    _clearPendingExitConfirmationForSelectedDate();
     _clearAgendaPreviewState();
     setState(() {
       _errorMessage = null;
@@ -3707,6 +3732,33 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   void _clearAgendaPreviewState() {
     _setAgendaPreviewState();
+  }
+
+  bool get _hasPendingExitConfirmationForSelectedDate =>
+      _pendingExitConfirmationDateKey ==
+          DashboardService.defaultEntryDateOf(_selectedDate) &&
+      _pendingExitConfirmationMinutes != null;
+
+  int? get _pendingExitConfirmationForSelectedDate =>
+      _hasPendingExitConfirmationForSelectedDate
+      ? _pendingExitConfirmationMinutes
+      : null;
+
+  void _setPendingExitConfirmationForSelectedDate(int minutes) {
+    _pendingExitConfirmationDateKey = DashboardService.defaultEntryDateOf(
+      _selectedDate,
+    );
+    _pendingExitConfirmationMinutes = minutes.clamp(0, (23 * 60) + 59);
+  }
+
+  void _clearPendingExitConfirmationForSelectedDate() {
+    final selectedDateKey = DashboardService.defaultEntryDateOf(_selectedDate);
+    if (_pendingExitConfirmationDateKey != selectedDateKey &&
+        _pendingExitConfirmationMinutes != null) {
+      return;
+    }
+    _pendingExitConfirmationDateKey = null;
+    _pendingExitConfirmationMinutes = null;
   }
 
   String _scheduleOverrideHistoryDateKeyFor(DateTime date) {
@@ -3834,6 +3886,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       historyEntry.schedule,
       pauseWindow: historyEntry.pauseWindow,
     );
+    _clearPendingExitConfirmationForSelectedDate();
     _clearAgendaPreviewState();
     if (mounted) {
       setState(() {
@@ -3952,6 +4005,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     DaySchedule schedule, {
     _CalendarPauseWindow? pauseWindow,
   }) {
+    _clearPendingExitConfirmationForSelectedDate();
     _scheduleOverrideTargetController.text = _formatHoursInput(
       schedule.targetMinutes,
     );
@@ -4109,34 +4163,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
-  void _syncScheduleOverrideTargetFromTimes() {
-    final startMinutes = parseTimeInput(
-      _scheduleOverrideStartTimeController.text,
+  bool _syncScheduleOverrideEndFromTarget({
+    bool markPendingConfirmation = false,
+  }) {
+    final previousEndMinutes = parseTimeInput(
+      _scheduleOverrideEndTimeController.text.trim(),
     );
-    final endMinutes = parseTimeInput(_scheduleOverrideEndTimeController.text);
-    final breakMinutes =
-        parseBreakDurationInput(_scheduleOverrideBreakController.text) ?? 0;
-
-    if (startMinutes == null ||
-        endMinutes == null ||
-        endMinutes < startMinutes) {
-      return;
-    }
-
-    final elapsedMinutes = endMinutes - startMinutes;
-    if (breakMinutes > elapsedMinutes) {
-      return;
-    }
-
-    _scheduleOverrideTargetController.text = _formatHoursInput(
-      elapsedMinutes - breakMinutes,
-    );
-  }
-
-  bool get _usesTargetDrivenDayQuickEditor =>
-      !widget.appearanceSettings.showDayEndTime;
-
-  void _syncScheduleOverrideEndFromTarget() {
     final startMinutes = parseTimeInput(
       _scheduleOverrideStartTimeController.text,
     );
@@ -4146,7 +4178,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final breakMinutes =
         parseBreakDurationInput(_scheduleOverrideBreakController.text) ?? 0;
     if (startMinutes == null || targetMinutes == null) {
-      return;
+      if (markPendingConfirmation) {
+        _clearPendingExitConfirmationForSelectedDate();
+      }
+      return false;
     }
 
     final endMinutes = (startMinutes + targetMinutes + breakMinutes).clamp(
@@ -4154,6 +4189,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       (23 * 60) + 59,
     );
     _scheduleOverrideEndTimeController.text = formatTimeInput(endMinutes);
+    if (markPendingConfirmation) {
+      if (previousEndMinutes == null || previousEndMinutes != endMinutes) {
+        _setPendingExitConfirmationForSelectedDate(endMinutes);
+      } else {
+        _clearPendingExitConfirmationForSelectedDate();
+      }
+    } else {
+      _clearPendingExitConfirmationForSelectedDate();
+    }
+    return true;
   }
 
   DaySchedule _resolveCurrentScheduleDraft(DaySchedule fallbackSchedule) {
@@ -4210,7 +4255,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       return true;
     }());
     _clearAgendaPreviewState();
-    _syncScheduleOverrideTargetFromTimes();
+    _clearPendingExitConfirmationForSelectedDate();
     setState(() {
       _errorMessage = null;
     });
@@ -4338,6 +4383,23 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       return;
     }
 
+    final downloadedUpdate = _backgroundDownloadedUpdate;
+    if (downloadedUpdate != null) {
+      await _promptInstallDownloadedUpdate(downloadedUpdate);
+      return;
+    }
+
+    if (_isBackgroundUpdateDownloadInProgress) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Download aggiornamento in background gia in corso.',
+          ),
+        ),
+      );
+      return;
+    }
+
     final cachedUpdate = _availableUpdate;
     if (cachedUpdate != null) {
       await _startInAppUpdateFlow(cachedUpdate);
@@ -4382,15 +4444,181 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _startInAppUpdateFlow(AppUpdate update) async {
-    await showDialog<void>(
+    final result = await showDialog<_UpdateDownloadDialogAction>(
       context: context,
       barrierDismissible: false,
       builder: (context) => _UpdateDownloadDialog(
         update: update,
         appUpdateService: widget.appUpdateService,
         onOpenReleasePage: _openUpdate,
+        onBackgroundDownloadEnabled: () =>
+            _handleBackgroundUpdateDownloadEnabled(update),
+        onBackgroundProgress: _handleBackgroundUpdateDownloadProgress,
+        onBackgroundDownloadCompleted: _handleBackgroundUpdateDownloadCompleted,
+        onBackgroundDownloadFailed: _handleBackgroundUpdateDownloadFailed,
       ),
     );
+    if (!mounted) {
+      return;
+    }
+
+    if (result == _UpdateDownloadDialogAction.downloadInBackground) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Download in background attivo. Puoi continuare a usare l app.',
+          ),
+        ),
+      );
+    }
+  }
+
+  void _handleBackgroundUpdateDownloadEnabled(AppUpdate update) {
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _isBackgroundUpdateDownloadInProgress = true;
+      _backgroundUpdate = update;
+      _backgroundDownloadedUpdate = null;
+      _backgroundUpdateProgress = const UpdateDownloadProgress(
+        receivedBytes: 0,
+        totalBytes: null,
+      );
+    });
+  }
+
+  void _handleBackgroundUpdateDownloadProgress(UpdateDownloadProgress progress) {
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _isBackgroundUpdateDownloadInProgress = true;
+      _backgroundUpdateProgress = progress;
+    });
+  }
+
+  Future<void> _handleBackgroundUpdateDownloadCompleted(
+    DownloadedAppUpdate downloadedUpdate,
+  ) async {
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _isBackgroundUpdateDownloadInProgress = false;
+      _backgroundDownloadedUpdate = downloadedUpdate;
+      _backgroundUpdate = downloadedUpdate.update;
+      _backgroundUpdateProgress = UpdateDownloadProgress(
+        receivedBytes: downloadedUpdate.bytesDownloaded,
+        totalBytes: downloadedUpdate.bytesDownloaded,
+      );
+    });
+
+    await _localNotificationService.notifyUpdateReadyToInstall(
+      latestVersion: downloadedUpdate.update.latestVersion,
+    );
+    if (!mounted) {
+      return;
+    }
+
+    await _promptInstallDownloadedUpdate(downloadedUpdate);
+  }
+
+  void _handleBackgroundUpdateDownloadFailed() {
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _isBackgroundUpdateDownloadInProgress = false;
+      _backgroundDownloadedUpdate = null;
+      _backgroundUpdate = null;
+      _backgroundUpdateProgress = const UpdateDownloadProgress(
+        receivedBytes: 0,
+        totalBytes: null,
+      );
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Download in background non riuscito. Riprova dagli aggiornamenti.',
+        ),
+      ),
+    );
+  }
+
+  Future<void> _promptInstallDownloadedUpdate(
+    DownloadedAppUpdate downloadedUpdate,
+  ) async {
+    if (!mounted || _isPromptingBackgroundUpdateInstall) {
+      return;
+    }
+
+    _isPromptingBackgroundUpdateInstall = true;
+    final shouldInstall = await showDialog<bool>(
+      context: context,
+      barrierDismissible: true,
+      builder: (context) => AlertDialog(
+        title: const Text('Aggiornamento pronto'),
+        content: Text(
+          'Download completato per la versione ${downloadedUpdate.update.latestVersion}. Vuoi installarla ora?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Piu tardi'),
+          ),
+          FilledButton.icon(
+            onPressed: () => Navigator.of(context).pop(true),
+            icon: const Icon(Icons.install_mobile_outlined),
+            label: const Text('Installa ora'),
+          ),
+        ],
+      ),
+    );
+    _isPromptingBackgroundUpdateInstall = false;
+
+    if (!mounted || shouldInstall != true) {
+      return;
+    }
+
+    final result = await widget.appUpdateService.installUpdate(downloadedUpdate);
+    if (!mounted) {
+      return;
+    }
+
+    switch (result) {
+      case UpdateInstallResult.started:
+        setState(() {
+          _backgroundDownloadedUpdate = null;
+          _backgroundUpdate = null;
+          _backgroundUpdateProgress = const UpdateDownloadProgress(
+            receivedBytes: 0,
+            totalBytes: null,
+          );
+        });
+        break;
+      case UpdateInstallResult.permissionRequired:
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Per installare l APK devi autorizzare questa app nelle impostazioni Android.',
+            ),
+          ),
+        );
+        break;
+      case UpdateInstallResult.failed:
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Impossibile avviare l installazione.'),
+          ),
+        );
+        break;
+    }
   }
 
   Future<void> _toggleThemeMode(bool useDarkTheme) async {
@@ -4909,9 +5137,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (startMinutes != null && endMinutes != null) {
       final elapsedMinutes = endMinutes - startMinutes;
       if (elapsedMinutes < 0 || breakMinutes > elapsedMinutes) {
-        return null;
-      }
-      if ((elapsedMinutes - breakMinutes) != targetMinutes) {
         return null;
       }
     }
@@ -5636,6 +5861,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       baseDayMetrics,
       displayedDaySchedule,
     );
+    final pendingExitConfirmationMinutes = _pendingExitConfirmationForSelectedDate;
 
     return _CalendarCard(
       title: title,
@@ -5660,6 +5886,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       overrideStartTimeController: _scheduleOverrideStartTimeController,
       overrideEndTimeController: _scheduleOverrideEndTimeController,
       overrideBreakController: _scheduleOverrideBreakController,
+      pendingExitConfirmationMinutes: pendingExitConfirmationMinutes,
       dayMetrics: dayMetrics,
       weekMetrics: weekMetrics,
       monthMetrics: _MonthMetrics(
@@ -5949,6 +6176,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           availableUpdate: _availableUpdate,
           isCheckingForUpdate: _isCheckingForUpdate,
           isOpeningUpdate: _isOpeningUpdate,
+          isBackgroundUpdateDownloadInProgress:
+              _isBackgroundUpdateDownloadInProgress,
+          backgroundUpdateProgress: _backgroundUpdateProgress,
+          backgroundUpdate: _backgroundUpdate,
           isUpdatingThemeMode: _isUpdatingThemeMode,
           accountSession: _accountSession,
           selectedAuthMode: _accountAuthMode,
@@ -6247,6 +6478,7 @@ class _CalendarCard extends StatelessWidget {
     required this.overrideStartTimeController,
     required this.overrideEndTimeController,
     required this.overrideBreakController,
+    required this.pendingExitConfirmationMinutes,
     required this.dayMetrics,
     required this.weekMetrics,
     required this.monthMetrics,
@@ -6302,6 +6534,7 @@ class _CalendarCard extends StatelessWidget {
   final TextEditingController overrideStartTimeController;
   final TextEditingController overrideEndTimeController;
   final TextEditingController overrideBreakController;
+  final int? pendingExitConfirmationMinutes;
   final _DayMetrics dayMetrics;
   final List<_DayMetrics> weekMetrics;
   final _MonthMetrics monthMetrics;
@@ -6439,21 +6672,27 @@ class _CalendarCard extends StatelessWidget {
       rawStartTimeText: overrideStartTimeController.text,
     );
     final hasScheduledExit = effectiveQuickEditorEndTime.trim().isNotEmpty;
-    final hasTheoreticalExit =
+    final hasPendingExitConfirmation = pendingExitConfirmationMinutes != null;
+    final hasSuggestedTheoreticalExit =
         !isQuickEditorDayOff &&
         !hasScheduledExit &&
         hasExitSuggestionContext &&
         suggestedExitLabel != '--:--' &&
         suggestedExitLabel != 'Libero';
+    final hasTheoreticalExit =
+        hasPendingExitConfirmation || hasSuggestedTheoreticalExit;
     final isUsingStandardSchedule = _matchesDaySchedule(
       baseDaySchedule,
       quickEditorDaySchedule,
     );
-    final confirmableTheoreticalExitMinutes =
-        suggestedExitTotalMinutes == null ||
-            suggestedExitTotalMinutes > ((23 * 60) + 59)
-        ? null
+    final candidateConfirmableExitMinutes = hasPendingExitConfirmation
+        ? pendingExitConfirmationMinutes
         : suggestedExitTotalMinutes;
+    final confirmableTheoreticalExitMinutes =
+        candidateConfirmableExitMinutes == null ||
+            candidateConfirmableExitMinutes > ((23 * 60) + 59)
+        ? null
+        : candidateConfirmableExitMinutes;
     final canRestoreWorkingDay =
         isQuickEditorDayOff && !isUsingStandardSchedule;
     final selectedDayInfo = switch (_compareDateToToday(selectedDate)) {
@@ -6519,6 +6758,7 @@ class _CalendarCard extends StatelessWidget {
             hasResultContext: hasQuickResultContext,
             hasExitSuggestionContext: hasExitSuggestionContext,
             hasTheoreticalExit: hasTheoreticalExit,
+            hasPendingExitConfirmation: hasPendingExitConfirmation,
             isUsingStandardSchedule: isUsingStandardSchedule,
             onConfirmTheoreticalExit: confirmableTheoreticalExitMinutes == null
                 ? null
@@ -6845,6 +7085,7 @@ class _CalendarQuickScheduleEditor extends StatelessWidget {
     required this.hasResultContext,
     required this.hasExitSuggestionContext,
     required this.hasTheoreticalExit,
+    required this.hasPendingExitConfirmation,
     required this.isUsingStandardSchedule,
     this.onConfirmTheoreticalExit,
   });
@@ -6877,6 +7118,7 @@ class _CalendarQuickScheduleEditor extends StatelessWidget {
   final bool hasResultContext;
   final bool hasExitSuggestionContext;
   final bool hasTheoreticalExit;
+  final bool hasPendingExitConfirmation;
   final bool isUsingStandardSchedule;
   final Future<void> Function()? onConfirmTheoreticalExit;
 
@@ -6891,6 +7133,7 @@ class _CalendarQuickScheduleEditor extends StatelessWidget {
     final isProgrammedExit =
         endTimeText.trim().isNotEmpty && hasExitSuggestionContext;
     final standardScheduleColor = theme.colorScheme.onSurfaceVariant;
+    const pendingExitColor = Color(0xFFBF7A24);
     final toggleButton = IconButton(
       key: const ValueKey('calendar-quick-editor-toggle-button'),
       onPressed: () => onToggleExpanded(!isExpanded),
@@ -6918,29 +7161,37 @@ class _CalendarQuickScheduleEditor extends StatelessWidget {
       ),
       if (showEndTime)
         _QuickScheduleValue(
-          label: hasTheoreticalExit
+          label: hasPendingExitConfirmation
+              ? 'Uscita programmata'
+              : hasTheoreticalExit
               ? 'Uscita teorica'
               : (isProgrammedExit ? 'Uscita programmata' : 'Uscita'),
-          value: hasTheoreticalExit
+          value: hasPendingExitConfirmation
+              ? (endTimeText.isEmpty ? suggestedExitLabel : endTimeText)
+              : hasTheoreticalExit
               ? suggestedExitLabel
               : (endTimeText.isEmpty ? '--:--' : endTimeText),
           valueKey: const ValueKey('calendar-override-end-time-button'),
-          supportingText: hasTheoreticalExit
+          supportingText: hasPendingExitConfirmation
+              ? 'Valore aggiornato automaticamente: conferma.'
+              : hasTheoreticalExit
               ? 'Calcolata su entrata + ore attese'
               : (endTimeText.isEmpty && !isDayOff ? 'Dopo l\'entrata' : null),
-          labelColorOverride: hasTheoreticalExit
-              ? const Color(0xFFBF7A24)
+          labelColorOverride: hasPendingExitConfirmation || hasTheoreticalExit
+              ? pendingExitColor
               : null,
-          valueColorOverride: hasTheoreticalExit
-              ? const Color(0xFFBF7A24)
+          valueColorOverride: hasPendingExitConfirmation || hasTheoreticalExit
+              ? pendingExitColor
               : null,
-          secondaryActionLabel: hasTheoreticalExit
-              ? 'Conferma uscita'
+          secondaryActionLabel: hasPendingExitConfirmation || hasTheoreticalExit
+              ? 'Conferma'
               : null,
           secondaryActionKey: const ValueKey(
             'calendar-override-confirm-theoretical-end-button',
           ),
-          onSecondaryAction: hasTheoreticalExit && onConfirmTheoreticalExit != null
+          onSecondaryAction:
+              (hasPendingExitConfirmation || hasTheoreticalExit) &&
+                  onConfirmTheoreticalExit != null
               ? () => onConfirmTheoreticalExit!()
               : null,
           onTap: onPickEndTime,
@@ -7420,12 +7671,38 @@ class _QuickScheduleValue extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                label,
-                style: theme.textTheme.labelLarge?.copyWith(
-                  color: labelColor,
-                  fontWeight: FontWeight.w700,
-                ),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      label,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.labelLarge?.copyWith(
+                        color: labelColor,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  if (secondaryActionLabel != null && onSecondaryAction != null)
+                    TextButton(
+                      key: secondaryActionKey,
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 0,
+                        ),
+                        minimumSize: const Size(0, 0),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        visualDensity: VisualDensity.compact,
+                        foregroundColor: valueColor,
+                        textStyle: theme.textTheme.labelSmall?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      onPressed: () => onSecondaryAction!(),
+                      child: Text(secondaryActionLabel!),
+                    ),
+                ],
               ),
               const SizedBox(height: 8),
               Row(
@@ -7458,22 +7735,6 @@ class _QuickScheduleValue extends StatelessWidget {
                   ),
                 ),
               ],
-              if (secondaryActionLabel != null && onSecondaryAction != null) ...[
-                const SizedBox(height: 6),
-                TextButton(
-                  key: secondaryActionKey,
-                  style: TextButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 4,
-                    ),
-                    minimumSize: const Size(0, 0),
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    visualDensity: VisualDensity.compact,
-                  ),
-                  onPressed: () => onSecondaryAction!(),
-                  child: Text(secondaryActionLabel!),
-                ),
               ],
             ],
           ),
@@ -10944,6 +11205,9 @@ class _ProfileCard extends StatelessWidget {
     required this.availableUpdate,
     required this.isCheckingForUpdate,
     required this.isOpeningUpdate,
+    required this.isBackgroundUpdateDownloadInProgress,
+    required this.backgroundUpdateProgress,
+    required this.backgroundUpdate,
     required this.isUpdatingThemeMode,
     required this.accountSession,
     required this.selectedAuthMode,
@@ -10976,6 +11240,9 @@ class _ProfileCard extends StatelessWidget {
   final AppUpdate? availableUpdate;
   final bool isCheckingForUpdate;
   final bool isOpeningUpdate;
+  final bool isBackgroundUpdateDownloadInProgress;
+  final UpdateDownloadProgress backgroundUpdateProgress;
+  final AppUpdate? backgroundUpdate;
   final bool isUpdatingThemeMode;
   final AccountSession? accountSession;
   final _AccountAuthMode selectedAuthMode;
@@ -11064,6 +11331,10 @@ class _ProfileCard extends StatelessWidget {
               availableUpdate: availableUpdate,
               isCheckingForUpdate: isCheckingForUpdate,
               isOpeningUpdate: isOpeningUpdate,
+              isBackgroundDownloadInProgress:
+                  isBackgroundUpdateDownloadInProgress,
+              backgroundDownloadProgress: backgroundUpdateProgress,
+              backgroundUpdate: backgroundUpdate,
               onPressed: onOpenUpdateFromSettings,
             ),
             const SizedBox(height: 20),
@@ -12910,20 +13181,35 @@ class _AppUpdateSettingsCard extends StatelessWidget {
     required this.availableUpdate,
     required this.isCheckingForUpdate,
     required this.isOpeningUpdate,
+    required this.isBackgroundDownloadInProgress,
+    required this.backgroundDownloadProgress,
+    required this.backgroundUpdate,
     required this.onPressed,
   });
 
   final AppUpdate? availableUpdate;
   final bool isCheckingForUpdate;
   final bool isOpeningUpdate;
+  final bool isBackgroundDownloadInProgress;
+  final UpdateDownloadProgress backgroundDownloadProgress;
+  final AppUpdate? backgroundUpdate;
   final Future<void> Function() onPressed;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final hasUpdate = availableUpdate != null;
-    final title = hasUpdate ? 'Aggiornamento disponibile' : 'Aggiornamenti app';
-    final subtitle = hasUpdate
+    final backgroundVersion = backgroundUpdate?.latestVersion ?? availableUpdate?.latestVersion;
+    final title = isBackgroundDownloadInProgress
+        ? 'Download in background'
+        : hasUpdate
+        ? 'Aggiornamento disponibile'
+        : 'Aggiornamenti app';
+    final subtitle = isBackgroundDownloadInProgress
+        ? backgroundVersion == null
+              ? 'Sto scaricando l aggiornamento in background. Puoi continuare a usare l app.'
+              : 'Sto scaricando la versione $backgroundVersion in background. Puoi continuare a usare l app.'
+        : hasUpdate
         ? 'Versione attuale ${availableUpdate!.currentVersion} -> nuova versione ${availableUpdate!.latestVersion}'
         : 'Controlla manualmente se c e una nuova versione, anche se hai scelto di ricordartelo piu tardi.';
 
@@ -12945,20 +13231,42 @@ class _AppUpdateSettingsCard extends StatelessWidget {
           ),
           const SizedBox(height: 6),
           Text(subtitle, style: theme.textTheme.bodyMedium),
+          if (isBackgroundDownloadInProgress) ...[
+            const SizedBox(height: 12),
+            LinearProgressIndicator(
+              value: backgroundDownloadProgress.fractionCompleted,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              backgroundDownloadProgress.totalBytes == null
+                  ? '${_formatDownloadSize(backgroundDownloadProgress.receivedBytes)} scaricati'
+                  : '${_formatDownloadSize(backgroundDownloadProgress.receivedBytes)} di ${_formatDownloadSize(backgroundDownloadProgress.totalBytes!)}',
+              style: theme.textTheme.bodySmall,
+            ),
+          ],
           const SizedBox(height: 14),
           FilledButton.tonalIcon(
             key: const ValueKey('settings-update-button'),
-            onPressed: (isCheckingForUpdate || isOpeningUpdate)
+            onPressed:
+                (isCheckingForUpdate ||
+                    isOpeningUpdate ||
+                    isBackgroundDownloadInProgress)
                 ? null
                 : () => onPressed(),
             icon: Icon(
-              hasUpdate ? Icons.system_update_alt : Icons.refresh_rounded,
+              isBackgroundDownloadInProgress
+                  ? Icons.download_rounded
+                  : hasUpdate
+                  ? Icons.system_update_alt
+                  : Icons.refresh_rounded,
             ),
             label: Text(
               isCheckingForUpdate
                   ? 'Controllo...'
                   : isOpeningUpdate
                   ? 'Apro...'
+                  : isBackgroundDownloadInProgress
+                  ? 'Download in background...'
                   : hasUpdate
                   ? 'Aggiorna ora'
                   : 'Controlla aggiornamenti',
@@ -13678,6 +13986,8 @@ class _SupportTicketCard extends StatelessWidget {
     final selectedThread = selectedTrackedTicket == null
         ? null
         : ticketThreadsById[selectedTrackedTicket.id];
+    final isSelectedThreadClosed =
+        selectedThread?.status == SupportTicketStatus.closed;
 
     return _SectionCard(
       title: 'Ticket',
@@ -13886,23 +14196,48 @@ class _SupportTicketCard extends StatelessWidget {
                           );
                         }),
                       ],
+                      if (isSelectedThreadClosed) ...[
+                        const SizedBox(height: 10),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.surfaceContainerHighest,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: Theme.of(context).colorScheme.outlineVariant,
+                            ),
+                          ),
+                          child: Text(
+                            'Ticket chiuso: non puoi inviare nuove risposte.',
+                            style: Theme.of(context).textTheme.bodyMedium,
+                          ),
+                        ),
+                      ],
                       const SizedBox(height: 8),
                       TextFormField(
                         controller: replyController,
                         maxLines: 4,
-                        decoration: const InputDecoration(
-                          labelText: 'Rispondi al ticket',
+                        enabled: !isSelectedThreadClosed && !isSubmittingReply,
+                        decoration: InputDecoration(
+                          labelText: isSelectedThreadClosed
+                              ? 'Ticket chiuso'
+                              : 'Rispondi al ticket',
                           alignLabelWithHint: true,
                         ),
                       ),
                       const SizedBox(height: 12),
                       FilledButton.icon(
-                        onPressed: isSubmittingReply
+                        onPressed: isSubmittingReply || isSelectedThreadClosed
                             ? null
                             : () => onSubmitReply(),
                         icon: const Icon(Icons.reply_rounded),
                         label: Text(
-                          isSubmittingReply
+                          isSelectedThreadClosed
+                              ? 'Ticket chiuso'
+                              : isSubmittingReply
                               ? 'Invio risposta...'
                               : 'Invia risposta',
                         ),
@@ -14261,17 +14596,27 @@ class _UpdateDialog extends StatelessWidget {
 }
 
 enum _UpdateDownloadState { downloading, readyToInstall, failed, installing }
+enum _UpdateDownloadDialogAction { downloadInBackground }
 
 class _UpdateDownloadDialog extends StatefulWidget {
   const _UpdateDownloadDialog({
     required this.update,
     required this.appUpdateService,
     required this.onOpenReleasePage,
+    required this.onBackgroundDownloadEnabled,
+    required this.onBackgroundProgress,
+    required this.onBackgroundDownloadCompleted,
+    required this.onBackgroundDownloadFailed,
   });
 
   final AppUpdate update;
   final AppUpdateService appUpdateService;
   final Future<void> Function() onOpenReleasePage;
+  final VoidCallback onBackgroundDownloadEnabled;
+  final ValueChanged<UpdateDownloadProgress> onBackgroundProgress;
+  final Future<void> Function(DownloadedAppUpdate downloadedUpdate)
+  onBackgroundDownloadCompleted;
+  final VoidCallback onBackgroundDownloadFailed;
 
   @override
   State<_UpdateDownloadDialog> createState() => _UpdateDownloadDialogState();
@@ -14285,6 +14630,7 @@ class _UpdateDownloadDialogState extends State<_UpdateDownloadDialog> {
   DownloadedAppUpdate? _downloadedUpdate;
   _UpdateDownloadState _state = _UpdateDownloadState.downloading;
   bool _isNewFeatureExpanded = false;
+  bool _continueInBackground = false;
   String? _message;
 
   @override
@@ -14308,6 +14654,9 @@ class _UpdateDownloadDialogState extends State<_UpdateDownloadDialog> {
       final downloadedUpdate = await widget.appUpdateService.downloadUpdate(
         widget.update,
         onProgress: (progress) {
+          if (_continueInBackground) {
+            widget.onBackgroundProgress(progress);
+          }
           if (!mounted) {
             return;
           }
@@ -14318,6 +14667,9 @@ class _UpdateDownloadDialogState extends State<_UpdateDownloadDialog> {
         },
       );
 
+      if (_continueInBackground) {
+        unawaited(widget.onBackgroundDownloadCompleted(downloadedUpdate));
+      }
       if (!mounted) {
         return;
       }
@@ -14328,6 +14680,9 @@ class _UpdateDownloadDialogState extends State<_UpdateDownloadDialog> {
       });
     } catch (_) {
       if (!mounted) {
+        if (_continueInBackground) {
+          widget.onBackgroundDownloadFailed();
+        }
         return;
       }
 
@@ -14335,7 +14690,20 @@ class _UpdateDownloadDialogState extends State<_UpdateDownloadDialog> {
         _state = _UpdateDownloadState.failed;
         _message = 'Download non riuscito. Controlla la connessione e riprova.';
       });
+      if (_continueInBackground) {
+        widget.onBackgroundDownloadFailed();
+      }
     }
+  }
+
+  void _continueDownloadInBackground() {
+    if (_state != _UpdateDownloadState.downloading || _continueInBackground) {
+      return;
+    }
+
+    _continueInBackground = true;
+    widget.onBackgroundDownloadEnabled();
+    Navigator.of(context).pop(_UpdateDownloadDialogAction.downloadInBackground);
   }
 
   Future<void> _installDownloadedUpdate() async {
@@ -14438,11 +14806,18 @@ class _UpdateDownloadDialogState extends State<_UpdateDownloadDialog> {
       ),
       actions: [
         TextButton(
-          onPressed: _state == _UpdateDownloadState.installing
+          onPressed: _state == _UpdateDownloadState.installing ||
+                  _state == _UpdateDownloadState.downloading
               ? null
               : () => Navigator.of(context).pop(),
           child: const Text('Piu tardi'),
         ),
+        if (_state == _UpdateDownloadState.downloading)
+          OutlinedButton.icon(
+            onPressed: _continueDownloadInBackground,
+            icon: const Icon(Icons.download_rounded),
+            label: const Text('Scarica in background'),
+          ),
         if (_state == _UpdateDownloadState.failed)
           Wrap(
             spacing: 10,
@@ -16076,9 +16451,6 @@ String? _validateScheduleDraft({
     }
     if (breakMinutes > elapsedMinutes) {
       return 'La pausa non puo superare la durata della giornata.';
-    }
-    if ((elapsedMinutes - breakMinutes) != targetMinutes) {
-      return 'Ore, inizio, fine e pausa non coincidono.';
     }
   }
 
