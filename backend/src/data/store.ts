@@ -65,6 +65,7 @@ export interface AppStore {
     role: AuthRole
   ): Promise<AuthUser | null> | AuthUser | null;
   updateStoredAuthUser(user: StoredAuthUser): Promise<AuthUser | null> | AuthUser | null;
+  deleteAuthUser(userId: string): Promise<boolean> | boolean;
   findAuthUserByTokenHash(
     tokenHash: string
   ): Promise<AuthUser | null> | AuthUser | null;

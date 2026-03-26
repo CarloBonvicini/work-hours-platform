@@ -184,6 +184,22 @@ export class InMemoryStore implements AppStore {
     };
   }
 
+  deleteAuthUser(userId: string): boolean {
+    const previousLength = this.authUsers.length;
+    this.authUsers = this.authUsers.filter((entry) => entry.id !== userId);
+    if (this.authUsers.length === previousLength) {
+      return false;
+    }
+
+    for (const [tokenHash, storedUserId] of this.sessionsByTokenHash.entries()) {
+      if (storedUserId === userId) {
+        this.sessionsByTokenHash.delete(tokenHash);
+      }
+    }
+    this.cloudBackupsByUserId.delete(userId);
+    return true;
+  }
+
   findAuthUserByTokenHash(tokenHash: string): AuthUser | null {
     const userId = this.sessionsByTokenHash.get(tokenHash);
     if (!userId) {

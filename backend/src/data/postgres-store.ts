@@ -836,6 +836,18 @@ export class PostgresStore implements AppStore {
     return toAuthUser(result.rows[0]);
   }
 
+  async deleteAuthUser(userId: string): Promise<boolean> {
+    const result = await this.pool.query(
+      `
+        DELETE FROM auth_users
+        WHERE id = $1
+      `,
+      [userId]
+    );
+
+    return (result.rowCount ?? 0) > 0;
+  }
+
   async findAuthUserByTokenHash(tokenHash: string): Promise<AuthUser | null> {
     const result = await this.pool.query<AuthSessionUserRow>(
       `

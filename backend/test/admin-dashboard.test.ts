@@ -669,4 +669,221 @@ describe("Admin dashboard", () => {
       error: "Super admin required"
     });
   });
+
+  it("allows the super admin to create, search, edit and delete users", async () => {
+    process.env.SUPER_ADMIN_EMAIL = "owner@example.com";
+    process.env.SUPER_ADMIN_PASSWORD = "super-segreta";
+    app = buildApp();
+
+    const superAdminLoginResponse = await app.inject({
+      method: "POST",
+      url: "/auth/login",
+      headers: {
+        "content-type": "application/json"
+      },
+      payload: {
+        email: "owner@example.com",
+        password: "super-segreta"
+      }
+    });
+    expect(superAdminLoginResponse.statusCode).toBe(200);
+    const superAdminToken = superAdminLoginResponse.json().token as string;
+
+    const createResponse = await app.inject({
+      method: "POST",
+      url: "/admin/api/users",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${superAdminToken}`
+      },
+      payload: {
+        email: "managed.user@example.com",
+        password: "managed-pass",
+        role: "user"
+      }
+    });
+    expect(createResponse.statusCode).toBe(201);
+    expect(createResponse.json()).toMatchObject({
+      user: {
+        email: "managed.user@example.com",
+        role: "user",
+        isAdmin: false
+      }
+    });
+    expect(typeof createResponse.json().recoveryCode).toBe("string");
+
+    const createdUserId = createResponse.json().user.id as string;
+
+    const searchResponse = await app.inject({
+      method: "GET",
+      url: "/admin/api/users?search=managed.user",
+      headers: {
+        authorization: `Bearer ${superAdminToken}`
+      }
+    });
+    expect(searchResponse.statusCode).toBe(200);
+    expect(searchResponse.json()).toMatchObject({
+      items: [
+        {
+          id: createdUserId,
+          email: "managed.user@example.com",
+          role: "user"
+        }
+      ]
+    });
+
+    const updateResponse = await app.inject({
+      method: "PATCH",
+      url: `/admin/api/users/${createdUserId}`,
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${superAdminToken}`
+      },
+      payload: {
+        email: "managed.updated@example.com",
+        role: "admin"
+      }
+    });
+    expect(updateResponse.statusCode).toBe(200);
+    expect(updateResponse.json()).toMatchObject({
+      id: createdUserId,
+      email: "managed.updated@example.com",
+      role: "admin",
+      isAdmin: true
+    });
+
+    const deleteResponse = await app.inject({
+      method: "DELETE",
+      url: `/admin/api/users/${createdUserId}`,
+      headers: {
+        authorization: `Bearer ${superAdminToken}`
+      }
+    });
+    expect(deleteResponse.statusCode).toBe(200);
+    expect(deleteResponse.json()).toEqual({
+      deleted: true,
+      userId: createdUserId
+    });
+
+    const searchAfterDeleteResponse = await app.inject({
+      method: "GET",
+      url: "/admin/api/users?search=managed.updated",
+      headers: {
+        authorization: `Bearer ${superAdminToken}`
+      }
+    });
+    expect(searchAfterDeleteResponse.statusCode).toBe(200);
+    expect(searchAfterDeleteResponse.json()).toEqual({
+      items: []
+    });
+  });
+
+  it("allows only the super admin to create, edit and delete users", async () => {
+    process.env.SUPER_ADMIN_EMAIL = "owner@example.com";
+    process.env.SUPER_ADMIN_PASSWORD = "super-segreta";
+    app = buildApp();
+
+    const superAdminLoginResponse = await app.inject({
+      method: "POST",
+      url: "/auth/login",
+      headers: {
+        "content-type": "application/json"
+      },
+      payload: {
+        email: "owner@example.com",
+        password: "super-segreta"
+      }
+    });
+    expect(superAdminLoginResponse.statusCode).toBe(200);
+    const superAdminToken = superAdminLoginResponse.json().token as string;
+
+    const adminCandidateResponse = await app.inject({
+      method: "POST",
+      url: "/auth/register",
+      headers: {
+        "content-type": "application/json"
+      },
+      payload: {
+        email: "admin@example.com",
+        password: "admin-password"
+      }
+    });
+    expect(adminCandidateResponse.statusCode).toBe(201);
+    const adminCandidateToken = adminCandidateResponse.json().token as string;
+
+    const promoteResponse = await app.inject({
+      method: "POST",
+      url: `/admin/api/users/${adminCandidateResponse.json().user.id as string}/admin`,
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${superAdminToken}`
+      },
+      payload: {
+        isAdmin: true
+      }
+    });
+    expect(promoteResponse.statusCode).toBe(200);
+
+    const createManagedUserResponse = await app.inject({
+      method: "POST",
+      url: "/admin/api/users",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${superAdminToken}`
+      },
+      payload: {
+        email: "target.user@example.com",
+        password: "target-pass",
+        role: "user"
+      }
+    });
+    expect(createManagedUserResponse.statusCode).toBe(201);
+    const targetUserId = createManagedUserResponse.json().user.id as string;
+
+    const forbiddenCreateResponse = await app.inject({
+      method: "POST",
+      url: "/admin/api/users",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${adminCandidateToken}`
+      },
+      payload: {
+        email: "forbidden@example.com",
+        password: "forbidden-pass",
+        role: "user"
+      }
+    });
+    expect(forbiddenCreateResponse.statusCode).toBe(403);
+    expect(forbiddenCreateResponse.json()).toEqual({
+      error: "Super admin required"
+    });
+
+    const forbiddenUpdateResponse = await app.inject({
+      method: "PATCH",
+      url: `/admin/api/users/${targetUserId}`,
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${adminCandidateToken}`
+      },
+      payload: {
+        email: "forbidden.update@example.com"
+      }
+    });
+    expect(forbiddenUpdateResponse.statusCode).toBe(403);
+    expect(forbiddenUpdateResponse.json()).toEqual({
+      error: "Super admin required"
+    });
+
+    const forbiddenDeleteResponse = await app.inject({
+      method: "DELETE",
+      url: `/admin/api/users/${targetUserId}`,
+      headers: {
+        authorization: `Bearer ${adminCandidateToken}`
+      }
+    });
+    expect(forbiddenDeleteResponse.statusCode).toBe(403);
+    expect(forbiddenDeleteResponse.json()).toEqual({
+      error: "Super admin required"
+    });
+  });
 });
