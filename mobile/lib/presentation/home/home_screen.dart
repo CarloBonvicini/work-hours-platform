@@ -7814,7 +7814,7 @@ class _QuickDayComputedSummary extends StatelessWidget {
       expectedMinutes: expectedMinutes,
       monthBalanceInfo: monthBalanceInfo,
       expectedValueColor: colorScheme.primary,
-      monthValueColor: monthBalanceInfo.accentColor ?? colorScheme.onSurface,
+      monthValueColor: colorScheme.onSurface,
     );
   }
 }
@@ -15494,12 +15494,10 @@ class _DisplayedMonthBalanceInfo {
   const _DisplayedMonthBalanceInfo({
     required this.value,
     this.supportingText,
-    this.accentColor,
   });
 
   final String value;
   final String? supportingText;
-  final Color? accentColor;
 }
 
 class _WeekPlanDay {
