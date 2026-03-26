@@ -68,6 +68,16 @@ enum _TodayOverridePreset { startLater, finishEarlier, longerBreak, dayOff }
 
 enum _CalendarTimeField { start, end }
 
+class _ScheduleTimeWheelSelection {
+  const _ScheduleTimeWheelSelection.confirmed(this.minutes) : cleared = false;
+  const _ScheduleTimeWheelSelection.cleared()
+    : minutes = null,
+      cleared = true;
+
+  final int? minutes;
+  final bool cleared;
+}
+
 enum _WorkdaySessionStatus { notStarted, active, onBreak, completed }
 
 const _mainNavigationSections = [
@@ -153,6 +163,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final _ticketSubjectController = TextEditingController();
   final _ticketMessageController = TextEditingController();
   final _ticketReplyController = TextEditingController();
+  final _ticketRecoveryIdController = TextEditingController();
   final _ticketAppVersionController = TextEditingController(
     text: const String.fromEnvironment('APP_VERSION', defaultValue: '0.1.0'),
   );
@@ -202,6 +213,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _isAgendaInteracting = false;
   bool _isLoadingTicketThreads = false;
   bool _isSubmittingTicketReply = false;
+  bool _isRecoveringTrackedTicket = false;
   bool _isAuthenticatingAccount = false;
   bool _isRecoveringAccountPassword = false;
   bool _isRestoringCloudBackup = false;
@@ -230,6 +242,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   AccountSession? _accountSession;
   _AccountAuthMode _accountAuthMode = _AccountAuthMode.login;
   Timer? _ticketNotificationTimer;
+  Timer? _liveWorkedMinutesTimer;
   final _accountEmailController = TextEditingController();
   final _accountPasswordController = TextEditingController();
 
@@ -249,6 +262,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     unawaited(_loadWorkdaySessionForDate(_selectedDate));
     unawaited(_refreshTrackedSupportTickets());
     _startTicketNotificationPolling();
+    _startLiveWorkedMinutesTicker();
     unawaited(_checkForUpdate());
   }
 
@@ -260,10 +274,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
     if (state == AppLifecycleState.resumed) {
       _startTicketNotificationPolling();
+      _startLiveWorkedMinutesTicker();
       unawaited(_refreshTrackedSupportTickets(notifyAboutNewReplies: true));
     } else {
       _ticketNotificationTimer?.cancel();
       _ticketNotificationTimer = null;
+      _liveWorkedMinutesTimer?.cancel();
+      _liveWorkedMinutesTimer = null;
     }
   }
 
@@ -272,6 +289,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     _ticketNotificationTimer?.cancel();
     _ticketNotificationTimer = null;
+    _liveWorkedMinutesTimer?.cancel();
+    _liveWorkedMinutesTimer = null;
     _fullNameController.dispose();
     _uniformDailyTargetController.dispose();
     _uniformStartTimeController.dispose();
@@ -303,6 +322,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _ticketMessageController.dispose();
     _ticketAppVersionController.dispose();
     _ticketReplyController.dispose();
+    _ticketRecoveryIdController.dispose();
     _accountEmailController.dispose();
     _accountPasswordController.dispose();
     for (final controller in _weekdayControllers.values) {
@@ -1141,6 +1161,19 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
+  void _startLiveWorkedMinutesTicker() {
+    _liveWorkedMinutesTimer?.cancel();
+    _liveWorkedMinutesTimer = Timer.periodic(
+      const Duration(seconds: 30),
+      (_) {
+        if (!mounted || _selectedSection != _HomeSection.day) {
+          return;
+        }
+        setState(() {});
+      },
+    );
+  }
+
   String _buildTicketReplyNotificationMessage(
     List<({String subject, int newReplies})> updates,
   ) {
@@ -1444,6 +1477,80 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _selectedTrackedTicketId = ticketId;
     });
     await _markTrackedTicketRepliesSeen(ticketId);
+  }
+
+  Future<void> _recoverTrackedSupportTicketById() async {
+    final ticketId = _ticketRecoveryIdController.text.trim();
+    if (ticketId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Inserisci il codice ticket.')),
+      );
+      return;
+    }
+    if (!RegExp(r'^[a-zA-Z0-9-]+$').hasMatch(ticketId)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Codice ticket non valido.')),
+      );
+      return;
+    }
+    if (_isRecoveringTrackedTicket) {
+      return;
+    }
+
+    setState(() {
+      _isRecoveringTrackedTicket = true;
+    });
+
+    try {
+      final thread = await widget.dashboardService.fetchSupportTicket(
+        ticketId: ticketId,
+      );
+      await _upsertTrackedSupportTicket(thread);
+      if (!mounted) {
+        return;
+      }
+
+      _ticketRecoveryIdController.clear();
+      await _refreshTrackedSupportTickets(notifyAboutNewReplies: false);
+      if (!mounted) {
+        return;
+      }
+
+      await _selectTrackedSupportTicket(thread.id);
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Ticket ${thread.id} recuperato. Le prossime risposte arriveranno qui.',
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            _humanizeError(
+              error,
+              apiBaseUrl: _snapshot?.apiBaseUrl,
+              isTicketRequest: true,
+            ),
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isRecoveringTrackedTicket = false;
+        });
+      }
+    }
   }
 
   Future<void> _submitSupportTicketReply() async {
@@ -2389,25 +2496,30 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   Future<void> _pickScheduleOverrideTime(_CalendarTimeField field) async {
     final initialMinutes = _currentScheduleOverrideTimeMinutes(field);
-    final pickedMinutes = await _showScheduleTimeWheelPicker(
+    final controller = _scheduleTimeController(field);
+    final pickedSelection = await _showScheduleTimeWheelPicker(
       title: switch (field) {
         _CalendarTimeField.start => 'Entrata',
         _CalendarTimeField.end => 'Uscita',
       },
       initialMinutes: initialMinutes,
+      allowClear: controller.text.trim().isNotEmpty,
       helperTextBuilder: (pickedMinutes) =>
           _buildScheduleOverrideWorkedMinutesPreviewLabel(
             field: field,
             pickedMinutes: pickedMinutes,
           ),
     );
-    if (pickedMinutes == null) {
+    if (pickedSelection == null) {
       return;
     }
 
     _seedScheduleOverrideDraftFromCurrentDisplay();
-    final controller = _scheduleTimeController(field);
-    controller.text = formatTimeInput(pickedMinutes);
+    if (pickedSelection.cleared) {
+      controller.clear();
+    } else {
+      controller.text = formatTimeInput(pickedSelection.minutes!);
+    }
     if (field == _CalendarTimeField.start && _usesTargetDrivenDayQuickEditor) {
       _syncScheduleOverrideEndFromTarget();
     } else {
@@ -2505,6 +2617,21 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     await _autosaveScheduleOverride();
   }
 
+  Future<void> _confirmSuggestedExitMinutes(int exitMinutes) async {
+    final clampedExitMinutes = exitMinutes.clamp(0, (23 * 60) + 59).toInt();
+    _scheduleOverrideEndTimeController.text = formatTimeInput(clampedExitMinutes);
+    _syncScheduleOverrideTargetFromTimes();
+    _normalizeSelectedDayPauseWindowForCurrentDraft();
+    _clearAgendaPreviewState();
+    if (mounted) {
+      setState(() {
+        _errorMessage = null;
+      });
+    }
+    _pushCurrentScheduleOverrideDraftToHistory();
+    await _autosaveScheduleOverride();
+  }
+
   Future<void> _pickUniformTargetMinutes() async {
     final currentTargetMinutes =
         parseHoursInput(_uniformDailyTargetController.text) ?? 8 * 60;
@@ -2530,15 +2657,20 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final initialMinutes =
         parseTimeInput(controller.text) ??
         (field == _CalendarTimeField.start ? 9 * 60 : 18 * 60);
-    final pickedMinutes = await _showScheduleTimeWheelPicker(
+    final pickedSelection = await _showScheduleTimeWheelPicker(
       title: field == _CalendarTimeField.start ? 'Entrata' : 'Uscita',
       initialMinutes: initialMinutes,
+      allowClear: controller.text.trim().isNotEmpty,
     );
-    if (pickedMinutes == null) {
+    if (pickedSelection == null) {
       return;
     }
 
-    controller.text = formatTimeInput(pickedMinutes);
+    if (pickedSelection.cleared) {
+      controller.clear();
+    } else {
+      controller.text = formatTimeInput(pickedSelection.minutes!);
+    }
     _syncProfileTargetFromTimes();
     if (mounted) {
       setState(() {});
@@ -2590,16 +2722,21 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final initialMinutes =
         parseTimeInput(controller.text) ??
         (field == _CalendarTimeField.start ? 9 * 60 : 18 * 60);
-    final pickedMinutes = await _showScheduleTimeWheelPicker(
+    final pickedSelection = await _showScheduleTimeWheelPicker(
       title:
           '${field == _CalendarTimeField.start ? 'Entrata' : 'Uscita'} ${weekday.label.toLowerCase()}',
       initialMinutes: initialMinutes,
+      allowClear: controller.text.trim().isNotEmpty,
     );
-    if (pickedMinutes == null) {
+    if (pickedSelection == null) {
       return;
     }
 
-    controller.text = formatTimeInput(pickedMinutes);
+    if (pickedSelection.cleared) {
+      controller.clear();
+    } else {
+      controller.text = formatTimeInput(pickedSelection.minutes!);
+    }
     _syncProfileTargetFromTimes(weekday: weekday);
     if (mounted) {
       setState(() {});
@@ -3203,11 +3340,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     await _autosaveScheduleOverride();
   }
 
-  Future<int?> _showScheduleTimeWheelPicker({
+  Future<_ScheduleTimeWheelSelection?> _showScheduleTimeWheelPicker({
     required String title,
     required int initialMinutes,
+    bool allowClear = false,
     String? Function(int pickedMinutes)? helperTextBuilder,
   }) async {
+    final clearSentinel = DateTime(1900, 1, 1);
     final initialDateTime = DateTime(
       2026,
       1,
@@ -3221,6 +3360,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       builder: (context) => _WheelPickerBottomSheet<DateTime>(
         title: title,
         initialValue: initialDateTime,
+        clearLabel: allowClear ? 'Rimuovi' : null,
+        clearValue: allowClear ? clearSentinel : null,
         valueBuilder: (controller) => ValueListenableBuilder<DateTime>(
           valueListenable: controller,
           builder: (context, value, _) {
@@ -3267,7 +3408,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (pickedDateTime == null) {
       return null;
     }
-    return (pickedDateTime.hour * 60) + pickedDateTime.minute;
+    if (allowClear &&
+        pickedDateTime.year == clearSentinel.year &&
+        pickedDateTime.month == clearSentinel.month &&
+        pickedDateTime.day == clearSentinel.day) {
+      return const _ScheduleTimeWheelSelection.cleared();
+    }
+    return _ScheduleTimeWheelSelection.confirmed(
+      (pickedDateTime.hour * 60) + pickedDateTime.minute,
+    );
   }
 
   Future<int?> _showScheduleBreakWheelPicker({
@@ -4244,6 +4393,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       )..[createdThread.id] = createdThread;
       _ticketSubjectController.clear();
       _ticketMessageController.clear();
+      _ticketRecoveryIdController.text = createdThread.id;
       setState(() {
         _ticketAttachments = const [];
         _trackedTickets = [
@@ -4273,7 +4423,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       });
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Ticket inviato correttamente.')),
+        SnackBar(
+          content: Text('Ticket inviato. Codice ticket: ${createdThread.id}'),
+        ),
       );
     } catch (error) {
       if (!mounted) {
@@ -5470,6 +5622,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       onRedoOverrideChange: _redoScheduleOverrideDraftChange,
       onMarkDayAsOff: _markSelectedDayAsDayOff,
       onRestoreWorkingDay: _removeScheduleOverride,
+      onConfirmSuggestedExitMinutes: _confirmSuggestedExitMinutes,
     );
   }
 
@@ -5738,6 +5891,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           subjectController: _ticketSubjectController,
           messageController: _ticketMessageController,
           replyController: _ticketReplyController,
+          recoveryTicketIdController: _ticketRecoveryIdController,
           appVersionController: _ticketAppVersionController,
           attachments: _ticketAttachments,
           trackedTickets: _trackedTickets,
@@ -5746,9 +5900,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           isSubmitting: _isSubmittingTicket,
           isLoadingThreads: _isLoadingTicketThreads,
           isSubmittingReply: _isSubmittingTicketReply,
+          isRecoveringTicket: _isRecoveringTrackedTicket,
           unreadReplyCount: _unreadTicketReplyCount,
           onSelectTicket: _selectTrackedSupportTicket,
           onRefreshThreads: _refreshTrackedSupportTickets,
+          onRecoverTicketById: _recoverTrackedSupportTicketById,
           onPickAttachments: _pickTicketAttachments,
           onRemoveAttachment: _removeTicketAttachmentAt,
           onSubmit: _submitSupportTicket,
@@ -6007,6 +6163,7 @@ class _CalendarCard extends StatelessWidget {
     required this.onRedoOverrideChange,
     required this.onMarkDayAsOff,
     required this.onRestoreWorkingDay,
+    required this.onConfirmSuggestedExitMinutes,
   });
 
   final String title;
@@ -6076,6 +6233,7 @@ class _CalendarCard extends StatelessWidget {
   final Future<void> Function() onRedoOverrideChange;
   final VoidCallback onMarkDayAsOff;
   final Future<void> Function() onRestoreWorkingDay;
+  final Future<void> Function(int exitMinutes) onConfirmSuggestedExitMinutes;
 
   @override
   Widget build(BuildContext context) {
@@ -6099,10 +6257,22 @@ class _CalendarCard extends StatelessWidget {
       effectiveSchedule: effectiveDaySchedule,
       quickEditorSchedule: quickEditorDaySchedule,
     );
-    final liveWorkedMinutes = _resolveDisplayedWorkedMinutes(
-      quickEditorSchedule: quickEditorDaySchedule,
-      workRules: workRules,
-    );
+    final now = DateTime.now();
+    final nowMinutes = (now.hour * 60) + now.minute;
+    final liveWorkedMinutes = isSelectedDateToday
+        ? _resolveLiveWorkedMinutes(
+            quickEditorSchedule: quickEditorDaySchedule,
+            workRules: workRules,
+            session: workdaySession,
+            pauseWindow: quickEditorPauseWindow,
+            nowMinutes: nowMinutes,
+            rawStartTimeText: overrideStartTimeController.text,
+            rawEndTimeText: overrideEndTimeController.text,
+          )
+        : _resolveDisplayedWorkedMinutes(
+            quickEditorSchedule: quickEditorDaySchedule,
+            workRules: workRules,
+          );
     final hasRecordedWorkContext =
         (isSelectedDateToday && workdaySession != null) ||
         dayMetrics.workedMinutes > 0 ||
@@ -6110,16 +6280,22 @@ class _CalendarCard extends StatelessWidget {
     final hasQuickWorkedOverride =
         quickEditorDaySchedule.startTime != baseDaySchedule.startTime ||
         quickEditorDaySchedule.endTime != baseDaySchedule.endTime;
-    final hasQuickResultContext =
-        hasRecordedWorkContext || hasQuickWorkedOverride;
-    final manualStartMinutes = parseTimeInput(
-      overrideStartTimeController.text.trim(),
+    final isQuickEditorDayOff = _isExplicitDayOffSchedule(
+      quickEditorDaySchedule,
     );
-    final baseStartMinutes = parseTimeInput(baseDaySchedule.startTime);
-    final hasManualStartEntry =
-        manualStartMinutes != null && manualStartMinutes != baseStartMinutes;
+    final resolvedStartMinutesForSuggestion =
+        parseTimeInput(overrideStartTimeController.text.trim()) ??
+        parseTimeInput(effectiveQuickEditorStartTime);
+    final hasStartForSuggestion =
+        !isQuickEditorDayOff && resolvedStartMinutesForSuggestion != null;
+    final hasStartedFromClockContext =
+        hasStartForSuggestion &&
+        isSelectedDateToday &&
+        nowMinutes >= resolvedStartMinutesForSuggestion!;
+    final hasQuickResultContext =
+        hasRecordedWorkContext || hasQuickWorkedOverride || hasStartedFromClockContext;
     final hasExitSuggestionContext =
-        hasQuickResultContext || hasManualStartEntry;
+        hasQuickResultContext || hasStartForSuggestion;
     final displayedWorkedMinutes = hasQuickResultContext
         ? liveWorkedMinutes
         : 0;
@@ -6129,13 +6305,10 @@ class _CalendarCard extends StatelessWidget {
       liveRawDayBalanceMinutes,
     );
     final monthBalanceInfo = _buildDisplayedMonthBalanceInfo(
-      month: month,
       selectedDate: selectedDate,
       days: days,
       liveExpectedMinutes: liveExpectedMinutes,
       liveWorkedMinutes: liveWorkedMinutes,
-      liveLeaveMinutes: dayMetrics.leaveMinutes,
-      workRules: workRules,
     );
     final suggestedExitLabel = _resolveSuggestedExitLabel(
       effectiveSchedule: effectiveDaySchedule,
@@ -6144,9 +6317,24 @@ class _CalendarCard extends StatelessWidget {
       rawStartTimeText: overrideStartTimeController.text,
       rawEndTimeText: overrideEndTimeController.text,
     );
-    final isQuickEditorDayOff = _isExplicitDayOffSchedule(
-      quickEditorDaySchedule,
+    final suggestedExitTotalMinutes = _resolveSuggestedExitTotalMinutes(
+      effectiveSchedule: effectiveDaySchedule,
+      quickEditorSchedule: quickEditorDaySchedule,
+      workRules: workRules,
+      rawStartTimeText: overrideStartTimeController.text,
     );
+    final hasScheduledExit = effectiveQuickEditorEndTime.trim().isNotEmpty;
+    final hasTheoreticalExit =
+        !isQuickEditorDayOff &&
+        !hasScheduledExit &&
+        hasExitSuggestionContext &&
+        suggestedExitLabel != '--:--' &&
+        suggestedExitLabel != 'Libero';
+    final confirmableTheoreticalExitMinutes =
+        suggestedExitTotalMinutes == null ||
+            suggestedExitTotalMinutes > ((23 * 60) + 59)
+        ? null
+        : suggestedExitTotalMinutes;
     final canRestoreWorkingDay =
         isQuickEditorDayOff &&
         !_matchesDaySchedule(baseDaySchedule, quickEditorDaySchedule);
@@ -6212,6 +6400,12 @@ class _CalendarCard extends StatelessWidget {
             suggestedExitLabel: suggestedExitLabel,
             hasResultContext: hasQuickResultContext,
             hasExitSuggestionContext: hasExitSuggestionContext,
+            hasTheoreticalExit: hasTheoreticalExit,
+            onConfirmTheoreticalExit: confirmableTheoreticalExitMinutes == null
+                ? null
+                : () => onConfirmSuggestedExitMinutes(
+                    confirmableTheoreticalExitMinutes,
+                  ),
           ),
         ],
       ),
@@ -6531,6 +6725,8 @@ class _CalendarQuickScheduleEditor extends StatelessWidget {
     required this.suggestedExitLabel,
     required this.hasResultContext,
     required this.hasExitSuggestionContext,
+    required this.hasTheoreticalExit,
+    this.onConfirmTheoreticalExit,
   });
 
   final bool isExpanded;
@@ -6560,6 +6756,8 @@ class _CalendarQuickScheduleEditor extends StatelessWidget {
   final String suggestedExitLabel;
   final bool hasResultContext;
   final bool hasExitSuggestionContext;
+  final bool hasTheoreticalExit;
+  final Future<void> Function()? onConfirmTheoreticalExit;
 
   @override
   Widget build(BuildContext context) {
@@ -6569,6 +6767,8 @@ class _CalendarQuickScheduleEditor extends StatelessWidget {
     final expandedIcon = isExpanded
         ? Icons.keyboard_arrow_up_rounded
         : Icons.keyboard_arrow_down_rounded;
+    final isProgrammedExit =
+        endTimeText.trim().isNotEmpty && hasExitSuggestionContext;
     final toggleButton = IconButton(
       key: const ValueKey('calendar-quick-editor-toggle-button'),
       onPressed: () => onToggleExpanded(!isExpanded),
@@ -6596,11 +6796,30 @@ class _CalendarQuickScheduleEditor extends StatelessWidget {
       ),
       if (showEndTime)
         _QuickScheduleValue(
-          label: 'Uscita',
-          value: endTimeText.isEmpty ? '--:--' : endTimeText,
+          label: hasTheoreticalExit
+              ? 'Uscita teorica'
+              : (isProgrammedExit ? 'Uscita programmata' : 'Uscita'),
+          value: hasTheoreticalExit
+              ? suggestedExitLabel
+              : (endTimeText.isEmpty ? '--:--' : endTimeText),
           valueKey: const ValueKey('calendar-override-end-time-button'),
-          supportingText: endTimeText.isEmpty && !isDayOff
-              ? 'Dopo l\'entrata'
+          supportingText: hasTheoreticalExit
+              ? 'Calcolata su entrata + ore attese'
+              : (endTimeText.isEmpty && !isDayOff ? 'Dopo l\'entrata' : null),
+          labelColorOverride: hasTheoreticalExit
+              ? const Color(0xFFBF7A24)
+              : null,
+          valueColorOverride: hasTheoreticalExit
+              ? const Color(0xFFBF7A24)
+              : null,
+          secondaryActionLabel: hasTheoreticalExit
+              ? 'Conferma uscita'
+              : null,
+          secondaryActionKey: const ValueKey(
+            'calendar-override-confirm-theoretical-end-button',
+          ),
+          onSecondaryAction: hasTheoreticalExit && onConfirmTheoreticalExit != null
+              ? () => onConfirmTheoreticalExit!()
               : null,
           onTap: onPickEndTime,
         ),
@@ -7031,6 +7250,11 @@ class _QuickScheduleValue extends StatelessWidget {
     required this.onTap,
     this.supportingText,
     this.isPrimaryAction = false,
+    this.labelColorOverride,
+    this.valueColorOverride,
+    this.secondaryActionLabel,
+    this.secondaryActionKey,
+    this.onSecondaryAction,
   });
 
   final String label;
@@ -7039,17 +7263,23 @@ class _QuickScheduleValue extends StatelessWidget {
   final Future<void> Function() onTap;
   final String? supportingText;
   final bool isPrimaryAction;
+  final Color? labelColorOverride;
+  final Color? valueColorOverride;
+  final String? secondaryActionLabel;
+  final Key? secondaryActionKey;
+  final Future<void> Function()? onSecondaryAction;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    final labelColor = isPrimaryAction
-        ? colorScheme.primary
-        : colorScheme.onSurface;
+    final labelColor =
+        labelColorOverride ??
+        (isPrimaryAction ? colorScheme.primary : colorScheme.onSurface);
     final supportingColor = isPrimaryAction
         ? colorScheme.primary.withValues(alpha: 0.88)
         : colorScheme.onSurfaceVariant;
+    final valueColor = valueColorOverride ?? colorScheme.primary;
 
     return Material(
       color: Colors.transparent,
@@ -7077,7 +7307,7 @@ class _QuickScheduleValue extends StatelessWidget {
                       value,
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.titleLarge?.copyWith(
-                        color: colorScheme.primary,
+                        color: valueColor,
                         fontWeight: FontWeight.w800,
                       ),
                     ),
@@ -7098,6 +7328,23 @@ class _QuickScheduleValue extends StatelessWidget {
                     color: supportingColor,
                     fontWeight: FontWeight.w600,
                   ),
+                ),
+              ],
+              if (secondaryActionLabel != null && onSecondaryAction != null) ...[
+                const SizedBox(height: 6),
+                TextButton(
+                  key: secondaryActionKey,
+                  style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 4,
+                    ),
+                    minimumSize: const Size(0, 0),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    visualDensity: VisualDensity.compact,
+                  ),
+                  onPressed: () => onSecondaryAction!(),
+                  child: Text(secondaryActionLabel!),
                 ),
               ],
             ],
@@ -7468,12 +7715,16 @@ class _WheelPickerBottomSheet<T> extends StatefulWidget {
     required this.initialValue,
     required this.valueBuilder,
     required this.pickerBuilder,
+    this.clearLabel,
+    this.clearValue,
   });
 
   final String title;
   final T initialValue;
   final Widget Function(ValueNotifier<T> controller) valueBuilder;
   final Widget Function(ValueNotifier<T> controller) pickerBuilder;
+  final String? clearLabel;
+  final T? clearValue;
 
   @override
   State<_WheelPickerBottomSheet<T>> createState() =>
@@ -7519,6 +7770,15 @@ class _WheelPickerBottomSheetState<T>
                   onPressed: () => Navigator.of(context).pop(),
                   child: const Text('Annulla'),
                 ),
+                if (widget.clearLabel != null && widget.clearValue != null)
+                  TextButton(
+                    key: const ValueKey('wheel-picker-clear-button'),
+                    onPressed: () => Navigator.of(context).pop(widget.clearValue),
+                    child: Text(
+                      widget.clearLabel!,
+                      style: TextStyle(color: Theme.of(context).colorScheme.error),
+                    ),
+                  ),
                 FilledButton.tonal(
                   onPressed: () =>
                       Navigator.of(context).pop(_valueNotifier.value),
@@ -13022,6 +13282,7 @@ class _SupportTicketCard extends StatelessWidget {
     required this.subjectController,
     required this.messageController,
     required this.replyController,
+    required this.recoveryTicketIdController,
     required this.appVersionController,
     required this.attachments,
     required this.trackedTickets,
@@ -13030,9 +13291,11 @@ class _SupportTicketCard extends StatelessWidget {
     required this.isSubmitting,
     required this.isLoadingThreads,
     required this.isSubmittingReply,
+    required this.isRecoveringTicket,
     required this.unreadReplyCount,
     required this.onSelectTicket,
     required this.onRefreshThreads,
+    required this.onRecoverTicketById,
     required this.onPickAttachments,
     required this.onRemoveAttachment,
     required this.onSubmit,
@@ -13048,6 +13311,7 @@ class _SupportTicketCard extends StatelessWidget {
   final TextEditingController subjectController;
   final TextEditingController messageController;
   final TextEditingController replyController;
+  final TextEditingController recoveryTicketIdController;
   final TextEditingController appVersionController;
   final List<SupportTicketUploadAttachment> attachments;
   final List<TrackedSupportTicket> trackedTickets;
@@ -13056,9 +13320,11 @@ class _SupportTicketCard extends StatelessWidget {
   final bool isSubmitting;
   final bool isLoadingThreads;
   final bool isSubmittingReply;
+  final bool isRecoveringTicket;
   final int unreadReplyCount;
   final Future<void> Function(String ticketId) onSelectTicket;
   final Future<void> Function({bool notifyAboutNewReplies}) onRefreshThreads;
+  final Future<void> Function() onRecoverTicketById;
   final Future<void> Function() onPickAttachments;
   final void Function(int index) onRemoveAttachment;
   final Future<void> Function() onSubmit;
@@ -13205,6 +13471,14 @@ class _SupportTicketCard extends StatelessWidget {
                           ),
                         ],
                       ),
+                      const SizedBox(height: 6),
+                      SelectableText(
+                        'Codice ticket: ${selectedThread.id}',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
                       const SizedBox(height: 14),
                       Container(
                         padding: const EdgeInsets.all(14),
@@ -13310,6 +13584,58 @@ class _SupportTicketCard extends StatelessWidget {
                   ),
                 ),
             ],
+            const SizedBox(height: 16),
+            Text(
+              'Recupera ticket con codice',
+              style: Theme.of(
+                context,
+              ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Anche senza account: salva il codice ticket e incollalo qui se cambi telefono o reinstalli l app.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 10),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: TextFormField(
+                    key: const ValueKey('ticket-recovery-id-field'),
+                    controller: recoveryTicketIdController,
+                    enabled: !isRecoveringTicket,
+                    textInputAction: TextInputAction.done,
+                    decoration: const InputDecoration(
+                      labelText: 'Codice ticket',
+                      hintText: 'es. 8f72c4b2-...',
+                    ),
+                    onFieldSubmitted: (_) {
+                      if (!isRecoveringTicket) {
+                        unawaited(onRecoverTicketById());
+                      }
+                    },
+                  ),
+                ),
+                const SizedBox(width: 10),
+                FilledButton.tonalIcon(
+                  key: const ValueKey('ticket-recovery-submit-button'),
+                  onPressed: isRecoveringTicket
+                      ? null
+                      : () => unawaited(onRecoverTicketById()),
+                  icon: isRecoveringTicket
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.link_rounded),
+                  label: Text(
+                    isRecoveringTicket ? 'Recupero...' : 'Recupera',
+                  ),
+                ),
+              ],
+            ),
             const SizedBox(height: 24),
             Text(
               'Apri un nuovo ticket',
@@ -14441,6 +14767,87 @@ int _resolveDisplayedWorkedMinutes({
       0;
 }
 
+int _resolveLiveWorkedMinutes({
+  required DaySchedule quickEditorSchedule,
+  required UserWorkRules workRules,
+  required WorkdaySession? session,
+  required _CalendarPauseWindow? pauseWindow,
+  required int nowMinutes,
+  String? rawStartTimeText,
+  String? rawEndTimeText,
+}) {
+  if (session != null) {
+    final measurementSegments = _buildAgendaMeasurementSegments(
+      schedule: quickEditorSchedule,
+      session: session,
+      nowMinutes: nowMinutes,
+      pauseWindow: pauseWindow,
+    );
+    if (measurementSegments.isNotEmpty) {
+      return measurementSegments
+          .where((segment) => segment.kind == _AgendaMeasurementSegmentKind.work)
+          .fold<int>(
+            0,
+            (total, segment) =>
+                total + (segment.endMinutes - segment.startMinutes),
+          );
+    }
+  }
+
+  final resolvedStartMinutes =
+      parseTimeInput(rawStartTimeText?.trim()) ??
+      parseTimeInput(quickEditorSchedule.startTime);
+  final resolvedEndMinutes =
+      parseTimeInput(rawEndTimeText?.trim()) ??
+      parseTimeInput(quickEditorSchedule.endTime);
+
+  if (resolvedStartMinutes == null) {
+    return _resolveDisplayedWorkedMinutes(
+      quickEditorSchedule: quickEditorSchedule,
+      workRules: workRules,
+    );
+  }
+
+  if (resolvedEndMinutes != null && resolvedEndMinutes > resolvedStartMinutes) {
+    return _resolveDisplayedWorkedMinutes(
+      quickEditorSchedule: quickEditorSchedule,
+      workRules: workRules,
+    );
+  }
+
+  final runningMinutes = math.max(0, nowMinutes - resolvedStartMinutes);
+  return math.max(0, runningMinutes - quickEditorSchedule.breakMinutes);
+}
+
+int? _resolveSuggestedExitTotalMinutes({
+  required DaySchedule effectiveSchedule,
+  required DaySchedule quickEditorSchedule,
+  required UserWorkRules workRules,
+  String? rawStartTimeText,
+}) {
+  final expectedMinutes = _resolveDisplayedExpectedMinutes(
+    effectiveSchedule: effectiveSchedule,
+    quickEditorSchedule: quickEditorSchedule,
+  );
+  if (expectedMinutes <= 0) {
+    return null;
+  }
+
+  final startMinutes =
+      parseTimeInput(rawStartTimeText?.trim()) ??
+      parseTimeInput(quickEditorSchedule.startTime) ??
+      parseTimeInput(effectiveSchedule.startTime);
+  if (startMinutes == null) {
+    return null;
+  }
+
+  final effectiveBreakMinutes = math.max(
+    quickEditorSchedule.breakMinutes,
+    math.max(effectiveSchedule.breakMinutes, workRules.minimumBreakMinutes),
+  );
+  return startMinutes + expectedMinutes + effectiveBreakMinutes;
+}
+
 String _resolveSuggestedExitLabel({
   required DaySchedule effectiveSchedule,
   required DaySchedule quickEditorSchedule,
@@ -14456,11 +14863,13 @@ String _resolveSuggestedExitLabel({
     return 'Libero';
   }
 
-  final startMinutes =
-      parseTimeInput(rawStartTimeText?.trim()) ??
-      parseTimeInput(quickEditorSchedule.startTime) ??
-      parseTimeInput(effectiveSchedule.startTime);
-  if (startMinutes == null) {
+  final suggestedExitTotalMinutes = _resolveSuggestedExitTotalMinutes(
+    effectiveSchedule: effectiveSchedule,
+    quickEditorSchedule: quickEditorSchedule,
+    workRules: workRules,
+    rawStartTimeText: rawStartTimeText,
+  );
+  if (suggestedExitTotalMinutes == null) {
     final fallbackEndMinutes =
         parseTimeInput(rawEndTimeText?.trim()) ??
         parseTimeInput(effectiveSchedule.endTime) ??
@@ -14470,103 +14879,51 @@ String _resolveSuggestedExitLabel({
         : formatTimeInput(fallbackEndMinutes);
   }
 
-  final effectiveBreakMinutes = math.max(
-    quickEditorSchedule.breakMinutes,
-    math.max(effectiveSchedule.breakMinutes, workRules.minimumBreakMinutes),
-  );
-  final suggestedExitMinutes =
-      startMinutes + expectedMinutes + effectiveBreakMinutes;
-  final normalizedMinutes = suggestedExitMinutes % (24 * 60);
-  final nextDaySuffix = suggestedExitMinutes >= (24 * 60) ? ' +1g' : '';
+  final normalizedMinutes = suggestedExitTotalMinutes % (24 * 60);
+  final nextDaySuffix = suggestedExitTotalMinutes >= (24 * 60) ? ' +1g' : '';
   return '${formatTimeInput(normalizedMinutes)}$nextDaySuffix';
 }
 
 _DisplayedMonthBalanceInfo _buildDisplayedMonthBalanceInfo({
-  required String month,
   required DateTime selectedDate,
   required List<_CalendarDay> days,
   required int liveExpectedMinutes,
   required int liveWorkedMinutes,
-  required int liveLeaveMinutes,
-  required UserWorkRules workRules,
 }) {
-  final monthDate = _monthToDate(month);
-  final today = DateUtils.dateOnly(DateTime.now());
   final selectedDay = DateUtils.dateOnly(selectedDate);
-  final firstDayOfMonth = DateTime(monthDate.year, monthDate.month, 1);
-  if (firstDayOfMonth.isAfter(today)) {
-    return const _DisplayedMonthBalanceInfo(
-      value: 'Non disponibile',
-      supportingText: 'Mese non iniziato',
-    );
-  }
-
-  final lastAvailableDay = _isSameMonth(monthDate, today)
-      ? today
-      : DateTime(monthDate.year, monthDate.month + 1, 0);
-  final cutoffDate = selectedDay.isBefore(lastAvailableDay)
-      ? selectedDay
-      : lastAvailableDay;
-  final elapsedDays = days
+  final monthDays = days
       .where((day) => day.date != null)
-      .where((day) => !DateUtils.dateOnly(day.date!).isAfter(cutoffDate))
       .toList(growable: false);
-  if (elapsedDays.isEmpty) {
-    return const _DisplayedMonthBalanceInfo(
-      value: 'Non disponibile',
-      supportingText: 'Nessun dato registrato',
-    );
+  if (monthDays.isEmpty) {
+    return const _DisplayedMonthBalanceInfo(value: '0:00');
   }
 
-  var hasExpectedDay = false;
-  var hasMissingTrackedDay = false;
-  var runningRawBalanceMinutes = 0;
-  for (final day in elapsedDays) {
+  var monthWorkedMinutes = 0;
+  var monthExpectedMinutes = 0;
+  for (final day in monthDays) {
     var expectedMinutes = day.expectedMinutes;
     var workedMinutes = day.workedMinutes;
-    var leaveMinutes = day.leaveMinutes;
 
     if (_isSameDay(day.date!, selectedDay)) {
       expectedMinutes = liveExpectedMinutes;
       workedMinutes = liveWorkedMinutes;
-      leaveMinutes = liveLeaveMinutes;
     }
 
-    hasExpectedDay = hasExpectedDay || expectedMinutes > 0;
-    if (expectedMinutes > 0 && workedMinutes == 0 && leaveMinutes == 0) {
-      hasMissingTrackedDay = true;
-    }
-    runningRawBalanceMinutes +=
-        (workedMinutes + leaveMinutes) - expectedMinutes;
+    monthWorkedMinutes += workedMinutes;
+    monthExpectedMinutes += expectedMinutes;
   }
 
-  if (!hasExpectedDay) {
-    return const _DisplayedMonthBalanceInfo(
-      value: 'Non disponibile',
-      supportingText: 'Nessun giorno lavorativo nel periodo',
+  if (monthExpectedMinutes <= 0) {
+    return _DisplayedMonthBalanceInfo(
+      value: _formatHoursInput(monthWorkedMinutes),
+      supportingText: 'Ore fatte',
     );
   }
-
-  if (hasMissingTrackedDay) {
-    return const _DisplayedMonthBalanceInfo(
-      value: 'Dati incompleti',
-      supportingText: 'Saldo mese non disponibile',
-    );
-  }
-
-  final balanceMinutes = workRules.clampMonthlyBalance(
-    runningRawBalanceMinutes,
-  );
-  final accentColor = balanceMinutes == 0
-      ? null
-      : balanceMinutes > 0
-      ? const Color(0xFF0B6E69)
-      : const Color(0xFF9D3D2F);
 
   return _DisplayedMonthBalanceInfo(
-    value: _formatSignedHoursInput(balanceMinutes),
-    supportingText: 'Aggiornato al ${_formatCompactDate(cutoffDate)}',
-    accentColor: accentColor,
+    value:
+        '${_formatHoursInput(monthWorkedMinutes)} / ${_formatHoursInput(monthExpectedMinutes)}',
+    supportingText: 'Ore fatte / ore totali del mese',
   );
 }
 
