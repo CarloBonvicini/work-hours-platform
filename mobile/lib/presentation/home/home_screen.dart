@@ -2611,6 +2611,193 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     await _autosaveScheduleOverride();
   }
 
+  Future<void> _toggleTodayConcludedFromQuickEditor() async {
+    if (!_isSameDay(_selectedDate, _todayDate)) {
+      return;
+    }
+
+    final nowMinutes = _currentMinutesOfDay();
+    final startMinutes = parseTimeInput(
+      _scheduleOverrideStartTimeController.text.trim(),
+    );
+    final currentEndMinutes = parseTimeInput(
+      _scheduleOverrideEndTimeController.text.trim(),
+    );
+    final isAlreadyConcluded =
+        currentEndMinutes != null && currentEndMinutes <= nowMinutes;
+
+    if (isAlreadyConcluded) {
+      final shouldReopen = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) {
+          return AlertDialog(
+            title: const Text('Riapri giornata'),
+            content: const Text(
+              'Tolgo l uscita registrata cosi puoi continuare o correggere gli orari.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(false),
+                child: const Text('Annulla'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(dialogContext).pop(true),
+                child: const Text('Riapri'),
+              ),
+            ],
+          );
+        },
+      );
+
+      if (shouldReopen != true) {
+        return;
+      }
+
+      _seedScheduleOverrideDraftFromCurrentDisplay();
+      _scheduleOverrideEndTimeController.clear();
+      _clearPendingExitConfirmationForSelectedDate();
+      _normalizeSelectedDayPauseWindowForCurrentDraft();
+      _clearAgendaPreviewState();
+      if (mounted) {
+        setState(() {
+          _errorMessage = null;
+        });
+      }
+      _pushCurrentScheduleOverrideDraftToHistory();
+      await _autosaveScheduleOverride();
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Giornata riaperta.')),
+      );
+      return;
+    }
+
+    if (startMinutes == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Inserisci prima l entrata per concludere la giornata.'),
+        ),
+      );
+      return;
+    }
+
+    var resolvedEndMinutes = currentEndMinutes;
+    String? autoAdjustedMessage;
+    if (resolvedEndMinutes == null || resolvedEndMinutes > nowMinutes) {
+      resolvedEndMinutes = nowMinutes;
+      autoAdjustedMessage =
+          'Per chiudere oggi imposto l uscita all ora attuale (${formatTimeInput(nowMinutes)}).';
+    }
+
+    if (resolvedEndMinutes <= startMinutes) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'L uscita deve essere successiva all entrata per chiudere la giornata.',
+          ),
+        ),
+      );
+      return;
+    }
+    final confirmedEndMinutes = resolvedEndMinutes;
+
+    final breakMinutes =
+        parseBreakDurationInput(_scheduleOverrideBreakController.text) ?? 0;
+    final effectiveBreakMinutes = breakMinutes.clamp(
+      0,
+      confirmedEndMinutes - startMinutes,
+    );
+    final workedMinutes = math.max(
+      0,
+      confirmedEndMinutes - startMinutes - effectiveBreakMinutes,
+    );
+    final expectedMinutes =
+        parseHoursInput(_scheduleOverrideTargetController.text) ??
+        _fallbackScheduleForSelectedDate().targetMinutes;
+    final workRules =
+        _snapshot?.profile.workRules ??
+        UserWorkRules.unbounded(expectedDailyMinutes: expectedMinutes);
+    final balanceMinutes = workRules.clampDailyBalance(
+      workedMinutes - expectedMinutes,
+    );
+
+    final shouldConfirm = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        final theme = Theme.of(dialogContext);
+        final valueStyle = theme.textTheme.titleMedium?.copyWith(
+          fontWeight: FontWeight.w800,
+        );
+        return AlertDialog(
+          title: const Text('Conferma giornata'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Entrata: ${formatTimeInput(startMinutes)}', style: valueStyle),
+              const SizedBox(height: 6),
+              Text(
+                'Uscita: ${formatTimeInput(confirmedEndMinutes)}',
+                style: valueStyle,
+              ),
+              const SizedBox(height: 6),
+              Text('Pausa: ${_formatHoursInput(effectiveBreakMinutes)}'),
+              const SizedBox(height: 6),
+              Text('Lavorate: ${_formatHoursInput(workedMinutes)}'),
+              const SizedBox(height: 6),
+              Text('Saldo oggi: ${_formatSignedHoursInput(balanceMinutes)}'),
+              if (autoAdjustedMessage != null) ...[
+                const SizedBox(height: 12),
+                Text(
+                  autoAdjustedMessage,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Modifica'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Conferma'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (shouldConfirm != true) {
+      return;
+    }
+
+    _seedScheduleOverrideDraftFromCurrentDisplay();
+    _scheduleOverrideEndTimeController.text = formatTimeInput(confirmedEndMinutes);
+    _clearPendingExitConfirmationForSelectedDate();
+    _normalizeSelectedDayPauseWindowForCurrentDraft();
+    _clearAgendaPreviewState();
+    if (mounted) {
+      setState(() {
+        _errorMessage = null;
+      });
+    }
+    _pushCurrentScheduleOverrideDraftToHistory();
+    await _autosaveScheduleOverride();
+    if (!mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Giornata conclusa.')),
+    );
+  }
+
   Future<void> _pickUniformTargetMinutes() async {
     final currentTargetMinutes =
         parseHoursInput(_uniformDailyTargetController.text) ?? 8 * 60;
@@ -5904,6 +6091,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       onMarkDayAsOff: _markSelectedDayAsDayOff,
       onRestoreWorkingDay: _removeScheduleOverride,
       onConfirmSuggestedExitMinutes: _confirmSuggestedExitMinutes,
+      onToggleTodayConcluded: _toggleTodayConcludedFromQuickEditor,
     );
   }
 
@@ -6480,6 +6668,7 @@ class _CalendarCard extends StatelessWidget {
     required this.onMarkDayAsOff,
     required this.onRestoreWorkingDay,
     required this.onConfirmSuggestedExitMinutes,
+    required this.onToggleTodayConcluded,
   });
 
   final String title;
@@ -6551,6 +6740,7 @@ class _CalendarCard extends StatelessWidget {
   final VoidCallback onMarkDayAsOff;
   final Future<void> Function() onRestoreWorkingDay;
   final Future<void> Function(int exitMinutes) onConfirmSuggestedExitMinutes;
+  final Future<void> Function() onToggleTodayConcluded;
 
   @override
   Widget build(BuildContext context) {
@@ -6576,19 +6766,6 @@ class _CalendarCard extends StatelessWidget {
     );
     final now = DateTime.now();
     final nowMinutes = (now.hour * 60) + now.minute;
-    final liveWorkedMinutes = isSelectedDateToday
-        ? _resolveLiveWorkedMinutes(
-            quickEditorSchedule: quickEditorDaySchedule,
-            workRules: workRules,
-            session: workdaySession,
-            pauseWindow: quickEditorPauseWindow,
-            nowMinutes: nowMinutes,
-            rawStartTimeText: overrideStartTimeController.text,
-          )
-        : _resolveDisplayedWorkedMinutes(
-            quickEditorSchedule: quickEditorDaySchedule,
-            workRules: workRules,
-          );
     final hasRecordedWorkContext =
         (isSelectedDateToday && workdaySession != null) ||
         dayMetrics.workedMinutes > 0 ||
@@ -6603,6 +6780,33 @@ class _CalendarCard extends StatelessWidget {
     final isQuickEditorDayOff = _isExplicitDayOffSchedule(
       quickEditorDaySchedule,
     );
+    final resolvedEndMinutesForToday =
+        parseTimeInput(overrideEndTimeController.text.trim()) ??
+        parseTimeInput(effectiveQuickEditorEndTime);
+    final hasElapsedManualExit =
+        !isQuickEditorDayOff &&
+        isSelectedDateToday &&
+        hasQuickWorkedOverride &&
+        resolvedEndMinutesForToday != null &&
+        resolvedEndMinutesForToday <= nowMinutes;
+    final isTodayConcluded =
+        isSelectedDateToday &&
+        ((workdaySession?.isCompleted ?? false) || hasElapsedManualExit);
+    final liveWorkedMinutes = isSelectedDateToday
+        ? _resolveLiveWorkedMinutes(
+            quickEditorSchedule: quickEditorDaySchedule,
+            workRules: workRules,
+            session: workdaySession,
+            pauseWindow: quickEditorPauseWindow,
+            nowMinutes: nowMinutes,
+            rawStartTimeText: overrideStartTimeController.text,
+            rawEndTimeText: overrideEndTimeController.text,
+            treatEndAsActual: hasElapsedManualExit,
+          )
+        : _resolveDisplayedWorkedMinutes(
+            quickEditorSchedule: quickEditorDaySchedule,
+            workRules: workRules,
+          );
     final resolvedStartMinutesForSuggestion =
         parseTimeInput(overrideStartTimeController.text.trim()) ??
         parseTimeInput(effectiveQuickEditorStartTime);
@@ -6746,6 +6950,12 @@ class _CalendarCard extends StatelessWidget {
             hasTheoreticalExit: hasTheoreticalExit,
             hasPendingExitConfirmation: hasPendingExitConfirmation,
             isUsingStandardWorkTarget: isUsingStandardWorkTarget,
+            isEndTimeFinalized:
+                effectiveQuickEditorEndTime.trim().isNotEmpty &&
+                (!isSelectedDateToday || isTodayConcluded),
+            showTodayConcludeToggle: isSelectedDateToday && !isQuickEditorDayOff,
+            isTodayConcluded: isTodayConcluded,
+            onToggleTodayConcluded: onToggleTodayConcluded,
             onConfirmTheoreticalExit: confirmableTheoreticalExitMinutes == null
                 ? null
                 : () => onConfirmSuggestedExitMinutes(
@@ -7104,6 +7314,10 @@ class _CalendarQuickScheduleEditor extends StatelessWidget {
     required this.hasTheoreticalExit,
     required this.hasPendingExitConfirmation,
     required this.isUsingStandardWorkTarget,
+    required this.isEndTimeFinalized,
+    required this.showTodayConcludeToggle,
+    required this.isTodayConcluded,
+    required this.onToggleTodayConcluded,
     this.onConfirmTheoreticalExit,
   });
 
@@ -7139,6 +7353,10 @@ class _CalendarQuickScheduleEditor extends StatelessWidget {
   final bool hasTheoreticalExit;
   final bool hasPendingExitConfirmation;
   final bool isUsingStandardWorkTarget;
+  final bool isEndTimeFinalized;
+  final bool showTodayConcludeToggle;
+  final bool isTodayConcluded;
+  final Future<void> Function() onToggleTodayConcluded;
   final Future<void> Function()? onConfirmTheoreticalExit;
 
   @override
@@ -7150,7 +7368,9 @@ class _CalendarQuickScheduleEditor extends StatelessWidget {
         ? Icons.keyboard_arrow_up_rounded
         : Icons.keyboard_arrow_down_rounded;
     final isProgrammedExit =
-        endTimeText.trim().isNotEmpty && hasExitSuggestionContext;
+        endTimeText.trim().isNotEmpty &&
+        hasExitSuggestionContext &&
+        !isEndTimeFinalized;
     final effectiveSummaryExitLabel = endTimeText.trim().isNotEmpty
         ? endTimeText
         : suggestedExitLabel;
@@ -7328,6 +7548,26 @@ class _CalendarQuickScheduleEditor extends StatelessWidget {
                             }
                           },
                         ),
+                        if (showTodayConcludeToggle)
+                          FilterChip(
+                            key: const ValueKey(
+                              'calendar-override-day-concluded-toggle-button',
+                            ),
+                            selected: isTodayConcluded,
+                            showCheckmark: false,
+                            avatar: Icon(
+                              isTodayConcluded
+                                  ? Icons.check_circle_outline
+                                  : Icons.task_alt_outlined,
+                              size: 18,
+                            ),
+                            label: Text(
+                              isTodayConcluded ? 'Concluso' : 'Concludi',
+                            ),
+                            onSelected: (_) {
+                              unawaited(onToggleTodayConcluded());
+                            },
+                          ),
                       ],
                     ),
                     const SizedBox(height: 12),
@@ -16031,6 +16271,8 @@ int _resolveLiveWorkedMinutes({
   required _CalendarPauseWindow? pauseWindow,
   required int nowMinutes,
   String? rawStartTimeText,
+  String? rawEndTimeText,
+  bool treatEndAsActual = false,
 }) {
   if (session != null) {
     final measurementSegments = _buildAgendaMeasurementSegments(
@@ -16053,11 +16295,28 @@ int _resolveLiveWorkedMinutes({
   final resolvedStartMinutes =
       parseTimeInput(rawStartTimeText?.trim()) ??
       parseTimeInput(quickEditorSchedule.startTime);
+  final resolvedEndMinutes =
+      parseTimeInput(rawEndTimeText?.trim()) ??
+      parseTimeInput(quickEditorSchedule.endTime);
 
   if (resolvedStartMinutes == null) {
     return _resolveDisplayedWorkedMinutes(
       quickEditorSchedule: quickEditorSchedule,
       workRules: workRules,
+    );
+  }
+
+  if (treatEndAsActual &&
+      resolvedEndMinutes != null &&
+      resolvedEndMinutes > resolvedStartMinutes &&
+      resolvedEndMinutes <= nowMinutes) {
+    final breakMinutes = quickEditorSchedule.breakMinutes.clamp(
+      0,
+      resolvedEndMinutes - resolvedStartMinutes,
+    );
+    return math.max(
+      0,
+      resolvedEndMinutes - resolvedStartMinutes - breakMinutes,
     );
   }
 
