@@ -11,6 +11,7 @@ import 'package:work_hours_mobile/domain/models/account_session.dart';
 import 'package:work_hours_mobile/application/services/dashboard_service.dart';
 import 'package:work_hours_mobile/application/services/dashboard_snapshot_store.dart';
 import 'package:work_hours_mobile/application/services/hour_input_parser.dart';
+import 'package:work_hours_mobile/application/services/local_notification_service.dart';
 import 'package:work_hours_mobile/application/services/onboarding_preference_store.dart';
 import 'package:work_hours_mobile/application/services/support_ticket_store.dart';
 import 'package:work_hours_mobile/application/services/theme_preference_store.dart';
@@ -128,7 +129,6 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
-  final GlobalKey _navigationMenuButtonKey = GlobalKey();
   final _profileFormKey = GlobalKey<FormState>();
   final _quickEntryFormKey = GlobalKey<FormState>();
   final _scheduleOverrideFormKey = GlobalKey<FormState>();
@@ -243,6 +243,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   _AccountAuthMode _accountAuthMode = _AccountAuthMode.login;
   Timer? _ticketNotificationTimer;
   Timer? _liveWorkedMinutesTimer;
+  final LocalNotificationService _localNotificationService =
+      LocalNotificationService();
   final _accountEmailController = TextEditingController();
   final _accountPasswordController = TextEditingController();
 
@@ -263,6 +265,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     unawaited(_refreshTrackedSupportTickets());
     _startTicketNotificationPolling();
     _startLiveWorkedMinutesTicker();
+    unawaited(_initializeLocalNotifications());
     unawaited(_checkForUpdate());
   }
 
@@ -436,6 +439,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _isCheckingForUpdate = false;
       });
       if (availableUpdate != null) {
+        unawaited(_localNotificationService.notifyUpdateAvailable(availableUpdate));
         await _maybePromptForUpdate(availableUpdate);
       }
     } catch (_) {
@@ -1174,6 +1178,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
+  Future<void> _initializeLocalNotifications() async {
+    try {
+      await _localNotificationService.initialize();
+      await _localNotificationService.requestPermissions();
+    } catch (_) {
+      // Local notifications are best-effort and should not block app startup.
+    }
+  }
+
   String _buildTicketReplyNotificationMessage(
     List<({String subject, int newReplies})> updates,
   ) {
@@ -1391,6 +1404,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text(message)));
+        unawaited(_localNotificationService.notifyTicketReplies(message: message));
       }
 
       final currentSelectedTicketId = selectedTicketId;
@@ -1873,65 +1887,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Future<void> _cacheSnapshot(DashboardSnapshot snapshot) async {
     _snapshotCache[snapshot.summary.month] = snapshot;
     await widget.dashboardSnapshotStore.saveSnapshot(snapshot);
-  }
-
-  Future<void> _openNavigationMenu() async {
-    final buttonContext = _navigationMenuButtonKey.currentContext;
-    if (buttonContext == null || !mounted) {
-      return;
-    }
-
-    final overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
-    final button = buttonContext.findRenderObject() as RenderBox;
-    final buttonRect = Rect.fromPoints(
-      button.localToGlobal(Offset.zero, ancestor: overlay),
-      button.localToGlobal(
-        button.size.bottomRight(Offset.zero),
-        ancestor: overlay,
-      ),
-    );
-
-    final selectedSection = await showMenu<_HomeSection>(
-      context: context,
-      position: RelativeRect.fromRect(buttonRect, Offset.zero & overlay.size),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      elevation: 10,
-      color: Theme.of(context).colorScheme.surfaceContainerHigh,
-      surfaceTintColor: Colors.transparent,
-      items: [
-        for (final section in _mainNavigationSections)
-          PopupMenuItem<_HomeSection>(
-            key: ValueKey('navigation-option-${section.name}'),
-            value: section,
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-            child: _NavigationMenuItem(
-              section: section,
-              isSelected: _selectedSection == section,
-              badgeCount: section == _HomeSection.ticket
-                  ? _unreadTicketReplyCount
-                  : 0,
-            ),
-          ),
-      ],
-    );
-    if (!mounted || selectedSection == null) {
-      return;
-    }
-
-    setState(() {
-      _selectedSection = selectedSection;
-      if (selectedSection == _HomeSection.calendar &&
-          _calendarView == _CalendarView.day) {
-        _calendarView = _CalendarView.month;
-      }
-    });
-    if (selectedSection == _HomeSection.ticket) {
-      unawaited(_refreshTrackedSupportTickets());
-      final selectedTicketId = _selectedTrackedTicketId;
-      if (selectedTicketId != null) {
-        unawaited(_markTrackedTicketRepliesSeen(selectedTicketId));
-      }
-    }
   }
 
   DateTime get _todayDate {
@@ -2775,6 +2730,58 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
+  void _setWeekdayWorkingEnabled(WeekdayKey weekday, bool enabled) {
+    final targetController = _weekdayControllers[weekday]!;
+    final startController = _weekdayStartTimeControllers[weekday]!;
+    final endController = _weekdayEndTimeControllers[weekday]!;
+    final breakController = _weekdayBreakControllers[weekday]!;
+
+    if (!enabled) {
+      targetController.text = _formatHoursInput(0);
+      startController.clear();
+      endController.clear();
+      breakController.clear();
+      if (mounted) {
+        setState(() {});
+      }
+      return;
+    }
+
+    final currentTargetMinutes =
+        _resolveDraftTargetMinutes(
+          targetText: targetController.text,
+          startTimeText: startController.text,
+          endTimeText: endController.text,
+          breakText: breakController.text,
+        ) ??
+        0;
+    if (currentTargetMinutes <= 0) {
+      final fallbackTargetMinutes =
+          parseHoursInput(_uniformDailyTargetController.text) ??
+          parseHoursInput(_rulesExpectedDailyController.text) ??
+          8 * 60;
+      targetController.text = _formatHoursInput(fallbackTargetMinutes);
+    }
+
+    final uniformStart = _uniformStartTimeController.text.trim();
+    final uniformEnd = _uniformEndTimeController.text.trim();
+    final uniformBreak = _uniformBreakController.text.trim();
+    if (startController.text.trim().isEmpty && uniformStart.isNotEmpty) {
+      startController.text = uniformStart;
+    }
+    if (endController.text.trim().isEmpty && uniformEnd.isNotEmpty) {
+      endController.text = uniformEnd;
+    }
+    if (breakController.text.trim().isEmpty && uniformBreak.isNotEmpty) {
+      breakController.text = uniformBreak;
+    }
+
+    _syncProfileTargetFromTimes(weekday: weekday);
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
   void _setLunchBreakEnabled({
     required TextEditingController breakController,
     required bool enabled,
@@ -3466,12 +3473,82 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     required String title,
     required int initialMinutes,
   }) async {
-    return _showDurationWheelPicker(
-      title: title,
-      initialMinutes: initialMinutes,
-      maxMinutes: 16 * 60,
-      stepMinutes: 5,
+    const maxHours = 16;
+    final normalizedInitialMinutes = initialMinutes
+        .clamp(0, maxHours * 60)
+        .toInt();
+    final initialHours = normalizedInitialMinutes ~/ 60;
+    final initialMinute = normalizedInitialMinutes % 60;
+    final hourValues = List<int>.generate(maxHours + 1, (index) => index);
+    final minuteValues = List<int>.generate(60, (index) => index);
+
+    final pickedMinutes = await showModalBottomSheet<int>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) {
+        var selectedHour = initialHours;
+        var selectedMinute = initialMinute;
+        return _WheelPickerBottomSheet<int>(
+          title: title,
+          initialValue: normalizedInitialMinutes,
+          valueBuilder: (controller) => ValueListenableBuilder<int>(
+            valueListenable: controller,
+            builder: (context, value, _) => Text(
+              _formatHoursInput(value),
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+            ),
+          ),
+          pickerBuilder: (controller) => SizedBox(
+            height: 220,
+            child: Row(
+              children: [
+                Expanded(
+                  child: CupertinoPicker(
+                    scrollController: FixedExtentScrollController(
+                      initialItem: initialHours,
+                    ),
+                    itemExtent: 38,
+                    onSelectedItemChanged: (index) {
+                      selectedHour = hourValues[index];
+                      controller.value = (selectedHour * 60) + selectedMinute;
+                    },
+                    children: [
+                      for (final hour in hourValues)
+                        Center(child: Text(hour.toString().padLeft(2, '0'))),
+                    ],
+                  ),
+                ),
+                Text(
+                  ':',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                Expanded(
+                  child: CupertinoPicker(
+                    scrollController: FixedExtentScrollController(
+                      initialItem: initialMinute,
+                    ),
+                    itemExtent: 38,
+                    onSelectedItemChanged: (index) {
+                      selectedMinute = minuteValues[index];
+                      controller.value = (selectedHour * 60) + selectedMinute;
+                    },
+                    children: [
+                      for (final minute in minuteValues)
+                        Center(child: Text(minute.toString().padLeft(2, '0'))),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
+    return pickedMinutes;
   }
 
   Future<int?> _showDurationWheelPicker({
@@ -5629,14 +5706,35 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Widget _buildSelectedSection(DashboardSnapshot snapshot) {
     switch (_selectedSection) {
       case _HomeSection.day:
-        return _buildPlannerSectionCard(
-          snapshot: snapshot,
-          title: '',
-          calendarView: _CalendarView.day,
-          periodLabel: _formatLongDate(_selectedDate),
-          showViewSelector: false,
-          onPreviousPeriod: () => _shiftSelectedDay(-1),
-          onNextPeriod: () => _shiftSelectedDay(1),
+        return GestureDetector(
+          key: const ValueKey('today-swipe-day-navigation'),
+          behavior: HitTestBehavior.translucent,
+          onHorizontalDragEnd: (details) {
+            if (_isLoading || _isLoadingCalendarData) {
+              return;
+            }
+
+            final horizontalVelocity = details.primaryVelocity ?? 0;
+            if (horizontalVelocity.abs() < 260) {
+              return;
+            }
+
+            if (horizontalVelocity > 0) {
+              unawaited(_shiftSelectedDay(1));
+              return;
+            }
+
+            unawaited(_shiftSelectedDay(-1));
+          },
+          child: _buildPlannerSectionCard(
+            snapshot: snapshot,
+            title: '',
+            calendarView: _CalendarView.day,
+            periodLabel: _formatLongDate(_selectedDate),
+            showViewSelector: false,
+            onPreviousPeriod: () => _shiftSelectedDay(-1),
+            onNextPeriod: () => _shiftSelectedDay(1),
+          ),
         );
       case _HomeSection.overview:
         final today = _todayDate;
@@ -5835,6 +5933,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           onPickWeekdayScheduleTime: _pickWeekdayScheduleTime,
           onPickWeekdayBreakMinutes: _pickWeekdayBreakMinutes,
           onWeekdayLunchBreakChanged: _setWeekdayLunchBreakEnabled,
+          onWeekdayWorkingDayChanged: _setWeekdayWorkingEnabled,
           onAppearanceSettingsChanged: _updateAppearanceSettings,
           onReload: _reloadProfileDraft,
           onSubmit: _submitProfile,
@@ -5934,11 +6033,27 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
               children: [
                 _Header(
-                  profileName: snapshot?.profile.fullName,
                   selectedSection: _selectedSection,
                   hasCloudAccount: _accountSession != null,
-                  navigationMenuButtonKey: _navigationMenuButtonKey,
-                  onOpenNavigationMenu: _openNavigationMenu,
+                  unreadTicketReplyCount: _unreadTicketReplyCount,
+                  onSelectSection: (section) {
+                    setState(() {
+                      _selectedSection = section;
+                      if (section == _HomeSection.calendar &&
+                          _calendarView == _CalendarView.day) {
+                        _calendarView = _CalendarView.month;
+                      }
+                    });
+                    if (section == _HomeSection.ticket) {
+                      unawaited(_refreshTrackedSupportTickets());
+                      final selectedTicketId = _selectedTrackedTicketId;
+                      if (selectedTicketId != null) {
+                        unawaited(
+                          _markTrackedTicketRepliesSeen(selectedTicketId),
+                        );
+                      }
+                    }
+                  },
                   onOpenRegistration: _openAccountRegistrationFlow,
                 ),
                 const SizedBox(height: 16),
@@ -6330,14 +6445,17 @@ class _CalendarCard extends StatelessWidget {
         hasExitSuggestionContext &&
         suggestedExitLabel != '--:--' &&
         suggestedExitLabel != 'Libero';
+    final isUsingStandardSchedule = _matchesDaySchedule(
+      baseDaySchedule,
+      quickEditorDaySchedule,
+    );
     final confirmableTheoreticalExitMinutes =
         suggestedExitTotalMinutes == null ||
             suggestedExitTotalMinutes > ((23 * 60) + 59)
         ? null
         : suggestedExitTotalMinutes;
     final canRestoreWorkingDay =
-        isQuickEditorDayOff &&
-        !_matchesDaySchedule(baseDaySchedule, quickEditorDaySchedule);
+        isQuickEditorDayOff && !isUsingStandardSchedule;
     final selectedDayInfo = switch (_compareDateToToday(selectedDate)) {
       0 => (
         label: 'Oggi',
@@ -6401,6 +6519,7 @@ class _CalendarCard extends StatelessWidget {
             hasResultContext: hasQuickResultContext,
             hasExitSuggestionContext: hasExitSuggestionContext,
             hasTheoreticalExit: hasTheoreticalExit,
+            isUsingStandardSchedule: isUsingStandardSchedule,
             onConfirmTheoreticalExit: confirmableTheoreticalExitMinutes == null
                 ? null
                 : () => onConfirmSuggestedExitMinutes(
@@ -6726,6 +6845,7 @@ class _CalendarQuickScheduleEditor extends StatelessWidget {
     required this.hasResultContext,
     required this.hasExitSuggestionContext,
     required this.hasTheoreticalExit,
+    required this.isUsingStandardSchedule,
     this.onConfirmTheoreticalExit,
   });
 
@@ -6757,6 +6877,7 @@ class _CalendarQuickScheduleEditor extends StatelessWidget {
   final bool hasResultContext;
   final bool hasExitSuggestionContext;
   final bool hasTheoreticalExit;
+  final bool isUsingStandardSchedule;
   final Future<void> Function()? onConfirmTheoreticalExit;
 
   @override
@@ -6769,6 +6890,7 @@ class _CalendarQuickScheduleEditor extends StatelessWidget {
         : Icons.keyboard_arrow_down_rounded;
     final isProgrammedExit =
         endTimeText.trim().isNotEmpty && hasExitSuggestionContext;
+    final standardScheduleColor = theme.colorScheme.onSurfaceVariant;
     final toggleButton = IconButton(
       key: const ValueKey('calendar-quick-editor-toggle-button'),
       onPressed: () => onToggleExpanded(!isExpanded),
@@ -6824,9 +6946,15 @@ class _CalendarQuickScheduleEditor extends StatelessWidget {
           onTap: onPickEndTime,
         ),
       _QuickScheduleValue(
-        label: 'Orario standard',
+        label: isUsingStandardSchedule ? 'Orario standard' : 'Ore di lavoro',
         value: targetText.isEmpty ? '--' : targetText,
         valueKey: const ValueKey('calendar-override-target-value'),
+        labelColorOverride: isUsingStandardSchedule
+            ? standardScheduleColor
+            : null,
+        valueColorOverride: isUsingStandardSchedule
+            ? standardScheduleColor
+            : null,
         onTap: onPickTargetMinutes,
       ),
       if (showBreakMinutes)
@@ -7877,7 +8005,7 @@ class _CalendarPeriodSummary extends StatelessWidget {
       _CalendarView.week => _CalendarWeekSummary(
         metrics: weekMetrics,
         selectedDate: selectedDate,
-        onSelectDate: onSelectDate,
+        onOpenDay: onOpenDay,
       ),
       _CalendarView.month => _CalendarMonthSummary(
         days: days,
@@ -8034,12 +8162,12 @@ class _CalendarWeekSummary extends StatelessWidget {
   const _CalendarWeekSummary({
     required this.metrics,
     required this.selectedDate,
-    required this.onSelectDate,
+    required this.onOpenDay,
   });
 
   final List<_DayMetrics> metrics;
   final DateTime selectedDate;
-  final ValueChanged<DateTime> onSelectDate;
+  final Future<void> Function(DateTime date) onOpenDay;
 
   @override
   Widget build(BuildContext context) {
@@ -8062,14 +8190,13 @@ class _CalendarWeekSummary extends StatelessWidget {
             if (useCompactLayout)
               _AgendaWeekCompactOverview(
                 metrics: metrics,
-                selectedDate: selectedDate,
-                onSelectDate: onSelectDate,
+                onOpenDay: onOpenDay,
               )
             else
               _AgendaWeekTimeline(
                 metrics: metrics,
                 selectedDate: selectedDate,
-                onSelectDate: onSelectDate,
+                onOpenDay: onOpenDay,
                 range: agendaRange,
               ),
           ],
@@ -8082,13 +8209,11 @@ class _CalendarWeekSummary extends StatelessWidget {
 class _AgendaWeekCompactOverview extends StatelessWidget {
   const _AgendaWeekCompactOverview({
     required this.metrics,
-    required this.selectedDate,
-    required this.onSelectDate,
+    required this.onOpenDay,
   });
 
   final List<_DayMetrics> metrics;
-  final DateTime selectedDate;
-  final ValueChanged<DateTime> onSelectDate;
+  final Future<void> Function(DateTime date) onOpenDay;
 
   @override
   Widget build(BuildContext context) {
@@ -8109,6 +8234,7 @@ class _AgendaWeekCompactOverview extends StatelessWidget {
               session: null,
               nowMinutes: nowMinutes,
             ),
+            onTap: () => unawaited(onOpenDay(metrics[index].date)),
           ),
           if (index < metrics.length - 1) const SizedBox(height: 12),
         ],
@@ -8122,11 +8248,13 @@ class _CompactWeekTimelineRow extends StatelessWidget {
     required this.metrics,
     required this.range,
     required this.measurementSegments,
+    this.onTap,
   });
 
   final _DayMetrics metrics;
   final _AgendaRange range;
   final List<_AgendaMeasurementSegment> measurementSegments;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -8174,17 +8302,32 @@ class _CompactWeekTimelineRow extends StatelessWidget {
         ? 'Giorno libero'
         : _compactWeekScheduleLabel(schedule);
     final workedDeltaMinutes = metrics.balanceMinutes;
+    final hasRegisteredWorkOrLeave =
+        metrics.workedMinutes > 0 || metrics.leaveMinutes > 0;
+    final isPastWithoutRegistrations =
+        relation == _CalendarDayRelation.past &&
+        !hasRegisteredWorkOrLeave &&
+        schedule.targetMinutes > 0;
     final workedLabelColor = workedDeltaMinutes >= 0
         ? const Color(0xFF0B6E69)
         : const Color(0xFF9D3D2F);
+    final footerColor = isPastWithoutRegistrations
+        ? colorScheme.onSurfaceVariant
+        : workedLabelColor;
     final workedFooterLabel = dayDetails == null
         ? null
+        : isPastWithoutRegistrations
+        ? 'Nessuna timbratura'
         : 'Ore ${_formatHoursInput(dayDetails.workedMinutes)}';
-    final balanceFooterLabel = workedDeltaMinutes >= 0
+    final balanceFooterLabel = isPastWithoutRegistrations
+        ? 'Da registrare'
+        : workedDeltaMinutes > 0
         ? 'Credito: ${_formatHoursInput(workedDeltaMinutes)}'
-        : 'Debito: ${_formatHoursInput(workedDeltaMinutes.abs())}';
+        : workedDeltaMinutes < 0
+        ? 'Debito: ${_formatHoursInput(workedDeltaMinutes.abs())}'
+        : 'In pari';
 
-    return Row(
+    final rowContent = Row(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         SizedBox(
@@ -8317,7 +8460,7 @@ class _CompactWeekTimelineRow extends StatelessWidget {
                                       overflow: TextOverflow.ellipsis,
                                       style: theme.textTheme.labelSmall
                                           ?.copyWith(
-                                            color: workedLabelColor,
+                                            color: footerColor,
                                             fontWeight: FontWeight.w800,
                                           ),
                                     ),
@@ -8331,7 +8474,7 @@ class _CompactWeekTimelineRow extends StatelessWidget {
                                       textAlign: TextAlign.right,
                                       style: theme.textTheme.labelSmall
                                           ?.copyWith(
-                                            color: workedLabelColor,
+                                            color: footerColor,
                                             fontWeight: FontWeight.w700,
                                           ),
                                     ),
@@ -8356,6 +8499,19 @@ class _CompactWeekTimelineRow extends StatelessWidget {
           ),
         ),
       ],
+    );
+
+    if (onTap == null) {
+      return rowContent;
+    }
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: onTap,
+        child: rowContent,
+      ),
     );
   }
 }
@@ -8481,13 +8637,13 @@ class _AgendaWeekTimeline extends StatelessWidget {
   const _AgendaWeekTimeline({
     required this.metrics,
     required this.selectedDate,
-    required this.onSelectDate,
+    required this.onOpenDay,
     required this.range,
   });
 
   final List<_DayMetrics> metrics;
   final DateTime selectedDate;
-  final ValueChanged<DateTime> onSelectDate;
+  final Future<void> Function(DateTime date) onOpenDay;
   final _AgendaRange range;
 
   @override
@@ -8529,7 +8685,7 @@ class _AgendaWeekTimeline extends StatelessWidget {
                       child: _AgendaDayHeader(
                         metrics: day,
                         isSelected: _isSameDay(day.date, selectedDate),
-                        onTap: () => onSelectDate(day.date),
+                        onTap: () => unawaited(onOpenDay(day.date)),
                       ),
                     ),
                     const SizedBox(height: 10),
@@ -8545,7 +8701,7 @@ class _AgendaWeekTimeline extends StatelessWidget {
                         session: null,
                         nowMinutes: nowMinutes,
                       ),
-                      onTap: () => onSelectDate(day.date),
+                      onTap: () => unawaited(onOpenDay(day.date)),
                     ),
                   ],
                 ),
@@ -9324,8 +9480,8 @@ class _AgendaScheduleBlockState extends State<_AgendaScheduleBlock> {
         final textColor = widget.metrics.hasOverride
             ? colorScheme.onSecondaryContainer
             : colorScheme.onPrimaryContainer;
-        final bodyTopInset = 12.0 + (showHandles ? 18.0 : 0.0);
-        final bodyBottomInset = 12.0 + (showHandles ? 18.0 : 0.0);
+        const bodyTopInset = 12.0;
+        const bodyBottomInset = 12.0;
         final bodyHeight = math.max(
           1.0,
           constraints.maxHeight - bodyTopInset - bodyBottomInset,
@@ -9383,23 +9539,9 @@ class _AgendaScheduleBlockState extends State<_AgendaScheduleBlock> {
                 style:
                     theme.textTheme.bodySmall?.copyWith(color: textColor) ??
                     TextStyle(color: textColor),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                child: Stack(
                   children: [
-                    if (showHandles)
-                      Align(
-                        alignment: Alignment.topCenter,
-                        child: GestureDetector(
-                          dragStartBehavior: DragStartBehavior.down,
-                          behavior: HitTestBehavior.opaque,
-                          onVerticalDragStart: (_) =>
-                              _handleDragStart(_AgendaDragMode.resizeStart),
-                          onVerticalDragUpdate: _handleDragUpdate,
-                          onVerticalDragEnd: _handleDragEnd,
-                          child: _AgendaResizeHandle(color: textColor),
-                        ),
-                      ),
-                    Expanded(
+                    Positioned.fill(
                       child: LayoutBuilder(
                         builder: (context, bodyConstraints) {
                           final interactiveHeight = bodyConstraints.maxHeight;
@@ -9505,16 +9647,39 @@ class _AgendaScheduleBlockState extends State<_AgendaScheduleBlock> {
                       ),
                     ),
                     if (showHandles)
-                      Align(
-                        alignment: Alignment.bottomCenter,
-                        child: GestureDetector(
-                          dragStartBehavior: DragStartBehavior.down,
-                          behavior: HitTestBehavior.opaque,
-                          onVerticalDragStart: (_) =>
-                              _handleDragStart(_AgendaDragMode.resizeEnd),
-                          onVerticalDragUpdate: _handleDragUpdate,
-                          onVerticalDragEnd: _handleDragEnd,
-                          child: _AgendaResizeHandle(color: textColor),
+                      Positioned(
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        child: Align(
+                          alignment: Alignment.topCenter,
+                          child: GestureDetector(
+                            dragStartBehavior: DragStartBehavior.down,
+                            behavior: HitTestBehavior.opaque,
+                            onVerticalDragStart: (_) =>
+                                _handleDragStart(_AgendaDragMode.resizeStart),
+                            onVerticalDragUpdate: _handleDragUpdate,
+                            onVerticalDragEnd: _handleDragEnd,
+                            child: _AgendaResizeHandle(color: textColor),
+                          ),
+                        ),
+                      ),
+                    if (showHandles)
+                      Positioned(
+                        bottom: 0,
+                        left: 0,
+                        right: 0,
+                        child: Align(
+                          alignment: Alignment.bottomCenter,
+                          child: GestureDetector(
+                            dragStartBehavior: DragStartBehavior.down,
+                            behavior: HitTestBehavior.opaque,
+                            onVerticalDragStart: (_) =>
+                                _handleDragStart(_AgendaDragMode.resizeEnd),
+                            onVerticalDragUpdate: _handleDragUpdate,
+                            onVerticalDragEnd: _handleDragEnd,
+                            child: _AgendaResizeHandle(color: textColor),
+                          ),
                         ),
                       ),
                   ],
@@ -10990,6 +11155,7 @@ class _WorkSettingsCard extends StatelessWidget {
     required this.onPickWeekdayScheduleTime,
     required this.onPickWeekdayBreakMinutes,
     required this.onWeekdayLunchBreakChanged,
+    required this.onWeekdayWorkingDayChanged,
     required this.onAppearanceSettingsChanged,
     required this.onReload,
     required this.onSubmit,
@@ -11064,6 +11230,8 @@ class _WorkSettingsCard extends StatelessWidget {
   final Future<void> Function(WeekdayKey weekday) onPickWeekdayBreakMinutes;
   final void Function(WeekdayKey weekday, bool hasLunchBreak)
   onWeekdayLunchBreakChanged;
+  final void Function(WeekdayKey weekday, bool isWorking)
+  onWeekdayWorkingDayChanged;
   final Future<void> Function(AppAppearanceSettings settings)
   onAppearanceSettingsChanged;
   final Future<void> Function() onReload;
@@ -11071,6 +11239,22 @@ class _WorkSettingsCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    bool isWorkingWeekday(WeekdayKey weekday) {
+      final targetMinutes =
+          _resolveDraftTargetMinutes(
+            targetText: weekdayControllers[weekday]!.text,
+            startTimeText: weekdayStartTimeControllers[weekday]!.text,
+            endTimeText: weekdayEndTimeControllers[weekday]!.text,
+            breakText: weekdayBreakControllers[weekday]!.text,
+          ) ??
+          0;
+      return targetMinutes > 0;
+    }
+
+    final configuredWorkingDays = WeekdayKey.values
+        .where(isWorkingWeekday)
+        .toList(growable: false);
+
     return _SectionCard(
       title: 'Orari e permessi',
       subtitle: 'Orario di lavoro, regole contratto e permessi personali.',
@@ -11082,7 +11266,8 @@ class _WorkSettingsCard extends StatelessWidget {
             _SettingsSectionPanel(
               icon: Icons.schedule_outlined,
               title: 'Orario di lavoro',
-              subtitle: 'Definisci quando lavori normalmente.',
+              subtitle:
+                  'Definisci quando lavori normalmente e i valori base per i calcoli.',
               isExpanded: appearanceSettings.expandWorkSettingsSchedule,
               toggleButtonKey: const ValueKey(
                 'work-settings-schedule-toggle-button',
@@ -11133,79 +11318,95 @@ class _WorkSettingsCard extends StatelessWidget {
                     )
                   else
                     Column(
-                      children: WeekdayKey.values
-                          .map(
-                            (weekday) => Padding(
-                              padding: const EdgeInsets.only(bottom: 12),
-                              child: _DayScheduleEditorRow(
-                                weekday: weekday,
-                                targetController: weekdayControllers[weekday]!,
-                                startTimeController:
-                                    weekdayStartTimeControllers[weekday]!,
-                                endTimeController:
-                                    weekdayEndTimeControllers[weekday]!,
-                                breakController:
-                                    weekdayBreakControllers[weekday]!,
-                                hasLunchBreak:
-                                    (parseBreakDurationInput(
-                                          weekdayBreakControllers[weekday]!
-                                              .text,
-                                        ) ??
-                                        0) >
-                                    0,
-                                lunchBreakToggleKey: ValueKey(
-                                  'work-settings-lunch-break-${weekday.name}',
-                                ),
-                                onLunchBreakChanged: (value) =>
-                                    onWeekdayLunchBreakChanged(weekday, value),
-                                onPickTarget: () =>
-                                    onPickWeekdayTargetMinutes(weekday),
-                                onPickStartTime: () =>
-                                    onPickWeekdayScheduleTime(
-                                      weekday,
-                                      _CalendarTimeField.start,
-                                    ),
-                                onPickEndTime: () => onPickWeekdayScheduleTime(
-                                  weekday,
-                                  _CalendarTimeField.end,
-                                ),
-                                onPickBreak: () =>
-                                    onPickWeekdayBreakMinutes(weekday),
-                              ),
-                            ),
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Scegli i giorni lavorativi: mostro qui sotto solo quelli attivi.',
+                          style: Theme.of(context).textTheme.bodyMedium,
+                        ),
+                        const SizedBox(height: 10),
+                        _WorkingWeekdaySelector(
+                          selectedWeekdays: configuredWorkingDays.toSet(),
+                          onChanged: onWeekdayWorkingDayChanged,
+                        ),
+                        const SizedBox(height: 12),
+                        if (configuredWorkingDays.isEmpty)
+                          Text(
+                            'Nessun giorno selezionato. Attiva almeno un giorno dalla riga sopra.',
+                            style: Theme.of(context).textTheme.bodyMedium,
                           )
-                          .toList(growable: false),
+                        else
+                          Column(
+                            children: configuredWorkingDays
+                                .map(
+                                  (weekday) => Padding(
+                                    padding: const EdgeInsets.only(bottom: 12),
+                                    child: _DayScheduleEditorRow(
+                                      weekday: weekday,
+                                      targetController:
+                                          weekdayControllers[weekday]!,
+                                      startTimeController:
+                                          weekdayStartTimeControllers[weekday]!,
+                                      endTimeController:
+                                          weekdayEndTimeControllers[weekday]!,
+                                      breakController:
+                                          weekdayBreakControllers[weekday]!,
+                                      hasLunchBreak:
+                                          (parseBreakDurationInput(
+                                                weekdayBreakControllers[weekday]!
+                                                    .text,
+                                              ) ??
+                                              0) >
+                                          0,
+                                      lunchBreakToggleKey: ValueKey(
+                                        'work-settings-lunch-break-${weekday.name}',
+                                      ),
+                                      onLunchBreakChanged: (value) =>
+                                          onWeekdayLunchBreakChanged(
+                                            weekday,
+                                            value,
+                                          ),
+                                      onPickTarget: () =>
+                                          onPickWeekdayTargetMinutes(weekday),
+                                      onPickStartTime: () =>
+                                          onPickWeekdayScheduleTime(
+                                            weekday,
+                                            _CalendarTimeField.start,
+                                          ),
+                                      onPickEndTime: () =>
+                                          onPickWeekdayScheduleTime(
+                                            weekday,
+                                            _CalendarTimeField.end,
+                                          ),
+                                      onPickBreak: () =>
+                                          onPickWeekdayBreakMinutes(weekday),
+                                    ),
+                                  ),
+                                )
+                                .toList(growable: false),
+                          ),
+                      ],
                     ),
+                  const SizedBox(height: 10),
+                  Text(
+                    'Valori usati nei calcoli',
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  _WorkRulesCoreEditor(
+                    expectedDailyText: rulesExpectedDailyController.text,
+                    minimumBreakText: rulesMinimumBreakController.text,
+                    onPickExpectedDaily: onPickRulesExpectedDailyMinutes,
+                    onPickMinimumBreak: onPickRulesMinimumBreakMinutes,
+                  ),
                   const SizedBox(height: 10),
                   Text(
                     'Inserisci solo quello che ti serve. Il resto è automatico.',
                     style: Theme.of(context).textTheme.bodyMedium,
                   ),
                 ],
-              ),
-            ),
-            const SizedBox(height: 16),
-            _SettingsSectionPanel(
-              icon: Icons.timer_outlined,
-              title: 'Quanto devi lavorare',
-              subtitle:
-                  'Questi valori vengono usati nei calcoli di Oggi e del saldo.',
-              isExpanded: appearanceSettings.expandWorkSettingsRules,
-              toggleButtonKey: const ValueKey(
-                'work-settings-rules-toggle-button',
-              ),
-              onToggleExpanded: (expanded) => unawaited(
-                onAppearanceSettingsChanged(
-                  appearanceSettings.copyWith(
-                    expandWorkSettingsRules: expanded,
-                  ),
-                ),
-              ),
-              child: _WorkRulesCoreEditor(
-                expectedDailyText: rulesExpectedDailyController.text,
-                minimumBreakText: rulesMinimumBreakController.text,
-                onPickExpectedDaily: onPickRulesExpectedDailyMinutes,
-                onPickMinimumBreak: onPickRulesMinimumBreakMinutes,
               ),
             ),
             const SizedBox(height: 16),
@@ -11565,6 +11766,124 @@ class _DayScheduleEditorRow extends StatelessWidget {
   }
 }
 
+class _WorkingWeekdaySelector extends StatelessWidget {
+  const _WorkingWeekdaySelector({
+    required this.selectedWeekdays,
+    required this.onChanged,
+  });
+
+  final Set<WeekdayKey> selectedWeekdays;
+  final void Function(WeekdayKey weekday, bool isWorking) onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+      ),
+      child: Row(
+        children: [
+          for (var index = 0; index < WeekdayKey.values.length; index++) ...[
+            Expanded(
+              child: _WorkingWeekdayToggle(
+                key: ValueKey(
+                  'work-settings-working-day-toggle-${WeekdayKey.values[index].name}',
+                ),
+                label: _compactWeekdayLabel(WeekdayKey.values[index]),
+                isSelected: selectedWeekdays.contains(WeekdayKey.values[index]),
+                onTap: () => onChanged(
+                  WeekdayKey.values[index],
+                  !selectedWeekdays.contains(WeekdayKey.values[index]),
+                ),
+              ),
+            ),
+            if (index < WeekdayKey.values.length - 1)
+              Container(
+                width: 1,
+                height: 28,
+                color: theme.colorScheme.outlineVariant.withValues(alpha: 0.75),
+              ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _WorkingWeekdayToggle extends StatelessWidget {
+  const _WorkingWeekdayToggle({
+    super.key,
+    required this.label,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          curve: Curves.easeOut,
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          decoration: BoxDecoration(
+            color: isSelected
+                ? theme.colorScheme.primary.withValues(alpha: 0.18)
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Center(
+            child: Text(
+              label,
+              style: theme.textTheme.labelLarge?.copyWith(
+                fontWeight: FontWeight.w700,
+                color: isSelected
+                    ? theme.colorScheme.primary
+                    : theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CenteredSettingsValuesWrap extends StatelessWidget {
+  const _CenteredSettingsValuesWrap({
+    required this.constraints,
+    required this.values,
+  });
+
+  final BoxConstraints constraints;
+  final List<Widget> values;
+
+  @override
+  Widget build(BuildContext context) {
+    final itemWidth = math.max(190, math.min(260, constraints.maxWidth - 8));
+    return Wrap(
+      spacing: 10,
+      runSpacing: 10,
+      alignment: WrapAlignment.center,
+      runAlignment: WrapAlignment.center,
+      children: [
+        for (final value in values) SizedBox(width: itemWidth, child: value),
+      ],
+    );
+  }
+}
+
 class _SettingsScheduleEditor extends StatelessWidget {
   const _SettingsScheduleEditor({
     required this.title,
@@ -11695,7 +12014,12 @@ class _SettingsScheduleEditor extends StatelessWidget {
                         children: [
                           lunchBreakToggle,
                           const SizedBox(height: 8),
-                          Wrap(spacing: 10, runSpacing: 10, children: values),
+                          Wrap(
+                            spacing: 10,
+                            runSpacing: 10,
+                            alignment: WrapAlignment.start,
+                            children: values,
+                          ),
                         ],
                       ),
                     ),
@@ -11711,7 +12035,10 @@ class _SettingsScheduleEditor extends StatelessWidget {
                 const SizedBox(height: 8),
                 lunchBreakToggle,
                 const SizedBox(height: 8),
-                Wrap(spacing: 10, runSpacing: 10, children: values),
+                _CenteredSettingsValuesWrap(
+                  constraints: constraints,
+                  values: values,
+                ),
               ],
             ],
           );
@@ -13957,6 +14284,7 @@ class _UpdateDownloadDialogState extends State<_UpdateDownloadDialog> {
   );
   DownloadedAppUpdate? _downloadedUpdate;
   _UpdateDownloadState _state = _UpdateDownloadState.downloading;
+  bool _isNewFeatureExpanded = false;
   String? _message;
 
   @override
@@ -14050,53 +14378,63 @@ class _UpdateDownloadDialogState extends State<_UpdateDownloadDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final newFeatureItems = _resolveNewFeatureItems(widget.update.releaseNotes);
     final progressText = _progress.totalBytes == null
         ? '${_formatDownloadSize(_progress.receivedBytes)} scaricati'
         : '${_formatDownloadSize(_progress.receivedBytes)} di ${_formatDownloadSize(_progress.totalBytes!)}';
 
     return AlertDialog(
       title: Text(_resolveTitle()),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Versione attuale ${widget.update.currentVersion} -> nuova versione ${widget.update.latestVersion}',
-          ),
-          const SizedBox(height: 16),
-          if (_state == _UpdateDownloadState.downloading) ...[
-            LinearProgressIndicator(value: _progress.fractionCompleted),
-            const SizedBox(height: 12),
-            Text(progressText),
-          ] else if (_state == _UpdateDownloadState.readyToInstall) ...[
-            const Text(
-              'Download completato. Quando sei pronto puoi avviare subito l installazione.',
-            ),
-            const SizedBox(height: 12),
-            if (_downloadedUpdate != null)
-              Text(
-                'File pronto: ${_downloadedUpdate!.fileName}',
-                style: Theme.of(context).textTheme.bodyMedium,
-              ),
-          ] else if (_state == _UpdateDownloadState.installing) ...[
-            const LinearProgressIndicator(),
-            const SizedBox(height: 12),
-            const Text('Avvio dell installazione in corso...'),
-          ] else ...[
-            const Text(
-              'Non siamo riusciti a scaricare l aggiornamento dentro l app.',
-            ),
-          ],
-          if (_message != null) ...[
-            const SizedBox(height: 12),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
             Text(
-              _message!,
-              style: Theme.of(
-                context,
-              ).textTheme.bodyMedium?.copyWith(color: const Color(0xFF9D3D2F)),
+              'Versione attuale ${widget.update.currentVersion} -> nuova versione ${widget.update.latestVersion}',
             ),
+            const SizedBox(height: 12),
+            _buildNewFeatureSection(
+              context,
+              featureItems: newFeatureItems,
+            ),
+            const SizedBox(height: 16),
+            if (_state == _UpdateDownloadState.downloading) ...[
+              LinearProgressIndicator(value: _progress.fractionCompleted),
+              const SizedBox(height: 12),
+              Text(progressText),
+            ] else if (_state == _UpdateDownloadState.readyToInstall) ...[
+              const Text(
+                'Download completato. Quando sei pronto puoi avviare subito l installazione.',
+              ),
+              const SizedBox(height: 12),
+              if (_downloadedUpdate != null)
+                Text(
+                  'File pronto: ${_downloadedUpdate!.fileName}',
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+            ] else if (_state == _UpdateDownloadState.installing) ...[
+              const LinearProgressIndicator(),
+              const SizedBox(height: 12),
+              const Text('Avvio dell installazione in corso...'),
+            ] else ...[
+              const Text(
+                'Non siamo riusciti a scaricare l aggiornamento dentro l app.',
+              ),
+            ],
+            if (_message != null) ...[
+              const SizedBox(height: 12),
+              Text(
+                _message!,
+                style: Theme.of(
+                  context,
+                ).textTheme.bodyMedium?.copyWith(
+                  color: const Color(0xFF9D3D2F),
+                ),
+              ),
+            ],
           ],
-        ],
+        ),
       ),
       actions: [
         TextButton(
@@ -14130,6 +14468,139 @@ class _UpdateDownloadDialogState extends State<_UpdateDownloadDialog> {
           ),
       ],
     );
+  }
+
+  Widget _buildNewFeatureSection(
+    BuildContext context, {
+    required List<String> featureItems,
+  }) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final hasFeatures = featureItems.isNotEmpty;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF142121) : const Color(0xFFF4FBFB),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: isDark ? const Color(0xFF2C4747) : const Color(0xFFD4E8E8),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          InkWell(
+            borderRadius: BorderRadius.circular(14),
+            onTap: () {
+              setState(() {
+                _isNewFeatureExpanded = !_isNewFeatureExpanded;
+              });
+            },
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              child: Row(
+                children: [
+                  const Icon(Icons.auto_awesome_outlined, size: 18),
+                  const SizedBox(width: 8),
+                  Text(
+                    'New Feature',
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const Spacer(),
+                  Text(
+                    _isNewFeatureExpanded ? 'Nascondi' : 'Apri',
+                    style: theme.textTheme.bodySmall,
+                  ),
+                  const SizedBox(width: 6),
+                  Icon(
+                    _isNewFeatureExpanded
+                        ? Icons.expand_less_rounded
+                        : Icons.expand_more_rounded,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (_isNewFeatureExpanded)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+              child: hasFeatures
+                  ? Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: featureItems
+                          .map((item) => Padding(
+                                padding: const EdgeInsets.only(top: 6),
+                                child: Text(
+                                  '- $item',
+                                  style: theme.textTheme.bodyMedium,
+                                ),
+                              ))
+                          .toList(growable: false),
+                    )
+                  : Text(
+                      'Nessun dettaglio disponibile per questo update.',
+                      style: theme.textTheme.bodyMedium,
+                    ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  List<String> _resolveNewFeatureItems(String? releaseNotes) {
+    if (releaseNotes == null) {
+      return const [];
+    }
+
+    final lines = releaseNotes.replaceAll('\r\n', '\n').split('\n');
+    final items = <String>[];
+    for (final rawLine in lines) {
+      final line = rawLine.trim();
+      if (line.isEmpty) {
+        continue;
+      }
+
+      if (line.startsWith('#') || line.startsWith('```')) {
+        continue;
+      }
+
+      if (line.toLowerCase().startsWith('full changelog')) {
+        continue;
+      }
+
+      final cleaned = line
+          .replaceFirst(RegExp(r'^[-*+]\s+'), '')
+          .replaceFirst(RegExp(r'^\d+\.\s+'), '')
+          .trim();
+      if (cleaned.isEmpty) {
+        continue;
+      }
+
+      items.add(cleaned);
+      if (items.length >= 5) {
+        break;
+      }
+    }
+
+    if (items.isNotEmpty) {
+      return items;
+    }
+
+    final compact = releaseNotes
+        .replaceAll('\n', ' ')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+    if (compact.isEmpty) {
+      return const [];
+    }
+
+    if (compact.length <= 120) {
+      return [compact];
+    }
+
+    return ['${compact.substring(0, 117)}...'];
   }
 
   String _resolveTitle() {
@@ -15039,6 +15510,7 @@ _CalendarDayDetails? _buildCalendarDayDetails({
   final pauseMinutes = session != null
       ? _currentSessionBreakMinutes(session, nowMinutes)
       : schedule.breakMinutes;
+  final hasRegisteredWorkOrLeave = workedMinutes > 0 || leaveMinutes > 0;
   final resolvedWorkedMinutes = session != null
       ? math.max(
           0,
@@ -15046,10 +15518,9 @@ _CalendarDayDetails? _buildCalendarDayDetails({
               pauseMinutes,
         )
       : relation == _CalendarDayRelation.past
-      ? math.max(
-          workedMinutes,
-          _resolveComputedWorkedMinutes(schedule: schedule) ?? 0,
-        )
+      ? hasRegisteredWorkOrLeave
+            ? workedMinutes
+            : (_resolveComputedWorkedMinutes(schedule: schedule) ?? 0)
       : 0;
 
   if (startMinutes == null &&
@@ -15314,6 +15785,25 @@ String _formatWeekdayShortLabel(DateTime date) {
   const weekdayNames = ['Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab', 'Dom'];
 
   return weekdayNames[date.weekday - 1];
+}
+
+String _compactWeekdayLabel(WeekdayKey weekday) {
+  switch (weekday) {
+    case WeekdayKey.monday:
+      return 'Lu';
+    case WeekdayKey.tuesday:
+      return 'Ma';
+    case WeekdayKey.wednesday:
+      return 'Me';
+    case WeekdayKey.thursday:
+      return 'Gi';
+    case WeekdayKey.friday:
+      return 'Ve';
+    case WeekdayKey.saturday:
+      return 'Sa';
+    case WeekdayKey.sunday:
+      return 'Do';
+  }
 }
 
 double _resolveAgendaLabelTop(double position, double height) {
@@ -15828,19 +16318,17 @@ Color _replaceColorChannel(Color color, {int? red, int? green, int? blue}) {
 
 class _Header extends StatelessWidget {
   const _Header({
-    required this.profileName,
     required this.selectedSection,
     required this.hasCloudAccount,
-    required this.navigationMenuButtonKey,
-    required this.onOpenNavigationMenu,
+    required this.unreadTicketReplyCount,
+    required this.onSelectSection,
     required this.onOpenRegistration,
   });
 
-  final String? profileName;
   final _HomeSection selectedSection;
   final bool hasCloudAccount;
-  final GlobalKey navigationMenuButtonKey;
-  final Future<void> Function() onOpenNavigationMenu;
+  final int unreadTicketReplyCount;
+  final ValueChanged<_HomeSection> onSelectSection;
   final VoidCallback onOpenRegistration;
 
   @override
@@ -15849,110 +16337,119 @@ class _Header extends StatelessWidget {
     final showCloudWarning =
         selectedSection == _HomeSection.workSettings && !hasCloudAccount;
 
-    return Row(
+    return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Expanded(
-          child: showCloudWarning
-              ? Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Le impostazioni si perdono se non crei un account.',
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w700,
+        SizedBox(
+          height: 44,
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: _mainNavigationSections
+                  .map(
+                    (section) => Padding(
+                      padding: const EdgeInsets.only(right: 10),
+                      child: _HeaderSectionIconButton(
+                        section: section,
+                        isSelected: selectedSection == section,
+                        badgeCount:
+                            section == _HomeSection.ticket
+                                ? unreadTicketReplyCount
+                                : 0,
+                        onTap: () => onSelectSection(section),
                       ),
                     ),
-                    const SizedBox(height: 4),
-                    TextButton(
-                      onPressed: onOpenRegistration,
-                      style: TextButton.styleFrom(
-                        padding: EdgeInsets.zero,
-                        minimumSize: const Size(0, 0),
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        visualDensity: VisualDensity.compact,
-                      ),
-                      child: const Text('Registrati'),
-                    ),
-                  ],
-                )
-              : Text(
-                  profileName == null
-                      ? 'Work Hours Platform'
-                      : 'Ciao ${profileName!}',
-                  style: theme.textTheme.headlineMedium?.copyWith(
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-        ),
-        const SizedBox(width: 12),
-        Container(
-          key: navigationMenuButtonKey,
-          child: IconButton.filledTonal(
-            key: const ValueKey('navigation-menu-button'),
-            tooltip: 'Apri menu',
-            onPressed: onOpenNavigationMenu,
-            icon: const Icon(Icons.menu_rounded),
+                  )
+                  .toList(growable: false),
+            ),
           ),
         ),
+        if (showCloudWarning) ...[
+          const SizedBox(height: 10),
+          Text(
+            'Le impostazioni si perdono se non crei un account.',
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 4),
+          TextButton(
+            onPressed: onOpenRegistration,
+            style: TextButton.styleFrom(
+              padding: EdgeInsets.zero,
+              minimumSize: const Size(0, 0),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              visualDensity: VisualDensity.compact,
+            ),
+            child: const Text('Registrati'),
+          ),
+        ],
       ],
     );
   }
 }
 
-class _NavigationMenuItem extends StatelessWidget {
-  const _NavigationMenuItem({
+class _HeaderSectionIconButton extends StatelessWidget {
+  const _HeaderSectionIconButton({
     required this.section,
     required this.isSelected,
-    this.badgeCount = 0,
+    required this.badgeCount,
+    required this.onTap,
   });
 
   final _HomeSection section;
   final bool isSelected;
   final int badgeCount;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return ConstrainedBox(
-      constraints: const BoxConstraints(minWidth: 220),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
+    return Tooltip(
+      message: section.label,
+      child: Stack(
+        clipBehavior: Clip.none,
         children: [
-          Icon(
-            section.icon,
-            color: isSelected
-                ? theme.colorScheme.primary
-                : theme.colorScheme.onSurfaceVariant,
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              section.label,
-              style: theme.textTheme.titleMedium?.copyWith(
-                fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
+          SizedBox(
+            width: 42,
+            height: 42,
+            child: IconButton.filledTonal(
+              key: ValueKey('top-nav-${section.name}'),
+              onPressed: onTap,
+              visualDensity: VisualDensity.compact,
+              style: IconButton.styleFrom(
+                backgroundColor: isSelected
+                    ? theme.colorScheme.primary.withValues(alpha: 0.20)
+                    : theme.colorScheme.surfaceContainerLow,
+                foregroundColor: isSelected
+                    ? theme.colorScheme.primary
+                    : theme.colorScheme.onSurfaceVariant,
               ),
+              icon: Icon(section.icon, size: 20),
             ),
           ),
-          if (badgeCount > 0) ...[
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: theme.colorScheme.primary.withValues(alpha: 0.16),
-                borderRadius: BorderRadius.circular(999),
-              ),
-              child: Text(
-                badgeCount.toString(),
-                style: theme.textTheme.labelLarge?.copyWith(
-                  color: theme.colorScheme.primary,
-                  fontWeight: FontWeight.w800,
+          if (badgeCount > 0)
+            Positioned(
+              right: -4,
+              top: -3,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.error,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                constraints: const BoxConstraints(minWidth: 18),
+                child: Text(
+                  badgeCount > 99 ? '99+' : '$badgeCount',
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: theme.colorScheme.onError,
+                    fontWeight: FontWeight.w800,
+                    height: 1.0,
+                  ),
                 ),
               ),
             ),
-            const SizedBox(width: 10),
-          ],
-          if (isSelected)
-            Icon(Icons.check_rounded, color: theme.colorScheme.primary),
         ],
       ),
     );

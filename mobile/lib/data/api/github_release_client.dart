@@ -7,11 +7,13 @@ class LatestRelease {
     required this.version,
     required this.releasePageUrl,
     required this.downloadUrl,
+    required this.releaseNotes,
   });
 
   final String version;
   final String releasePageUrl;
   final String downloadUrl;
+  final String? releaseNotes;
 }
 
 class GitHubReleaseClient {
@@ -50,6 +52,7 @@ class GitHubReleaseClient {
     final tagName = payload['tag_name'] as String?;
     final releasePageUrl =
         (payload['html_url'] as String?) ?? fallbackReleasePageUrl;
+    final releaseNotes = _sanitizeReleaseNotes(payload['body'] as String?);
     if (tagName == null || tagName.isEmpty) {
       return null;
     }
@@ -74,6 +77,7 @@ class GitHubReleaseClient {
       version: _normalizeVersion(tagName),
       releasePageUrl: releasePageUrl,
       downloadUrl: downloadUrl,
+      releaseNotes: releaseNotes,
     );
   }
 
@@ -81,5 +85,18 @@ class GitHubReleaseClient {
     return rawVersion
         .replaceFirst(RegExp(r'^mobile-v'), '')
         .replaceFirst(RegExp(r'^v'), '');
+  }
+
+  static String? _sanitizeReleaseNotes(String? rawNotes) {
+    if (rawNotes == null) {
+      return null;
+    }
+
+    final cleaned = rawNotes.trim();
+    if (cleaned.isEmpty) {
+      return null;
+    }
+
+    return cleaned;
   }
 }

@@ -93,6 +93,7 @@ class ReleaseAppUpdateService implements AppUpdateService {
       latestVersion: latestRelease.version,
       downloadUrl: latestRelease.downloadUrl,
       releasePageUrl: latestRelease.releasePageUrl,
+      releaseNotes: latestRelease.releaseNotes,
     );
   }
 
