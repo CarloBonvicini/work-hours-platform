@@ -225,6 +225,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _isConfiguringRecoveryQuestions = false;
   bool _isRestoringCloudBackup = false;
   bool _isSyncingCloudBackup = false;
+  bool _isLoadingCloudBackupStatus = false;
   bool _isBackgroundUpdateDownloadInProgress = false;
   bool _isPromptingBackgroundUpdateInstall = false;
   bool _cloudBackupQueued = false;
@@ -256,6 +257,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   String? _pendingExitConfirmationDateKey;
   String? _lastOvertimeExceededNotificationKey;
   AccountSession? _accountSession;
+  DateTime? _lastCloudBackupAt;
+  DateTime? _lastCloudBackupAttemptAt;
+  bool? _lastCloudBackupSucceeded;
+  String? _lastCloudBackupFeedback;
   _AccountAuthMode _accountAuthMode = _AccountAuthMode.login;
   Timer? _ticketNotificationTimer;
   Timer? _liveWorkedMinutesTimer;
@@ -275,6 +280,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _entryDateController.text = DashboardService.defaultEntryDateOf(
       _selectedDate,
     );
+    if (_accountSession != null) {
+      unawaited(_refreshCloudBackupStatus(silent: true));
+    }
     unawaited(_primeSnapshotFromLocalCache());
     _loadSnapshot();
     unawaited(_loadWorkdaySessionForDate(_selectedDate));
@@ -621,7 +629,52 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool get _isCloudBackupEnabled =>
       widget.accountService != null && _accountSession != null;
 
-  Future<void> _queueCloudBackup() async {
+  Future<void> _triggerManualCloudBackup() {
+    return _queueCloudBackup(showFeedback: true);
+  }
+
+  Future<void> _refreshCloudBackupStatus({bool silent = false}) async {
+    if (!_isCloudBackupEnabled ||
+        widget.accountService == null ||
+        _accountSession == null) {
+      return;
+    }
+
+    if (mounted) {
+      setState(() {
+        _isLoadingCloudBackupStatus = true;
+      });
+    }
+
+    try {
+      final status = await widget.accountService!.loadCloudBackupStatus(
+        session: _accountSession,
+      );
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _isLoadingCloudBackupStatus = false;
+        _lastCloudBackupAt = status.hasBackup ? status.updatedAt : null;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _isLoadingCloudBackupStatus = false;
+      });
+      if (!silent) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(_humanizeError(error))));
+      }
+    }
+  }
+
+  Future<void> _queueCloudBackup({bool showFeedback = false}) async {
     if (!_isCloudBackupEnabled) {
       return;
     }
@@ -631,13 +684,36 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       return;
     }
 
+    final attemptedAt = DateTime.now();
     setState(() {
       _isSyncingCloudBackup = true;
+      _lastCloudBackupAttemptAt = attemptedAt;
     });
 
     var rerunQueuedBackup = false;
     try {
-      await widget.accountService!.backupToCloud();
+      final backupStatus = await widget.accountService!.backupToCloud();
+      if (!mounted) {
+        return;
+      }
+
+      final savedAt = backupStatus.updatedAt ?? attemptedAt;
+      setState(() {
+        _lastCloudBackupAt = savedAt;
+        _lastCloudBackupSucceeded = true;
+        _lastCloudBackupFeedback =
+            'Backup cloud completato con successo alle ${_formatTicketDateTime(savedAt)}.';
+      });
+
+      if (showFeedback) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Backup cloud completato alle ${_formatTicketDateTime(savedAt)}.',
+            ),
+          ),
+        );
+      }
     } catch (error) {
       if (!mounted) {
         return;
@@ -645,23 +721,28 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
       if (error is ApiException &&
           (error.statusCode == 401 || error.statusCode == 403)) {
-        await widget.accountService!.logout();
-        if (mounted) {
-          setState(() {
-            _accountSession = null;
-          });
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                'Sessione cloud scaduta. Accedi di nuovo e riprova il backup.',
-              ),
-            ),
-          );
+        const message =
+            'Sessione cloud non valida sul server. Può succedere dopo riavvio o aggiornamento backend: fai Esci e rientra per riattivare il backup.';
+        setState(() {
+          _lastCloudBackupSucceeded = false;
+          _lastCloudBackupFeedback = message;
+        });
+        if (showFeedback) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text(message)));
         }
       } else {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(_humanizeError(error))));
+        final message = _humanizeError(error);
+        setState(() {
+          _lastCloudBackupSucceeded = false;
+          _lastCloudBackupFeedback = message;
+        });
+        if (showFeedback) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text(message)));
+        }
       }
     } finally {
       if (mounted) {
@@ -796,9 +877,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                             ),
                             validator: (value) {
                               final answer = value?.trim() ?? '';
-                              return answer.length >= 2
+                              return answer.isNotEmpty
                                   ? null
-                                  : 'Inserisci una risposta valida.';
+                                  : 'Inserisci almeno 1 carattere.';
                             },
                           ),
                           const SizedBox(height: 12),
@@ -815,9 +896,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                             ),
                             validator: (value) {
                               final answer = value?.trim() ?? '';
-                              return answer.length >= 2
+                              return answer.isNotEmpty
                                   ? null
-                                  : 'Inserisci una risposta valida.';
+                                  : 'Inserisci almeno 1 carattere.';
                             },
                           ),
                           const SizedBox(height: 12),
@@ -1057,9 +1138,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         ),
                         validator: (value) {
                           final answer = value?.trim() ?? '';
-                          return answer.length >= 2
+                          return answer.isNotEmpty
                               ? null
-                              : 'Inserisci una risposta valida.';
+                              : 'Inserisci almeno 1 carattere.';
                         },
                       ),
                       const SizedBox(height: 14),
@@ -1090,9 +1171,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         ),
                         validator: (value) {
                           final answer = value?.trim() ?? '';
-                          return answer.length >= 2
+                          return answer.isNotEmpty
                               ? null
-                              : 'Inserisci una risposta valida.';
+                              : 'Inserisci almeno 1 carattere.';
                         },
                       ),
                     ],
@@ -1207,8 +1288,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _accountSession = session;
         _isAuthenticatingAccount = false;
         _accountAuthMode = _AccountAuthMode.login;
+        _lastCloudBackupSucceeded = null;
+        _lastCloudBackupFeedback = null;
       });
       _accountPasswordController.clear();
+      unawaited(_refreshCloudBackupStatus(silent: true));
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
@@ -1264,8 +1348,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _accountSession = session;
         _isAuthenticatingAccount = false;
         _accountAuthMode = _AccountAuthMode.login;
+        _lastCloudBackupAt = restoreResult.bundle?.updatedAt;
+        _lastCloudBackupSucceeded = restoreResult.hasBackup;
+        _lastCloudBackupFeedback = restoreResult.hasBackup
+            ? 'Backup cloud disponibile e ripristinato su questo dispositivo.'
+            : 'Account attivo, ma non ci sono backup cloud salvati.';
       });
       _accountPasswordController.clear();
+      if (restoreResult.bundle == null) {
+        unawaited(_refreshCloudBackupStatus(silent: true));
+      }
 
       if (restoreResult.bundle != null) {
         await widget.onAppearanceSettingsChanged(
@@ -1331,7 +1423,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
       setState(() {
         _isRestoringCloudBackup = false;
+        _lastCloudBackupAt = restoreResult.bundle?.updatedAt ?? _lastCloudBackupAt;
+        _lastCloudBackupSucceeded = restoreResult.hasBackup;
+        _lastCloudBackupFeedback = restoreResult.hasBackup
+            ? 'Ripristino completato dal backup cloud.'
+            : 'Nessun backup cloud disponibile per questo account.';
       });
+      unawaited(_refreshCloudBackupStatus(silent: true));
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
@@ -1374,6 +1472,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _accountSession = null;
         _isAuthenticatingAccount = false;
         _accountAuthMode = _AccountAuthMode.login;
+        _lastCloudBackupAt = null;
+        _lastCloudBackupAttemptAt = null;
+        _lastCloudBackupSucceeded = null;
+        _lastCloudBackupFeedback = null;
+        _isLoadingCloudBackupStatus = false;
       });
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -6149,6 +6252,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     bool isTicketRequest = false,
   }) {
     if (error is ApiException) {
+      if (error.statusCode == 401 || error.statusCode == 403) {
+        return 'Sessione cloud non valida. Fai Esci e accedi di nuovo.';
+      }
       if (error.message == 'account not found') {
         return 'Nessun account trovato con questa email.';
       }
@@ -6157,6 +6263,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       }
       if (error.message == 'too many recovery attempts') {
         return 'Troppi tentativi di recupero. Riprova tra qualche minuto.';
+      }
+      if (error.message ==
+          'answerOne must be between 1 and 120 characters') {
+        return 'La prima risposta di recupero non è valida.';
+      }
+      if (error.message ==
+          'answerTwo must be between 1 and 120 characters') {
+        return 'La seconda risposta di recupero non è valida.';
+      }
+      if (error.message ==
+          'workEntries, leaveEntries and scheduleOverrides must contain valid items') {
+        return 'Backup cloud non riuscito: alcuni dati locali risultano incompleti o danneggiati. Modifica gli ultimi inserimenti e riprova.';
       }
       if (error.message.contains('weekdaySchedule must include') ||
           error.message.contains('weekdayTargetMinutes must include') ||
@@ -6605,9 +6723,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           },
           onOpenPasswordRecovery: _openPasswordRecoveryFlow,
           onOpenRecoveryQuestionsSetup: _openRecoveryQuestionsSetupFlow,
-          onBackupNow: _queueCloudBackup,
+          onBackupNow: _triggerManualCloudBackup,
           onRestoreCloudBackup: _restoreCloudBackup,
           onLogoutAccount: _logoutAccount,
+          isLoadingCloudBackupStatus: _isLoadingCloudBackupStatus,
+          lastCloudBackupAt: _lastCloudBackupAt,
+          lastCloudBackupAttemptAt: _lastCloudBackupAttemptAt,
+          lastCloudBackupSucceeded: _lastCloudBackupSucceeded,
+          lastCloudBackupFeedback: _lastCloudBackupFeedback,
           onReload: _reloadProfileDraft,
           onSubmit: _submitProfile,
         );
@@ -11946,6 +12069,11 @@ class _ProfileCard extends StatelessWidget {
     required this.isConfiguringRecoveryQuestions,
     required this.isRestoringCloudBackup,
     required this.isSyncingCloudBackup,
+    required this.isLoadingCloudBackupStatus,
+    required this.lastCloudBackupAt,
+    required this.lastCloudBackupAttemptAt,
+    required this.lastCloudBackupSucceeded,
+    required this.lastCloudBackupFeedback,
     required this.onDarkThemeChanged,
     required this.onOpenUpdateFromSettings,
     required this.onAppearanceSettingsChanged,
@@ -11983,6 +12111,11 @@ class _ProfileCard extends StatelessWidget {
   final bool isConfiguringRecoveryQuestions;
   final bool isRestoringCloudBackup;
   final bool isSyncingCloudBackup;
+  final bool isLoadingCloudBackupStatus;
+  final DateTime? lastCloudBackupAt;
+  final DateTime? lastCloudBackupAttemptAt;
+  final bool? lastCloudBackupSucceeded;
+  final String? lastCloudBackupFeedback;
   final Future<void> Function(bool) onDarkThemeChanged;
   final Future<void> Function() onOpenUpdateFromSettings;
   final Future<void> Function(AppAppearanceSettings settings)
@@ -12049,6 +12182,11 @@ class _ProfileCard extends StatelessWidget {
               isConfiguringRecoveryQuestions: isConfiguringRecoveryQuestions,
               isRestoring: isRestoringCloudBackup,
               isSyncing: isSyncingCloudBackup,
+              isLoadingStatus: isLoadingCloudBackupStatus,
+              lastCloudBackupAt: lastCloudBackupAt,
+              lastCloudBackupAttemptAt: lastCloudBackupAttemptAt,
+              lastCloudBackupSucceeded: lastCloudBackupSucceeded,
+              lastCloudBackupFeedback: lastCloudBackupFeedback,
               onRegister: onRegisterAccount,
               onLogin: onLoginAccount,
               onAuthModeChanged: onAuthModeChanged,
@@ -14018,6 +14156,11 @@ class _CloudBackupAccountCard extends StatelessWidget {
     required this.isConfiguringRecoveryQuestions,
     required this.isRestoring,
     required this.isSyncing,
+    required this.isLoadingStatus,
+    required this.lastCloudBackupAt,
+    required this.lastCloudBackupAttemptAt,
+    required this.lastCloudBackupSucceeded,
+    required this.lastCloudBackupFeedback,
     required this.onRegister,
     required this.onLogin,
     required this.onAuthModeChanged,
@@ -14037,6 +14180,11 @@ class _CloudBackupAccountCard extends StatelessWidget {
   final bool isConfiguringRecoveryQuestions;
   final bool isRestoring;
   final bool isSyncing;
+  final bool isLoadingStatus;
+  final DateTime? lastCloudBackupAt;
+  final DateTime? lastCloudBackupAttemptAt;
+  final bool? lastCloudBackupSucceeded;
+  final String? lastCloudBackupFeedback;
   final Future<void> Function() onRegister;
   final Future<void> Function() onLogin;
   final ValueChanged<_AccountAuthMode> onAuthModeChanged;
@@ -14205,6 +14353,89 @@ class _CloudBackupAccountCard extends StatelessWidget {
                 ),
               ],
             ),
+            const SizedBox(height: 12),
+            _CloudBackupStatusInfo(
+              isLoadingStatus: isLoadingStatus,
+              isSyncing: isSyncing,
+              lastCloudBackupAt: lastCloudBackupAt,
+              lastCloudBackupAttemptAt: lastCloudBackupAttemptAt,
+              lastCloudBackupSucceeded: lastCloudBackupSucceeded,
+              lastCloudBackupFeedback: lastCloudBackupFeedback,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _CloudBackupStatusInfo extends StatelessWidget {
+  const _CloudBackupStatusInfo({
+    required this.isLoadingStatus,
+    required this.isSyncing,
+    required this.lastCloudBackupAt,
+    required this.lastCloudBackupAttemptAt,
+    required this.lastCloudBackupSucceeded,
+    required this.lastCloudBackupFeedback,
+  });
+
+  final bool isLoadingStatus;
+  final bool isSyncing;
+  final DateTime? lastCloudBackupAt;
+  final DateTime? lastCloudBackupAttemptAt;
+  final bool? lastCloudBackupSucceeded;
+  final String? lastCloudBackupFeedback;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final statusColor = switch (lastCloudBackupSucceeded) {
+      true => theme.colorScheme.primary,
+      false => theme.colorScheme.error,
+      null => theme.colorScheme.onSurfaceVariant,
+    };
+
+    final statusLabel = switch (lastCloudBackupSucceeded) {
+      true when lastCloudBackupAttemptAt != null =>
+        'Ultimo tentativo: riuscito alle ${_formatTicketDateTime(lastCloudBackupAttemptAt!)}',
+      true => 'Ultimo tentativo: riuscito',
+      false when lastCloudBackupAttemptAt != null =>
+        'Ultimo tentativo: non riuscito alle ${_formatTicketDateTime(lastCloudBackupAttemptAt!)}',
+      false => 'Ultimo tentativo: non riuscito',
+      null when isSyncing => 'Backup in corso...',
+      null => 'Nessun tentativo recente.',
+    };
+
+    final lastCloudBackupLabel = isLoadingStatus
+        ? 'Controllo ultimo backup cloud...'
+        : lastCloudBackupAt == null
+        ? 'Ultimo backup cloud: nessun backup salvato.'
+        : 'Ultimo backup cloud: ${_formatTicketDateTime(lastCloudBackupAt!)}';
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(lastCloudBackupLabel, style: theme.textTheme.bodySmall),
+          const SizedBox(height: 6),
+          Text(
+            statusLabel,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: statusColor,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          if (lastCloudBackupFeedback != null &&
+              lastCloudBackupFeedback!.trim().isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text(lastCloudBackupFeedback!, style: theme.textTheme.bodySmall),
           ],
         ],
       ),

@@ -154,7 +154,7 @@ function parseRequiredAnswer(
   body: Record<string, unknown>,
   field: "answerOne" | "answerTwo"
 ): ParseResult<string> {
-  return parseBoundedNormalizedText(body, field, 2, 120);
+  return parseBoundedNormalizedText(body, field, 1, 120);
 }
 
 function parsePasswordRecoveryByCode(

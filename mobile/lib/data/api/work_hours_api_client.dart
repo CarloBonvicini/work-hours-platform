@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 import 'package:work_hours_mobile/domain/models/account_session.dart';
 import 'package:work_hours_mobile/domain/models/account_recovery_questions.dart';
 import 'package:work_hours_mobile/domain/models/cloud_backup_bundle.dart';
+import 'package:work_hours_mobile/domain/models/cloud_backup_status.dart';
 import 'package:work_hours_mobile/domain/models/leave_entry.dart';
 import 'package:work_hours_mobile/domain/models/monthly_summary.dart';
 import 'package:work_hours_mobile/domain/models/profile.dart';
@@ -371,7 +372,19 @@ class WorkHoursApiClient {
     return CloudBackupBundle.fromJson(body['bundle'] as Map<String, dynamic>);
   }
 
-  Future<CloudBackupBundle> saveCloudBackup(CloudBackupBundle bundle) async {
+  Future<CloudBackupStatus> fetchCloudBackupStatus() async {
+    final response = await _httpClient.get(
+      _buildUri('me/backup/meta'),
+      headers: _headers(),
+    );
+    final body = _decodeObject(response);
+    return CloudBackupStatus(
+      hasBackup: body['hasBackup'] as bool? ?? false,
+      updatedAt: _parseDateTimeOrNull(body['updatedAt']),
+    );
+  }
+
+  Future<CloudBackupStatus> saveCloudBackup(CloudBackupBundle bundle) async {
     final response = await _httpClient.put(
       _buildUri('me/backup'),
       headers: _headers(json: true),
@@ -379,7 +392,14 @@ class WorkHoursApiClient {
     );
 
     final body = _decodeObject(response);
-    return CloudBackupBundle.fromJson(body['bundle'] as Map<String, dynamic>);
+    return CloudBackupStatus(
+      hasBackup: true,
+      updatedAt:
+          _parseDateTimeOrNull(body['savedAt']) ??
+          _parseDateTimeOrNull(
+            (body['bundle'] as Map<String, dynamic>?)?['updatedAt'],
+          ),
+    );
   }
 
   Uri _buildUri(String path, {Map<String, String>? queryParameters}) {
@@ -427,6 +447,17 @@ class WorkHoursApiClient {
       'Richiesta fallita (${response.statusCode}).',
       statusCode: response.statusCode,
     );
+  }
+
+  DateTime? _parseDateTimeOrNull(Object? rawValue) {
+    if (rawValue is! String || rawValue.trim().isEmpty) {
+      return null;
+    }
+    try {
+      return DateTime.parse(rawValue).toLocal();
+    } catch (_) {
+      return null;
+    }
   }
 
   static Uri _normalizeBaseUri(String baseUrl) {

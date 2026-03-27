@@ -861,7 +861,7 @@ function parseWorkEntryRecord(payload: unknown): WorkEntry | null {
     typeof body.id !== "string" ||
     typeof body.date !== "string" ||
     !isIsoDate(body.date) ||
-    !isPositiveInteger(body.minutes)
+    !isNonNegativeInteger(body.minutes)
   ) {
     return null;
   }
@@ -888,7 +888,7 @@ function parseLeaveEntryRecord(payload: unknown): LeaveEntry | null {
     typeof body.id !== "string" ||
     typeof body.date !== "string" ||
     !isIsoDate(body.date) ||
-    !isPositiveInteger(body.minutes) ||
+    !isNonNegativeInteger(body.minutes) ||
     !isLeaveType(body.type)
   ) {
     return null;
@@ -4355,6 +4355,19 @@ export function buildApp(options: BuildAppOptions = {}) {
     return {
       hasBackup: bundle !== null,
       bundle
+    };
+  });
+
+  app.get("/me/backup/meta", async (request, reply) => {
+    const { user } = await readAuthenticatedUser(request, store);
+    if (!user) {
+      return reply.code(401).send({ error: "Unauthorized" });
+    }
+
+    const bundle = await store.loadCloudBackup(user.id);
+    return {
+      hasBackup: bundle !== null,
+      updatedAt: bundle?.updatedAt ?? null
     };
   });
 

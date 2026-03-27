@@ -5,6 +5,7 @@ import 'package:work_hours_mobile/data/repositories/local_dashboard_repository.d
 import 'package:work_hours_mobile/domain/models/account_recovery_questions.dart';
 import 'package:work_hours_mobile/domain/models/account_session.dart';
 import 'package:work_hours_mobile/domain/models/cloud_backup_bundle.dart';
+import 'package:work_hours_mobile/domain/models/cloud_backup_status.dart';
 
 class RestoreFromCloudResult {
   const RestoreFromCloudResult({
@@ -120,10 +121,10 @@ class AccountService {
     );
   }
 
-  Future<void> backupToCloud({AccountSession? session}) async {
+  Future<CloudBackupStatus> backupToCloud({AccountSession? session}) async {
     final effectiveSession = session ?? await _sessionStore.loadSession();
     if (effectiveSession == null) {
-      return;
+      return const CloudBackupStatus(hasBackup: false);
     }
 
     final localBundle = await _localRepository.exportBundle();
@@ -136,7 +137,22 @@ class AccountService {
       baseUrl: _baseUrl,
       authToken: effectiveSession.token,
     );
-    await client.saveCloudBackup(cloudBundle);
+    return await client.saveCloudBackup(cloudBundle);
+  }
+
+  Future<CloudBackupStatus> loadCloudBackupStatus({
+    AccountSession? session,
+  }) async {
+    final effectiveSession = session ?? await _sessionStore.loadSession();
+    if (effectiveSession == null) {
+      return const CloudBackupStatus(hasBackup: false);
+    }
+
+    final client = WorkHoursApiClient(
+      baseUrl: _baseUrl,
+      authToken: effectiveSession.token,
+    );
+    return await client.fetchCloudBackupStatus();
   }
 
   Future<RestoreFromCloudResult> restoreFromCloud({

@@ -182,6 +182,20 @@ describe("Auth and cloud backup API", () => {
 
     expect(backupResponse.statusCode).toBe(200);
     expect(backupResponse.json().bundle.profile.fullName).toBe("Carlo");
+    expect(typeof backupResponse.json().savedAt).toBe("string");
+
+    const backupMetaResponse = await app.inject({
+      method: "GET",
+      url: "/me/backup/meta",
+      headers: {
+        authorization: `Bearer ${registerBody.token}`
+      }
+    });
+    expect(backupMetaResponse.statusCode).toBe(200);
+    expect(backupMetaResponse.json()).toMatchObject({
+      hasBackup: true,
+      updatedAt: expect.any(String)
+    });
 
     const loginResponse = await app.inject({
       method: "POST",
@@ -201,9 +215,9 @@ describe("Auth and cloud backup API", () => {
       },
       payload: {
         questionOne: "Nome del primo animale?",
-        answerOne: "Bobby",
+        answerOne: "2",
         questionTwo: "Citta in cui sei nato?",
-        answerTwo: "Torino"
+        answerTwo: "T"
       }
     });
     expect(setupRecoveryQuestionsResponse.statusCode).toBe(200);
@@ -232,8 +246,8 @@ describe("Auth and cloud backup API", () => {
       url: "/auth/recover-password",
       payload: {
         email: "carlo@example.com",
-        answerOne: "Bobby",
-        answerTwo: "Torino",
+        answerOne: "2",
+        answerTwo: "T",
         newPassword: "nuova-password"
       }
     });
