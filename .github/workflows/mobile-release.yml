@@ -48,6 +48,14 @@ on:
 jobs:
   mark-mobile-release-in-progress:
     name: Mark Mobile Release In Progress
+    if: >-
+      ${{
+        github.repository == 'CarloBonvicini/work-hours-platform' &&
+        (
+          github.event_name == 'workflow_dispatch' ||
+          startsWith(github.ref, 'refs/tags/mobile-v')
+        )
+      }}
     runs-on: self-hosted
     permissions:
       contents: read
@@ -343,7 +351,15 @@ jobs:
   publish-mobile-update-feed:
     name: Publish Mobile Update Feed
     needs: [mark-mobile-release-in-progress, build-and-release-android]
-    if: ${{ needs.build-and-release-android.outputs.publish_update_feed == 'true' }}
+    if: >-
+      ${{
+        github.repository == 'CarloBonvicini/work-hours-platform' &&
+        needs.build-and-release-android.outputs.publish_update_feed == 'true' &&
+        (
+          github.event_name == 'workflow_dispatch' ||
+          startsWith(github.ref, 'refs/tags/mobile-v')
+        )
+      }}
     runs-on: self-hosted
     permissions:
       contents: read
@@ -422,7 +438,15 @@ jobs:
   clear-mobile-release-status:
     name: Clear Mobile Release Status
     needs: [mark-mobile-release-in-progress, build-and-release-android, publish-mobile-update-feed]
-    if: ${{ always() }}
+    if: >-
+      ${{
+        always() &&
+        github.repository == 'CarloBonvicini/work-hours-platform' &&
+        (
+          github.event_name == 'workflow_dispatch' ||
+          startsWith(github.ref, 'refs/tags/mobile-v')
+        )
+      }}
     runs-on: self-hosted
     permissions:
       contents: read

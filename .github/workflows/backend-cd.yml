@@ -58,6 +58,14 @@ jobs:
   deploy:
     name: Deploy (Self-hosted runner)
     needs: build_and_push
+    if: >-
+      ${{
+        github.repository == 'CarloBonvicini/work-hours-platform' &&
+        (
+          github.ref == 'refs/heads/main' ||
+          github.event_name == 'workflow_dispatch'
+        )
+      }}
     runs-on: self-hosted
     timeout-minutes: 20
     permissions:

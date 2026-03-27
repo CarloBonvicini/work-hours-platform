@@ -15,3 +15,11 @@ build/
 # Runtime data
 infra/tickets/*
 !infra/tickets/.gitkeep
+
+# Local CI/release logs and archives
+mobile_ci_job_*.log
+mobile_release_job_*.log
+mobile_ci_job_logs.zip
+mobile_ci_logs_*.zip
+mobile_ci_job_logs_*/
+mobile_ci_logs_*/
