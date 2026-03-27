@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 import 'package:work_hours_mobile/domain/models/account_session.dart';
+import 'package:work_hours_mobile/domain/models/account_recovery_questions.dart';
 import 'package:work_hours_mobile/domain/models/cloud_backup_bundle.dart';
 import 'package:work_hours_mobile/domain/models/leave_entry.dart';
 import 'package:work_hours_mobile/domain/models/monthly_summary.dart';
@@ -294,9 +295,44 @@ class WorkHoursApiClient {
     return AccountSession.fromJson(_decodeObject(response));
   }
 
-  Future<String> recoverPassword({
+  Future<AccountRecoveryQuestions> fetchRecoveryQuestions({
     required String email,
-    required String recoveryCode,
+  }) async {
+    final response = await _httpClient.post(
+      _buildUri('auth/recovery-questions'),
+      headers: _headers(json: true),
+      body: jsonEncode({
+        'email': email,
+      }),
+    );
+
+    return AccountRecoveryQuestions.fromJson(_decodeObject(response));
+  }
+
+  Future<void> configureRecoveryQuestions({
+    required String questionOne,
+    required String answerOne,
+    required String questionTwo,
+    required String answerTwo,
+  }) async {
+    final response = await _httpClient.put(
+      _buildUri('me/recovery-questions'),
+      headers: _headers(json: true),
+      body: jsonEncode({
+        'questionOne': questionOne,
+        'answerOne': answerOne,
+        'questionTwo': questionTwo,
+        'answerTwo': answerTwo,
+      }),
+    );
+
+    _decodeResponse(response);
+  }
+
+  Future<void> recoverPassword({
+    required String email,
+    required String answerOne,
+    required String answerTwo,
     required String newPassword,
   }) async {
     final response = await _httpClient.post(
@@ -304,18 +340,12 @@ class WorkHoursApiClient {
       headers: _headers(json: true),
       body: jsonEncode({
         'email': email,
-        'recoveryCode': recoveryCode,
+        'answerOne': answerOne,
+        'answerTwo': answerTwo,
         'newPassword': newPassword,
       }),
     );
-
-    final body = _decodeObject(response);
-    final nextRecoveryCode = body['recoveryCode'];
-    if (nextRecoveryCode is! String || nextRecoveryCode.trim().isEmpty) {
-      throw ApiException('Risposta recupero password non valida.');
-    }
-
-    return nextRecoveryCode;
+    _decodeResponse(response);
   }
 
   Future<void> logout() async {

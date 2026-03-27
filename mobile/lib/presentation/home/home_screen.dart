@@ -29,6 +29,7 @@ import 'package:work_hours_mobile/domain/models/support_ticket.dart';
 import 'package:work_hours_mobile/domain/models/user_work_rules.dart';
 import 'package:work_hours_mobile/domain/models/weekday_schedule.dart';
 import 'package:work_hours_mobile/domain/models/weekday_target_minutes.dart';
+import 'package:work_hours_mobile/presentation/home/update_release_notes_parser.dart';
 
 enum _QuickEntryMode { work, leave }
 
@@ -42,6 +43,13 @@ const int _maxTicketAttachments = 3;
 const int _maxTicketAttachmentBytes = 4 * 1024 * 1024;
 const Duration _ticketNotificationPollingInterval = Duration(minutes: 1);
 final ImagePicker _ticketImagePicker = ImagePicker();
+const List<String> _recoveryQuestionSuggestions = [
+  'Come si chiamava il tuo primo animale domestico?',
+  'Qual e il nome della tua scuola elementare?',
+  'Qual e la citta in cui sei nato?',
+  'Qual e il nome di tua nonna materna?',
+  'Qual e il tuo film preferito da bambino?',
+];
 
 enum _HomeSection {
   day,
@@ -71,9 +79,7 @@ enum _CalendarTimeField { start, end }
 
 class _ScheduleTimeWheelSelection {
   const _ScheduleTimeWheelSelection.confirmed(this.minutes) : cleared = false;
-  const _ScheduleTimeWheelSelection.cleared()
-    : minutes = null,
-      cleared = true;
+  const _ScheduleTimeWheelSelection.cleared() : minutes = null, cleared = true;
 
   final int? minutes;
   final bool cleared;
@@ -216,6 +222,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _isRecoveringTrackedTicket = false;
   bool _isAuthenticatingAccount = false;
   bool _isRecoveringAccountPassword = false;
+  bool _isConfiguringRecoveryQuestions = false;
   bool _isRestoringCloudBackup = false;
   bool _isSyncingCloudBackup = false;
   bool _isBackgroundUpdateDownloadInProgress = false;
@@ -456,7 +463,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _isCheckingForUpdate = false;
       });
       if (availableUpdate != null) {
-        unawaited(_localNotificationService.notifyUpdateAvailable(availableUpdate));
+        unawaited(
+          _localNotificationService.notifyUpdateAvailable(availableUpdate),
+        );
         await _maybePromptForUpdate(availableUpdate);
       }
     } catch (_) {
@@ -556,7 +565,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _rulesFixedScheduleEnabled =
         snapshot.profile.workRules.fixedScheduleEnabled ||
         snapshot.profile.workRules.flexibleStartEnabled;
-    _rulesFlexibleStartEnabled = snapshot.profile.workRules.flexibleStartEnabled;
+    _rulesFlexibleStartEnabled =
+        snapshot.profile.workRules.flexibleStartEnabled;
     _rulesFlexibleStartWindowController.text = _formatHoursInput(
       snapshot.profile.workRules.flexibleStartWindowMinutes,
     );
@@ -567,7 +577,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _rulesWalletWeeklyExitController.text = _formatHoursInput(
       snapshot.profile.workRules.walletWeeklyExitEarlyMinutes,
     );
-    _rulesImplicitCreditEnabled = snapshot.profile.workRules.implicitCreditEnabled;
+    _rulesImplicitCreditEnabled =
+        snapshot.profile.workRules.implicitCreditEnabled;
     _rulesImplicitCreditDailyCapController.text = _formatHoursInput(
       snapshot.profile.workRules.implicitCreditDailyCapMinutes,
     );
@@ -648,13 +659,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           );
         }
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              _humanizeError(error),
-            ),
-          ),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(_humanizeError(error))));
       }
     } finally {
       if (mounted) {
@@ -684,142 +691,165 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     });
   }
 
-  Future<void> _showRecoveryCodeDialog({
-    required String recoveryCode,
-    required String title,
-    required String description,
-  }) async {
-    if (!mounted || recoveryCode.trim().isEmpty) {
-      return;
-    }
+  bool _isLikelyValidEmail(String value) {
+    return RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$').hasMatch(value.trim());
+  }
 
-    final theme = Theme.of(context);
-    await showDialog<void>(
+  Future<String?> _promptRecoveryEmail() async {
+    final emailController = TextEditingController(
+      text: _accountEmailController.text.trim(),
+    );
+    final formKey = GlobalKey<FormState>();
+
+    final email = await showDialog<String>(
       context: context,
       builder: (dialogContext) {
         return AlertDialog(
-          title: Text(title),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(description),
-              const SizedBox(height: 14),
-              SelectableText(
-                recoveryCode,
-                style: theme.textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.w800,
+          title: const Text('Recupera password'),
+          content: Form(
+            key: formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Inserisci la tua email: carico le 2 domande di sicurezza.',
                 ),
-              ),
-              const SizedBox(height: 10),
-              Text(
-                'Conservalo: serve per recuperare la password.',
-                style: theme.textTheme.bodySmall,
-              ),
-            ],
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: emailController,
+                  keyboardType: TextInputType.emailAddress,
+                  decoration: const InputDecoration(labelText: 'Email'),
+                  validator: (value) {
+                    final emailValue = value?.trim() ?? '';
+                    return _isLikelyValidEmail(emailValue)
+                        ? null
+                        : 'Inserisci un email valida.';
+                  },
+                ),
+              ],
+            ),
           ),
           actions: [
-            FilledButton(
+            TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('Ho salvato il codice'),
+              child: const Text('Annulla'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final isValid = formKey.currentState?.validate() ?? false;
+                if (!isValid) {
+                  return;
+                }
+
+                Navigator.of(dialogContext).pop(emailController.text.trim());
+              },
+              child: const Text('Continua'),
             ),
           ],
         );
       },
     );
+
+    emailController.dispose();
+    return email;
   }
 
-  Future<void> _openPasswordRecoveryFlow() async {
-    if (widget.accountService == null || _isRecoveringAccountPassword) {
-      return;
-    }
-
-    final emailController = TextEditingController(
-      text: _accountEmailController.text.trim(),
-    );
-    final recoveryCodeController = TextEditingController();
-    final newPasswordController = TextEditingController();
+  Future<({String answerOne, String answerTwo, String newPassword})?>
+  _promptRecoveryAnswers({
+    required String questionOne,
+    required String questionTwo,
+  }) async {
     final formKey = GlobalKey<FormState>();
+    final answerOneController = TextEditingController();
+    final answerTwoController = TextEditingController();
+    final newPasswordController = TextEditingController();
     var obscurePassword = true;
 
     final payload =
         await showDialog<
-          ({String email, String recoveryCode, String newPassword})
+          ({String answerOne, String answerTwo, String newPassword})
         >(
           context: context,
           builder: (dialogContext) {
             return StatefulBuilder(
               builder: (dialogContext, setDialogState) {
                 return AlertDialog(
-                  title: const Text('Recupera password'),
+                  title: const Text('Rispondi alle domande'),
                   content: Form(
                     key: formKey,
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Inserisci email, codice recupero e nuova password.',
-                        ),
-                        const SizedBox(height: 12),
-                        TextFormField(
-                          controller: emailController,
-                          keyboardType: TextInputType.emailAddress,
-                          decoration: const InputDecoration(labelText: 'Email'),
-                          validator: (value) {
-                            final email = value?.trim() ?? '';
-                            final isValidEmail = RegExp(
-                              r'^[^\s@]+@[^\s@]+\.[^\s@]+$',
-                            ).hasMatch(email);
-                            return isValidEmail
-                                ? null
-                                : 'Inserisci un email valida.';
-                          },
-                        ),
-                        const SizedBox(height: 12),
-                        TextFormField(
-                          controller: recoveryCodeController,
-                          textCapitalization: TextCapitalization.characters,
-                          decoration: const InputDecoration(
-                            labelText: 'Codice recupero',
-                            hintText: 'Es. ABCDE-FGHIJ',
+                    child: SingleChildScrollView(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            questionOne,
+                            style: Theme.of(context).textTheme.titleSmall
+                                ?.copyWith(fontWeight: FontWeight.w700),
                           ),
-                          validator: (value) {
-                            final code = value?.trim() ?? '';
-                            return code.isEmpty
-                                ? 'Inserisci il codice recupero.'
-                                : null;
-                          },
-                        ),
-                        const SizedBox(height: 12),
-                        TextFormField(
-                          controller: newPasswordController,
-                          obscureText: obscurePassword,
-                          decoration: InputDecoration(
-                            labelText: 'Nuova password',
-                            helperText: 'Almeno 8 caratteri',
-                            suffixIcon: IconButton(
-                              tooltip: obscurePassword
-                                  ? 'Mostra password'
-                                  : 'Nascondi password',
-                              onPressed: () => setDialogState(() {
-                                obscurePassword = !obscurePassword;
-                              }),
-                              icon: Icon(
-                                obscurePassword
-                                    ? Icons.visibility_outlined
-                                    : Icons.visibility_off_outlined,
+                          const SizedBox(height: 8),
+                          TextFormField(
+                            controller: answerOneController,
+                            decoration: const InputDecoration(
+                              labelText: 'Risposta 1',
+                            ),
+                            validator: (value) {
+                              final answer = value?.trim() ?? '';
+                              return answer.length >= 2
+                                  ? null
+                                  : 'Inserisci una risposta valida.';
+                            },
+                          ),
+                          const SizedBox(height: 12),
+                          Text(
+                            questionTwo,
+                            style: Theme.of(context).textTheme.titleSmall
+                                ?.copyWith(fontWeight: FontWeight.w700),
+                          ),
+                          const SizedBox(height: 8),
+                          TextFormField(
+                            controller: answerTwoController,
+                            decoration: const InputDecoration(
+                              labelText: 'Risposta 2',
+                            ),
+                            validator: (value) {
+                              final answer = value?.trim() ?? '';
+                              return answer.length >= 2
+                                  ? null
+                                  : 'Inserisci una risposta valida.';
+                            },
+                          ),
+                          const SizedBox(height: 12),
+                          TextFormField(
+                            controller: newPasswordController,
+                            obscureText: obscurePassword,
+                            decoration: InputDecoration(
+                              labelText: 'Nuova password',
+                              helperText: 'Scegli la password che preferisci',
+                              suffixIcon: IconButton(
+                                tooltip: obscurePassword
+                                    ? 'Mostra password'
+                                    : 'Nascondi password',
+                                onPressed: () => setDialogState(() {
+                                  obscurePassword = !obscurePassword;
+                                }),
+                                icon: Icon(
+                                  obscurePassword
+                                      ? Icons.visibility_outlined
+                                      : Icons.visibility_off_outlined,
+                                ),
                               ),
                             ),
+                            validator: (value) {
+                              final password = value ?? '';
+                              return password.trim().isNotEmpty
+                                  ? null
+                                  : 'Inserisci la nuova password.';
+                            },
                           ),
-                          validator: (value) {
-                            final password = value ?? '';
-                            return password.trim().length >= 8
-                                ? null
-                                : 'Minimo 8 caratteri.';
-                          },
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
                   actions: [
@@ -829,14 +859,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     ),
                     FilledButton(
                       onPressed: () {
-                        final isValid = formKey.currentState?.validate() ?? false;
+                        final isValid =
+                            formKey.currentState?.validate() ?? false;
                         if (!isValid) {
                           return;
                         }
 
                         Navigator.of(dialogContext).pop((
-                          email: emailController.text.trim(),
-                          recoveryCode: recoveryCodeController.text.trim(),
+                          answerOne: answerOneController.text.trim(),
+                          answerTwo: answerTwoController.text.trim(),
                           newPassword: newPasswordController.text,
                         ));
                       },
@@ -849,23 +880,76 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           },
         );
 
-    emailController.dispose();
-    recoveryCodeController.dispose();
+    answerOneController.dispose();
+    answerTwoController.dispose();
     newPasswordController.dispose();
+    return payload;
+  }
 
-    if (payload == null) {
+  Future<void> _openPasswordRecoveryFlow() async {
+    if (widget.accountService == null || _isRecoveringAccountPassword) {
+      return;
+    }
+
+    final email = await _promptRecoveryEmail();
+    if (email == null || email.trim().isEmpty) {
+      return;
+    }
+
+    late final String questionOne;
+    late final String questionTwo;
+    setState(() {
+      _isRecoveringAccountPassword = true;
+    });
+
+    try {
+      final recoveryQuestions = await widget.accountService!
+          .loadRecoveryQuestions(email: email);
+      questionOne = recoveryQuestions.questionOne;
+      questionTwo = recoveryQuestions.questionTwo;
+      if (recoveryQuestions.locked) {
+        final waitMinutes = recoveryQuestions.retryAfterMinutes;
+        throw ApiException(
+          waitMinutes == null
+              ? 'Troppi tentativi. Riprova tra poco.'
+              : 'Troppi tentativi. Riprova tra circa $waitMinutes minuti.',
+        );
+      }
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _isRecoveringAccountPassword = false;
+      });
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(_humanizeError(error))));
+      return;
+    }
+
+    setState(() {
+      _isRecoveringAccountPassword = false;
+    });
+
+    final recoveryPayload = await _promptRecoveryAnswers(
+      questionOne: questionOne,
+      questionTwo: questionTwo,
+    );
+    if (recoveryPayload == null) {
       return;
     }
 
     setState(() {
       _isRecoveringAccountPassword = true;
     });
-
     try {
-      final nextRecoveryCode = await widget.accountService!.recoverPassword(
-        email: payload.email,
-        recoveryCode: payload.recoveryCode,
-        newPassword: payload.newPassword,
+      await widget.accountService!.recoverPassword(
+        email: email,
+        answerOne: recoveryPayload.answerOne,
+        answerTwo: recoveryPayload.answerTwo,
+        newPassword: recoveryPayload.newPassword,
       );
       if (!mounted) {
         return;
@@ -874,7 +958,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       setState(() {
         _isRecoveringAccountPassword = false;
       });
-      _accountEmailController.text = payload.email;
+      _accountEmailController.text = email;
       _accountPasswordController.clear();
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -883,12 +967,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           ),
         ),
       );
-      await _showRecoveryCodeDialog(
-        recoveryCode: nextRecoveryCode,
-        title: 'Nuovo codice recupero',
-        description:
-            'Per sicurezza il codice recupero e stato rigenerato dopo il reset password.',
-      );
     } catch (error) {
       if (!mounted) {
         return;
@@ -896,6 +974,199 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
       setState(() {
         _isRecoveringAccountPassword = false;
+      });
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(_humanizeError(error))));
+    }
+  }
+
+  Future<void> _openRecoveryQuestionsSetupFlow() async {
+    if (widget.accountService == null ||
+        _accountSession == null ||
+        _isConfiguringRecoveryQuestions) {
+      return;
+    }
+
+    final formKey = GlobalKey<FormState>();
+    final questionOneController = TextEditingController();
+    final answerOneController = TextEditingController();
+    final questionTwoController = TextEditingController();
+    final answerTwoController = TextEditingController();
+
+    final payload =
+        await showDialog<
+          ({
+            String questionOne,
+            String answerOne,
+            String questionTwo,
+            String answerTwo,
+          })?
+        >(
+          context: context,
+          builder: (dialogContext) {
+            Widget suggestionWrap({required TextEditingController controller}) {
+              return Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: _recoveryQuestionSuggestions
+                    .map(
+                      (question) => ActionChip(
+                        label: Text(question),
+                        onPressed: () {
+                          controller.text = question;
+                        },
+                      ),
+                    )
+                    .toList(growable: false),
+              );
+            }
+
+            return AlertDialog(
+              title: const Text('Metodi di recupero'),
+              content: Form(
+                key: formKey,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Imposta 2 domande di sicurezza: puoi scegliere dai suggerimenti o scriverne di personalizzate.',
+                      ),
+                      const SizedBox(height: 12),
+                      TextFormField(
+                        controller: questionOneController,
+                        decoration: const InputDecoration(
+                          labelText: 'Domanda 1',
+                        ),
+                        validator: (value) {
+                          final question = value?.trim() ?? '';
+                          return question.length >= 8
+                              ? null
+                              : 'La domanda deve avere almeno 8 caratteri.';
+                        },
+                      ),
+                      const SizedBox(height: 8),
+                      suggestionWrap(controller: questionOneController),
+                      const SizedBox(height: 10),
+                      TextFormField(
+                        controller: answerOneController,
+                        decoration: const InputDecoration(
+                          labelText: 'Risposta 1',
+                        ),
+                        validator: (value) {
+                          final answer = value?.trim() ?? '';
+                          return answer.length >= 2
+                              ? null
+                              : 'Inserisci una risposta valida.';
+                        },
+                      ),
+                      const SizedBox(height: 14),
+                      TextFormField(
+                        controller: questionTwoController,
+                        decoration: const InputDecoration(
+                          labelText: 'Domanda 2',
+                        ),
+                        validator: (value) {
+                          final question = value?.trim() ?? '';
+                          if (question.length < 8) {
+                            return 'La domanda deve avere almeno 8 caratteri.';
+                          }
+                          if (question.toLowerCase() ==
+                              questionOneController.text.trim().toLowerCase()) {
+                            return 'La seconda domanda deve essere diversa.';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 8),
+                      suggestionWrap(controller: questionTwoController),
+                      const SizedBox(height: 10),
+                      TextFormField(
+                        controller: answerTwoController,
+                        decoration: const InputDecoration(
+                          labelText: 'Risposta 2',
+                        ),
+                        validator: (value) {
+                          final answer = value?.trim() ?? '';
+                          return answer.length >= 2
+                              ? null
+                              : 'Inserisci una risposta valida.';
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  child: const Text('Annulla'),
+                ),
+                FilledButton(
+                  onPressed: () {
+                    final isValid = formKey.currentState?.validate() ?? false;
+                    if (!isValid) {
+                      return;
+                    }
+
+                    Navigator.of(dialogContext).pop((
+                      questionOne: questionOneController.text.trim(),
+                      answerOne: answerOneController.text.trim(),
+                      questionTwo: questionTwoController.text.trim(),
+                      answerTwo: answerTwoController.text.trim(),
+                    ));
+                  },
+                  child: const Text('Salva domande'),
+                ),
+              ],
+            );
+          },
+        );
+
+    questionOneController.dispose();
+    answerOneController.dispose();
+    questionTwoController.dispose();
+    answerTwoController.dispose();
+
+    if (payload == null) {
+      return;
+    }
+
+    setState(() {
+      _isConfiguringRecoveryQuestions = true;
+    });
+    try {
+      await widget.accountService!.configureRecoveryQuestions(
+        session: _accountSession,
+        questionOne: payload.questionOne,
+        answerOne: payload.answerOne,
+        questionTwo: payload.questionTwo,
+        answerTwo: payload.answerTwo,
+      );
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _isConfiguringRecoveryQuestions = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Domande di recupero salvate. Ora puoi recuperare la password senza codice.',
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _isConfiguringRecoveryQuestions = false;
       });
       ScaffoldMessenger.of(
         context,
@@ -945,14 +1216,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           ),
         ),
       );
-      if (session.recoveryCode != null && session.recoveryCode!.isNotEmpty) {
-        await _showRecoveryCodeDialog(
-          recoveryCode: session.recoveryCode!,
-          title: 'Codice recupero account',
-          description:
-              'Tieni questo codice al sicuro. Ti serve per recuperare la password in futuro.',
-        );
-      }
     } catch (error) {
       if (!mounted) {
         return;
@@ -1024,15 +1287,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           ),
         ),
       );
-      final sessionRecoveryCode = session?.recoveryCode?.trim();
-      if (sessionRecoveryCode != null && sessionRecoveryCode.isNotEmpty) {
-        await _showRecoveryCodeDialog(
-          recoveryCode: sessionRecoveryCode,
-          title: 'Codice recupero generato',
-          description:
-              'Il tuo account non aveva ancora un codice recupero: ora e stato creato.',
-        );
-      }
     } catch (error) {
       if (!mounted) {
         return;
@@ -1204,15 +1458,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   void _startLiveWorkedMinutesTicker() {
     _liveWorkedMinutesTimer?.cancel();
-    _liveWorkedMinutesTimer = Timer.periodic(
-      const Duration(seconds: 30),
-      (_) {
-        if (!mounted || _selectedSection != _HomeSection.day) {
-          return;
-        }
-        setState(() {});
-      },
-    );
+    _liveWorkedMinutesTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (!mounted || _selectedSection != _HomeSection.day) {
+        return;
+      }
+      setState(() {});
+    });
   }
 
   Future<void> _initializeLocalNotifications() async {
@@ -1261,8 +1512,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     for (final update in updates) {
       final previousValue = latestAdminReplyCountByTicket[update.ticketId];
       if (previousValue == null || update.adminReplyCount > previousValue) {
-        latestAdminReplyCountByTicket[update.ticketId] =
-            update.adminReplyCount;
+        latestAdminReplyCountByTicket[update.ticketId] = update.adminReplyCount;
       }
     }
 
@@ -1274,17 +1524,20 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
 
     var hasChanges = false;
-    final nextTrackedTickets = _trackedTickets.map((ticket) {
-      final latestAdminReplyCount = latestAdminReplyCountByTicket[ticket.id];
-      if (latestAdminReplyCount == null ||
-          latestAdminReplyCount <= ticket.lastNotifiedAdminReplyCount) {
-        return ticket;
-      }
-      hasChanges = true;
-      return ticket.copyWith(
-        lastNotifiedAdminReplyCount: latestAdminReplyCount,
-      );
-    }).toList(growable: false);
+    final nextTrackedTickets = _trackedTickets
+        .map((ticket) {
+          final latestAdminReplyCount =
+              latestAdminReplyCountByTicket[ticket.id];
+          if (latestAdminReplyCount == null ||
+              latestAdminReplyCount <= ticket.lastNotifiedAdminReplyCount) {
+            return ticket;
+          }
+          hasChanges = true;
+          return ticket.copyWith(
+            lastNotifiedAdminReplyCount: latestAdminReplyCount,
+          );
+        })
+        .toList(growable: false);
     if (!hasChanges) {
       return;
     }
@@ -1338,12 +1591,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
       final nextThreadsById = <String, SupportTicketThread>{};
       final nextTrackedTickets = <TrackedSupportTicket>[];
-      final newRepliesToNotify = <({
-        String ticketId,
-        String subject,
-        int newReplies,
-        int adminReplyCount,
-      })>[];
+      final newRepliesToNotify =
+          <
+            ({
+              String ticketId,
+              String subject,
+              int newReplies,
+              int adminReplyCount,
+            })
+          >[];
       for (var index = 0; index < trackedTickets.length; index++) {
         final trackedTicket = trackedTickets[index];
         final entry = fetchedEntries[index];
@@ -1406,8 +1662,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _isLoadingTicketThreads = false;
       });
 
-      if (notifyAboutNewReplies &&
-          newRepliesToNotify.isNotEmpty) {
+      if (notifyAboutNewReplies && newRepliesToNotify.isNotEmpty) {
         await _markTrackedTicketRepliesNotified(
           newRepliesToNotify
               .map(
@@ -1420,23 +1675,21 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         );
       }
 
-      if (notifyAboutNewReplies &&
-          newRepliesToNotify.isNotEmpty &&
-          mounted) {
+      if (notifyAboutNewReplies && newRepliesToNotify.isNotEmpty && mounted) {
         final message = _buildTicketReplyNotificationMessage(
           newRepliesToNotify
               .map(
-                (update) => (
-                  subject: update.subject,
-                  newReplies: update.newReplies,
-                ),
+                (update) =>
+                    (subject: update.subject, newReplies: update.newReplies),
               )
               .toList(growable: false),
         );
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text(message)));
-        unawaited(_localNotificationService.notifyTicketReplies(message: message));
+        unawaited(
+          _localNotificationService.notifyTicketReplies(message: message),
+        );
       }
 
       final currentSelectedTicketId = selectedTicketId;
@@ -1994,8 +2247,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       return;
     }
 
-    final notificationKey =
-        DashboardService.defaultEntryDateOf(_selectedDate);
+    final notificationKey = DashboardService.defaultEntryDateOf(_selectedDate);
     if (_lastOvertimeExceededNotificationKey == notificationKey) {
       return;
     }
@@ -2646,8 +2898,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final weekday = _weekdayKeyForDate(_selectedDate);
     final pickedMinutes = await _showScheduleBreakWheelPicker(
       initialMinutes: currentBreakMinutes,
-      standardScheduleLinkLabel:
-          'Vai a Orario di lavoro (${weekday.label})',
+      standardScheduleLinkLabel: 'Vai a Orario di lavoro (${weekday.label})',
       onOpenStandardScheduleLink: _openSelectedWeekdayStandardWorkSettings,
     );
     if (pickedMinutes == null) {
@@ -2664,8 +2915,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final pickedMinutes = await _showScheduleTargetWheelPicker(
       title: 'Durata del giorno',
       initialMinutes: currentTargetMinutes,
-      standardScheduleLinkLabel:
-          'Vai a Orario di lavoro (${weekday.label})',
+      standardScheduleLinkLabel: 'Vai a Orario di lavoro (${weekday.label})',
       onOpenStandardScheduleLink: _openSelectedWeekdayStandardWorkSettings,
     );
     if (pickedMinutes == null) {
@@ -2700,7 +2950,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   Future<void> _confirmSuggestedExitMinutes(int exitMinutes) async {
     final clampedExitMinutes = exitMinutes.clamp(0, (23 * 60) + 59).toInt();
-    _scheduleOverrideEndTimeController.text = formatTimeInput(clampedExitMinutes);
+    _scheduleOverrideEndTimeController.text = formatTimeInput(
+      clampedExitMinutes,
+    );
     _clearPendingExitConfirmationForSelectedDate();
     _normalizeSelectedDayPauseWindowForCurrentDraft();
     _clearAgendaPreviewState();
@@ -3218,7 +3470,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     required String title,
   }) async {
     final nameController = TextEditingController();
-    final allowanceController = TextEditingController(text: _formatHoursInput(0));
+    final allowanceController = TextEditingController(
+      text: _formatHoursInput(0),
+    );
     final usedController = TextEditingController(text: _formatHoursInput(0));
     var selectedPeriod = WorkAllowancePeriod.monthly;
     final selectedMovements = <WorkPermissionMovement>{
@@ -3302,21 +3556,23 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     Wrap(
                       spacing: 8,
                       runSpacing: 8,
-                      children: WorkPermissionMovement.values.map((movement) {
-                        return FilterChip(
-                          label: Text(movement.label),
-                          selected: selectedMovements.contains(movement),
-                          onSelected: (selected) {
-                            setDialogState(() {
-                              if (selected) {
-                                selectedMovements.add(movement);
-                              } else {
-                                selectedMovements.remove(movement);
-                              }
-                            });
-                          },
-                        );
-                      }).toList(growable: false),
+                      children: WorkPermissionMovement.values
+                          .map((movement) {
+                            return FilterChip(
+                              label: Text(movement.label),
+                              selected: selectedMovements.contains(movement),
+                              onSelected: (selected) {
+                                setDialogState(() {
+                                  if (selected) {
+                                    selectedMovements.add(movement);
+                                  } else {
+                                    selectedMovements.remove(movement);
+                                  }
+                                });
+                              },
+                            );
+                          })
+                          .toList(growable: false),
                     ),
                   ],
                 ),
@@ -4528,9 +4784,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (_isBackgroundUpdateDownloadInProgress) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text(
-            'Download aggiornamento in background gia in corso.',
-          ),
+          content: Text('Download aggiornamento in background gia in corso.'),
         ),
       );
       return;
@@ -4625,7 +4879,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     });
   }
 
-  void _handleBackgroundUpdateDownloadProgress(UpdateDownloadProgress progress) {
+  void _handleBackgroundUpdateDownloadProgress(
+    UpdateDownloadProgress progress,
+  ) {
     if (!mounted) {
       return;
     }
@@ -4722,7 +4978,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       return;
     }
 
-    final result = await widget.appUpdateService.installUpdate(downloadedUpdate);
+    final result = await widget.appUpdateService.installUpdate(
+      downloadedUpdate,
+    );
     if (!mounted) {
       return;
     }
@@ -4749,9 +5007,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         break;
       case UpdateInstallResult.failed:
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Impossibile avviare l installazione.'),
-          ),
+          const SnackBar(content: Text('Impossibile avviare l installazione.')),
         );
         break;
     }
@@ -5893,6 +6149,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     bool isTicketRequest = false,
   }) {
     if (error is ApiException) {
+      if (error.message == 'account not found') {
+        return 'Nessun account trovato con questa email.';
+      }
+      if (error.message == 'recovery questions not configured') {
+        return 'Per questo account non sono ancora state configurate le domande di recupero.';
+      }
+      if (error.message == 'too many recovery attempts') {
+        return 'Troppi tentativi di recupero. Riprova tra qualche minuto.';
+      }
       if (error.message.contains('weekdaySchedule must include') ||
           error.message.contains('weekdayTargetMinutes must include') ||
           error.message.contains(
@@ -5997,7 +6262,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       baseDayMetrics,
       displayedDaySchedule,
     );
-    final pendingExitConfirmationMinutes = _pendingExitConfirmationForSelectedDate;
+    final pendingExitConfirmationMinutes =
+        _pendingExitConfirmationForSelectedDate;
 
     return _CalendarCard(
       title: title,
@@ -6213,7 +6479,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           rulesOvertimeDailyCapController: _rulesOvertimeDailyCapController,
           rulesOvertimeWeeklyCapController: _rulesOvertimeWeeklyCapController,
           rulesOvertimeMonthlyCapController: _rulesOvertimeMonthlyCapController,
-          rulesFlexibleStartWindowController: _rulesFlexibleStartWindowController,
+          rulesFlexibleStartWindowController:
+              _rulesFlexibleStartWindowController,
           rulesWalletDailyExitController: _rulesWalletDailyExitController,
           rulesWalletWeeklyExitController: _rulesWalletWeeklyExitController,
           rulesImplicitCreditDailyCapController:
@@ -6323,6 +6590,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           accountPasswordController: _accountPasswordController,
           isAuthenticatingAccount: _isAuthenticatingAccount,
           isRecoveringPassword: _isRecoveringAccountPassword,
+          isConfiguringRecoveryQuestions: _isConfiguringRecoveryQuestions,
           isRestoringCloudBackup: _isRestoringCloudBackup,
           isSyncingCloudBackup: _isSyncingCloudBackup,
           onDarkThemeChanged: _toggleThemeMode,
@@ -6336,6 +6604,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             });
           },
           onOpenPasswordRecovery: _openPasswordRecoveryFlow,
+          onOpenRecoveryQuestionsSetup: _openRecoveryQuestionsSetupFlow,
           onBackupNow: _queueCloudBackup,
           onRestoreCloudBackup: _restoreCloudBackup,
           onLogoutAccount: _logoutAccount,
@@ -7988,7 +8257,8 @@ class _QuickScheduleValue extends StatelessWidget {
                   ),
                 ),
               ],
-              if (secondaryActionLabel != null && onSecondaryAction != null) ...[
+              if (secondaryActionLabel != null &&
+                  onSecondaryAction != null) ...[
                 const SizedBox(height: 4),
                 TextButton(
                   key: secondaryActionKey,
@@ -8086,11 +8356,12 @@ class _QuickDayComputedSummary extends StatelessWidget {
     final overtimeColor = switch ((isDayOff, hasStartedDay)) {
       (true, _) => colorScheme.onSurfaceVariant,
       (false, false) => colorScheme.onSurfaceVariant,
-      _ => exceededOvertimeMinutes > 0
-          ? const Color(0xFF9D3D2F)
-          : overtimeMinutes > 0
-          ? colorScheme.secondary
-          : colorScheme.onSurfaceVariant,
+      _ =>
+        exceededOvertimeMinutes > 0
+            ? const Color(0xFF9D3D2F)
+            : overtimeMinutes > 0
+            ? colorScheme.secondary
+            : colorScheme.onSurfaceVariant,
     };
     final overtimeHelperText = exceededOvertimeMinutes > 0
         ? 'Fuori limite di ${_formatHoursInput(exceededOvertimeMinutes)}'
@@ -8541,10 +8812,13 @@ class _WheelPickerBottomSheetState<T>
                 if (widget.clearLabel != null && widget.clearValue != null)
                   TextButton(
                     key: const ValueKey('wheel-picker-clear-button'),
-                    onPressed: () => Navigator.of(context).pop(widget.clearValue),
+                    onPressed: () =>
+                        Navigator.of(context).pop(widget.clearValue),
                     child: Text(
                       widget.clearLabel!,
-                      style: TextStyle(color: Theme.of(context).colorScheme.error),
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
                     ),
                   ),
                 FilledButton.tonal(
@@ -9004,7 +9278,8 @@ class _CompactWeekTimelineRow extends StatelessWidget {
     final hasRegisteredWorkOrLeave =
         effectiveWorkedMinutes > 0 || metrics.leaveMinutes > 0;
     final workedDeltaMinutes = hasRegisteredWorkOrLeave
-        ? (effectiveWorkedMinutes + metrics.leaveMinutes) - metrics.expectedMinutes
+        ? (effectiveWorkedMinutes + metrics.leaveMinutes) -
+              metrics.expectedMinutes
         : 0;
     final isCurrentWithoutRegistrations =
         relation != _CalendarDayRelation.future &&
@@ -11668,6 +11943,7 @@ class _ProfileCard extends StatelessWidget {
     required this.accountPasswordController,
     required this.isAuthenticatingAccount,
     required this.isRecoveringPassword,
+    required this.isConfiguringRecoveryQuestions,
     required this.isRestoringCloudBackup,
     required this.isSyncingCloudBackup,
     required this.onDarkThemeChanged,
@@ -11677,6 +11953,7 @@ class _ProfileCard extends StatelessWidget {
     required this.onLoginAccount,
     required this.onAuthModeChanged,
     required this.onOpenPasswordRecovery,
+    required this.onOpenRecoveryQuestionsSetup,
     required this.onBackupNow,
     required this.onRestoreCloudBackup,
     required this.onLogoutAccount,
@@ -11703,6 +11980,7 @@ class _ProfileCard extends StatelessWidget {
   final TextEditingController accountPasswordController;
   final bool isAuthenticatingAccount;
   final bool isRecoveringPassword;
+  final bool isConfiguringRecoveryQuestions;
   final bool isRestoringCloudBackup;
   final bool isSyncingCloudBackup;
   final Future<void> Function(bool) onDarkThemeChanged;
@@ -11713,6 +11991,7 @@ class _ProfileCard extends StatelessWidget {
   final Future<void> Function() onLoginAccount;
   final ValueChanged<_AccountAuthMode> onAuthModeChanged;
   final Future<void> Function() onOpenPasswordRecovery;
+  final Future<void> Function() onOpenRecoveryQuestionsSetup;
   final Future<void> Function() onBackupNow;
   final Future<void> Function() onRestoreCloudBackup;
   final Future<void> Function() onLogoutAccount;
@@ -11767,12 +12046,14 @@ class _ProfileCard extends StatelessWidget {
               passwordController: accountPasswordController,
               isAuthenticating: isAuthenticatingAccount,
               isRecoveringPassword: isRecoveringPassword,
+              isConfiguringRecoveryQuestions: isConfiguringRecoveryQuestions,
               isRestoring: isRestoringCloudBackup,
               isSyncing: isSyncingCloudBackup,
               onRegister: onRegisterAccount,
               onLogin: onLoginAccount,
               onAuthModeChanged: onAuthModeChanged,
               onOpenPasswordRecovery: onOpenPasswordRecovery,
+              onOpenRecoveryQuestionsSetup: onOpenRecoveryQuestionsSetup,
               onBackupNow: onBackupNow,
               onRestoreFromCloud: onRestoreCloudBackup,
               onLogout: onLogoutAccount,
@@ -11985,7 +12266,8 @@ class _WorkSettingsCard extends StatelessWidget {
         if (weekdayStartMinutes == null) {
           continue;
         }
-        final latestStartMinutes = weekdayStartMinutes + flexibleStartWindowMinutes;
+        final latestStartMinutes =
+            weekdayStartMinutes + flexibleStartWindowMinutes;
         final dayLabel = _compactWeekdayLabel(weekday);
         final overflowSuffix = latestStartMinutes >= (24 * 60) ? ' +1g' : '';
         flexibleStartRangeHints.add(
@@ -11993,9 +12275,12 @@ class _WorkSettingsCard extends StatelessWidget {
         );
       }
       if (flexibleStartRangeHints.isEmpty) {
-        final uniformStartMinutes = parseTimeInput(uniformStartTimeController.text);
+        final uniformStartMinutes = parseTimeInput(
+          uniformStartTimeController.text,
+        );
         if (uniformStartMinutes != null) {
-          final latestStartMinutes = uniformStartMinutes + flexibleStartWindowMinutes;
+          final latestStartMinutes =
+              uniformStartMinutes + flexibleStartWindowMinutes;
           final overflowSuffix = latestStartMinutes >= (24 * 60) ? ' +1g' : '';
           flexibleStartRangeHints.add(
             'Fascia ${formatTimeInput(uniformStartMinutes)} - ${formatTimeInput(latestStartMinutes % (24 * 60))}$overflowSuffix',
@@ -12238,11 +12523,13 @@ class _WorkSettingsCard extends StatelessWidget {
               child: _WorkRulesAttendanceEditor(
                 fixedScheduleEnabled: rulesFixedScheduleEnabled,
                 flexibleStartEnabled: rulesFlexibleStartEnabled,
-                flexibleStartWindowText: rulesFlexibleStartWindowController.text,
+                flexibleStartWindowText:
+                    rulesFlexibleStartWindowController.text,
                 flexibleStartRangeHints: flexibleStartRangeHints,
                 onFixedScheduleChanged: onRulesFixedScheduleEnabledChanged,
                 onFlexibleStartChanged: onRulesFlexibleStartEnabledChanged,
-                onPickFlexibleStartWindow: onPickRulesFlexibleStartWindowMinutes,
+                onPickFlexibleStartWindow:
+                    onPickRulesFlexibleStartWindowMinutes,
               ),
             ),
             const SizedBox(height: 16),
@@ -12655,7 +12942,10 @@ class _CenteredSettingsValuesWrap extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final itemWidth = math.max(190.0, math.min(260.0, constraints.maxWidth - 8));
+    final itemWidth = math.max(
+      190.0,
+      math.min(260.0, constraints.maxWidth - 8),
+    );
     return Wrap(
       spacing: 10,
       runSpacing: 10,
@@ -13284,8 +13574,7 @@ class _LeaveBanksEditor extends StatelessWidget {
     final remainingMinutes = _remainingMinutes(rule);
     final safeWorkingDayMinutes = math.max(referenceWorkingDayMinutes, 60);
     final remainingDays = remainingMinutes / safeWorkingDayMinutes;
-    final isWholeDays =
-        remainingDays == remainingDays.truncateToDouble();
+    final isWholeDays = remainingDays == remainingDays.truncateToDouble();
     final formattedDays = isWholeDays
         ? remainingDays.toStringAsFixed(0)
         : remainingDays.toStringAsFixed(1).replaceFirst('.', ',');
@@ -13348,19 +13637,16 @@ class _LeaveBanksEditor extends StatelessWidget {
         ),
         const SizedBox(height: 12),
         if (rules.isEmpty)
-          Text(
-            emptyMessage,
-            style: Theme.of(context).textTheme.bodyMedium,
-          )
+          Text(emptyMessage, style: Theme.of(context).textTheme.bodyMedium)
         else if (otherRules.isNotEmpty)
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
                 'Altre causali',
-                style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.w800,
-                ),
+                style: Theme.of(
+                  context,
+                ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800),
               ),
               const SizedBox(height: 10),
               Column(
@@ -13458,10 +13744,7 @@ class _PermissionRulesEditor extends StatelessWidget {
         ),
         const SizedBox(height: 12),
         if (rules.isEmpty)
-          Text(
-            emptyMessage,
-            style: Theme.of(context).textTheme.bodyMedium,
-          )
+          Text(emptyMessage, style: Theme.of(context).textTheme.bodyMedium)
         else
           Column(
             children: rules
@@ -13491,10 +13774,13 @@ class _PermissionRuleTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final safeUsedMinutes = math.min(rule.usedMinutes, rule.allowanceMinutes);
-    final remainingMinutes = math.max(rule.allowanceMinutes - safeUsedMinutes, 0);
-    final movementLabels = rule.movements.map((movement) => movement.label).join(
-      ', ',
+    final remainingMinutes = math.max(
+      rule.allowanceMinutes - safeUsedMinutes,
+      0,
     );
+    final movementLabels = rule.movements
+        .map((movement) => movement.label)
+        .join(', ');
 
     return Container(
       padding: const EdgeInsets.all(12),
@@ -13650,10 +13936,7 @@ String _formatSettingsLimitValue(
   return _formatHoursInput(parsedMinutes);
 }
 
-String _formatOptionalHoursValue(
-  String rawValue, {
-  required String zeroLabel,
-}) {
+String _formatOptionalHoursValue(String rawValue, {required String zeroLabel}) {
   final parsedMinutes = parseHoursInput(rawValue);
   if (parsedMinutes == null || parsedMinutes <= 0) {
     return zeroLabel;
@@ -13732,12 +14015,14 @@ class _CloudBackupAccountCard extends StatelessWidget {
     required this.passwordController,
     required this.isAuthenticating,
     required this.isRecoveringPassword,
+    required this.isConfiguringRecoveryQuestions,
     required this.isRestoring,
     required this.isSyncing,
     required this.onRegister,
     required this.onLogin,
     required this.onAuthModeChanged,
     required this.onOpenPasswordRecovery,
+    required this.onOpenRecoveryQuestionsSetup,
     required this.onBackupNow,
     required this.onRestoreFromCloud,
     required this.onLogout,
@@ -13749,12 +14034,14 @@ class _CloudBackupAccountCard extends StatelessWidget {
   final TextEditingController passwordController;
   final bool isAuthenticating;
   final bool isRecoveringPassword;
+  final bool isConfiguringRecoveryQuestions;
   final bool isRestoring;
   final bool isSyncing;
   final Future<void> Function() onRegister;
   final Future<void> Function() onLogin;
   final ValueChanged<_AccountAuthMode> onAuthModeChanged;
   final Future<void> Function() onOpenPasswordRecovery;
+  final Future<void> Function() onOpenRecoveryQuestionsSetup;
   final Future<void> Function() onBackupNow;
   final Future<void> Function() onRestoreFromCloud;
   final Future<void> Function() onLogout;
@@ -13812,7 +14099,7 @@ class _CloudBackupAccountCard extends StatelessWidget {
             const SizedBox(height: 12),
             Text(
               selectedAuthMode == _AccountAuthMode.register
-                  ? 'Dopo la registrazione ricevi un codice recupero da conservare.'
+                  ? 'Dopo la registrazione puoi impostare 2 domande di sicurezza per recuperare la password.'
                   : 'Accedi con email e password. Se non ricordi la password usa "Password dimenticata?".',
               style: theme.textTheme.bodySmall,
             ),
@@ -13830,7 +14117,7 @@ class _CloudBackupAccountCard extends StatelessWidget {
               autofillHints: const [AutofillHints.password],
               decoration: const InputDecoration(
                 labelText: 'Password',
-                helperText: 'Almeno 8 caratteri',
+                helperText: 'Scegli la password che preferisci',
               ),
             ),
             const SizedBox(height: 14),
@@ -13901,6 +14188,17 @@ class _CloudBackupAccountCard extends StatelessWidget {
                   ),
                 ),
                 OutlinedButton.icon(
+                  onPressed: isConfiguringRecoveryQuestions
+                      ? null
+                      : () => onOpenRecoveryQuestionsSetup(),
+                  icon: const Icon(Icons.security_outlined),
+                  label: Text(
+                    isConfiguringRecoveryQuestions
+                        ? 'Salvo domande...'
+                        : 'Metodi di recupero',
+                  ),
+                ),
+                OutlinedButton.icon(
                   onPressed: isAuthenticating ? null : () => onLogout(),
                   icon: const Icon(Icons.logout_rounded),
                   label: const Text('Esci'),
@@ -13937,7 +14235,8 @@ class _AppUpdateSettingsCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final hasUpdate = availableUpdate != null;
-    final backgroundVersion = backgroundUpdate?.latestVersion ?? availableUpdate?.latestVersion;
+    final backgroundVersion =
+        backgroundUpdate?.latestVersion ?? availableUpdate?.latestVersion;
     final title = isBackgroundDownloadInProgress
         ? 'Download in background'
         : hasUpdate
@@ -14945,7 +15244,9 @@ class _SupportTicketCard extends StatelessWidget {
                             ).colorScheme.surfaceContainerHighest,
                             borderRadius: BorderRadius.circular(12),
                             border: Border.all(
-                              color: Theme.of(context).colorScheme.outlineVariant,
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.outlineVariant,
                             ),
                           ),
                           child: Text(
@@ -15030,9 +15331,7 @@ class _SupportTicketCard extends StatelessWidget {
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       : const Icon(Icons.link_rounded),
-                  label: Text(
-                    isRecoveringTicket ? 'Recupero...' : 'Recupera',
-                  ),
+                  label: Text(isRecoveringTicket ? 'Recupero...' : 'Recupera'),
                 ),
               ],
             ),
@@ -15334,6 +15633,7 @@ class _UpdateDialog extends StatelessWidget {
 }
 
 enum _UpdateDownloadState { downloading, readyToInstall, failed, installing }
+
 enum _UpdateDownloadDialogAction { downloadInBackground }
 
 class _UpdateDownloadDialog extends StatefulWidget {
@@ -15500,10 +15800,7 @@ class _UpdateDownloadDialogState extends State<_UpdateDownloadDialog> {
               'Versione attuale ${widget.update.currentVersion} -> nuova versione ${widget.update.latestVersion}',
             ),
             const SizedBox(height: 12),
-            _buildNewFeatureSection(
-              context,
-              featureItems: newFeatureItems,
-            ),
+            _buildNewFeatureSection(context, featureItems: newFeatureItems),
             const SizedBox(height: 16),
             if (_state == _UpdateDownloadState.downloading) ...[
               LinearProgressIndicator(value: _progress.fractionCompleted),
@@ -15532,9 +15829,7 @@ class _UpdateDownloadDialogState extends State<_UpdateDownloadDialog> {
               const SizedBox(height: 12),
               Text(
                 _message!,
-                style: Theme.of(
-                  context,
-                ).textTheme.bodyMedium?.copyWith(
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                   color: const Color(0xFF9D3D2F),
                 ),
               ),
@@ -15544,7 +15839,8 @@ class _UpdateDownloadDialogState extends State<_UpdateDownloadDialog> {
       ),
       actions: [
         TextButton(
-          onPressed: _state == _UpdateDownloadState.installing ||
+          onPressed:
+              _state == _UpdateDownloadState.installing ||
                   _state == _UpdateDownloadState.downloading
               ? null
               : () => Navigator.of(context).pop(),
@@ -15616,7 +15912,7 @@ class _UpdateDownloadDialogState extends State<_UpdateDownloadDialog> {
                   const Icon(Icons.auto_awesome_outlined, size: 18),
                   const SizedBox(width: 8),
                   Text(
-                    'New Feature',
+                    'Novita di questa versione',
                     style: theme.textTheme.titleSmall?.copyWith(
                       fontWeight: FontWeight.w700,
                     ),
@@ -15643,17 +15939,19 @@ class _UpdateDownloadDialogState extends State<_UpdateDownloadDialog> {
                   ? Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: featureItems
-                          .map((item) => Padding(
-                                padding: const EdgeInsets.only(top: 6),
-                                child: Text(
-                                  '- $item',
-                                  style: theme.textTheme.bodyMedium,
-                                ),
-                              ))
+                          .map(
+                            (item) => Padding(
+                              padding: const EdgeInsets.only(top: 6),
+                              child: Text(
+                                '- $item',
+                                style: theme.textTheme.bodyMedium,
+                              ),
+                            ),
+                          )
                           .toList(growable: false),
                     )
                   : Text(
-                      'Nessun dettaglio disponibile per questo update.',
+                      'Aggiornamento con miglioramenti generali per l uso quotidiano.',
                       style: theme.textTheme.bodyMedium,
                     ),
             ),
@@ -15667,7 +15965,7 @@ class _UpdateDownloadDialogState extends State<_UpdateDownloadDialog> {
       return const [];
     }
 
-    final lines = releaseNotes.replaceAll('\r\n', '\n').split('\n');
+    final lines = resolveUserFacingReleaseNotes(releaseNotes);
     final items = <String>[];
     for (final rawLine in lines) {
       final line = rawLine.trim();
@@ -15714,10 +16012,9 @@ class _UpdateDownloadDialogState extends State<_UpdateDownloadDialog> {
       return items;
     }
 
-    final compact = releaseNotes
-        .replaceAll('\n', ' ')
-        .replaceAll(RegExp(r'\s+'), ' ')
-        .trim();
+    final compact = resolveUserFacingReleaseNotes(
+      releaseNotes,
+    ).join(' ').trim();
     if (compact.isEmpty) {
       return const [];
     }
@@ -15747,9 +16044,9 @@ class _UpdateDownloadDialogState extends State<_UpdateDownloadDialog> {
 
   bool _isGenericBuildNote(String value) {
     final normalized = value.toLowerCase().trim();
-    return RegExp(r'^android apk build[\s:]+v?\d+(\.\d+){1,4}\.?$').hasMatch(
-      normalized,
-    );
+    return RegExp(
+      r'^android apk build[\s:]+v?\d+(\.\d+){1,4}\.?$',
+    ).hasMatch(normalized);
   }
 }
 
@@ -16411,7 +16708,9 @@ int _resolveLiveWorkedMinutes({
     );
     if (measurementSegments.isNotEmpty) {
       return measurementSegments
-          .where((segment) => segment.kind == _AgendaMeasurementSegmentKind.work)
+          .where(
+            (segment) => segment.kind == _AgendaMeasurementSegmentKind.work,
+          )
           .fold<int>(
             0,
             (total, segment) =>
@@ -16759,21 +17058,28 @@ _QuickDayControlInsights _buildQuickDayControlInsights({
     );
   }
 
-  final exceedsWithoutOvertime = todayOvertimeMinutes > 0 && !workRules.overtimeEnabled;
-  final dailyOverflow = workRules.overtimeEnabled &&
+  final exceedsWithoutOvertime =
+      todayOvertimeMinutes > 0 && !workRules.overtimeEnabled;
+  final dailyOverflow =
+      workRules.overtimeEnabled &&
           workRules.overtimeCapEnabled &&
           workRules.overtimeDailyCapMinutes > 0
       ? math.max(0, todayOvertimeMinutes - workRules.overtimeDailyCapMinutes)
       : 0;
-  final weeklyOverflow = workRules.overtimeEnabled &&
+  final weeklyOverflow =
+      workRules.overtimeEnabled &&
           workRules.overtimeCapEnabled &&
           workRules.overtimeWeeklyCapMinutes > 0
       ? math.max(0, weeklyOvertimeMinutes - workRules.overtimeWeeklyCapMinutes)
       : 0;
-  final monthlyOverflow = workRules.overtimeEnabled &&
+  final monthlyOverflow =
+      workRules.overtimeEnabled &&
           workRules.overtimeCapEnabled &&
           workRules.overtimeMonthlyCapMinutes > 0
-      ? math.max(0, monthlyOvertimeMinutes - workRules.overtimeMonthlyCapMinutes)
+      ? math.max(
+          0,
+          monthlyOvertimeMinutes - workRules.overtimeMonthlyCapMinutes,
+        )
       : 0;
   final exceededOvertimeMinutes = exceedsWithoutOvertime
       ? todayOvertimeMinutes
@@ -16801,7 +17107,8 @@ _QuickDayControlInsights _buildQuickDayControlInsights({
   final monthlyCreditLimit = _resolveConfiguredMonthlyCreditLimit(workRules);
   final monthlyDebitLimit = _resolveConfiguredMonthlyDebitLimit(workRules);
   final exceededMonthlyCreditLimitMinutes =
-      monthlyCreditLimit != null && monthlyRawBalanceMinutes > monthlyCreditLimit
+      monthlyCreditLimit != null &&
+          monthlyRawBalanceMinutes > monthlyCreditLimit
       ? monthlyRawBalanceMinutes - monthlyCreditLimit
       : 0;
   final exceededMonthlyDebitLimitMinutes =
@@ -17837,7 +18144,9 @@ class _Header extends StatelessWidget {
           child: _HeaderSectionIconButton(
             section: section,
             isSelected: selectedSection == section,
-            badgeCount: section == _HomeSection.ticket ? unreadTicketReplyCount : 0,
+            badgeCount: section == _HomeSection.ticket
+                ? unreadTicketReplyCount
+                : 0,
             onTap: () => onSelectSection(section),
           ),
         );

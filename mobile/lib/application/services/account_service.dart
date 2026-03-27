@@ -2,6 +2,7 @@ import 'package:work_hours_mobile/application/services/account_session_store.dar
 import 'package:work_hours_mobile/application/services/theme_preference_store.dart';
 import 'package:work_hours_mobile/data/api/work_hours_api_client.dart';
 import 'package:work_hours_mobile/data/repositories/local_dashboard_repository.dart';
+import 'package:work_hours_mobile/domain/models/account_recovery_questions.dart';
 import 'package:work_hours_mobile/domain/models/account_session.dart';
 import 'package:work_hours_mobile/domain/models/cloud_backup_bundle.dart';
 
@@ -73,15 +74,48 @@ class AccountService {
     await _sessionStore.clearSession();
   }
 
-  Future<String> recoverPassword({
+  Future<AccountRecoveryQuestions> loadRecoveryQuestions({
     required String email,
-    required String recoveryCode,
-    required String newPassword,
+  }) {
+    final client = WorkHoursApiClient(baseUrl: _baseUrl);
+    return client.fetchRecoveryQuestions(email: email);
+  }
+
+  Future<void> configureRecoveryQuestions({
+    required String questionOne,
+    required String answerOne,
+    required String questionTwo,
+    required String answerTwo,
+    AccountSession? session,
   }) async {
+    final effectiveSession = session ?? await _sessionStore.loadSession();
+    if (effectiveSession == null) {
+      throw ApiException('Sessione account non trovata.');
+    }
+
+    final client = WorkHoursApiClient(
+      baseUrl: _baseUrl,
+      authToken: effectiveSession.token,
+    );
+    await client.configureRecoveryQuestions(
+      questionOne: questionOne,
+      answerOne: answerOne,
+      questionTwo: questionTwo,
+      answerTwo: answerTwo,
+    );
+  }
+
+  Future<void> recoverPassword({
+    required String email,
+    required String answerOne,
+    required String answerTwo,
+    required String newPassword,
+  }) {
     final client = WorkHoursApiClient(baseUrl: _baseUrl);
     return client.recoverPassword(
       email: email,
-      recoveryCode: recoveryCode,
+      answerOne: answerOne,
+      answerTwo: answerTwo,
       newPassword: newPassword,
     );
   }

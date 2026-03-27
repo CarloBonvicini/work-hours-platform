@@ -5,9 +5,16 @@ function normalizeEmail(value: string) {
   return value.trim().toLowerCase();
 }
 
+function normalizeWhitespace(value: string) {
+  return value.trim().replace(/\s+/g, " ");
+}
+
 function normalizeRecoveryCode(value: string) {
   return value.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
 }
+
+export const RECOVERY_MAX_ATTEMPTS = 5;
+export const RECOVERY_LOCK_WINDOW_MINUTES = 15;
 
 function getLegacyAdminProfileEmails() {
   return new Set(
@@ -47,6 +54,54 @@ export function createRecoveryCode() {
 
 export function createRecoveryCodeDigest(recoveryCode: string) {
   return createPasswordDigest(normalizeRecoveryCode(recoveryCode));
+}
+
+export function normalizeRecoveryQuestion(value: string) {
+  return normalizeWhitespace(value);
+}
+
+export function normalizeRecoveryAnswer(value: string) {
+  return normalizeWhitespace(value).toLowerCase();
+}
+
+export function createRecoveryAnswerDigest(answer: string) {
+  return createPasswordDigest(normalizeRecoveryAnswer(answer));
+}
+
+export function verifyRecoveryAnswerDigest(options: {
+  answer: string;
+  hash?: string;
+  salt?: string;
+}) {
+  if (!options.hash || !options.salt) {
+    return false;
+  }
+
+  const normalizedAnswer = normalizeRecoveryAnswer(options.answer);
+  const hash = scryptSync(normalizedAnswer, options.salt, 64).toString("hex");
+  return hash === options.hash;
+}
+
+export function hasRecoveryQuestionsConfigured(user: StoredAuthUser) {
+  return Boolean(
+    user.recoveryQuestionOne &&
+      user.recoveryQuestionTwo &&
+      user.recoveryAnswerOneHash &&
+      user.recoveryAnswerOneSalt &&
+      user.recoveryAnswerTwoHash &&
+      user.recoveryAnswerTwoSalt
+  );
+}
+
+export function isRecoveryTemporarilyLocked(
+  user: StoredAuthUser,
+  now = new Date()
+) {
+  if (!user.recoveryLockedUntil) {
+    return false;
+  }
+
+  return new Date(user.recoveryLockedUntil).getTime() > now.getTime();
 }
 
 export function verifyRecoveryCodeDigest(
@@ -127,10 +182,6 @@ export function getConfiguredSuperAdminCredentials() {
     throw new Error("SUPER_ADMIN_EMAIL is not a valid email");
   }
 
-  if (passwordValue.length < 8) {
-    throw new Error("SUPER_ADMIN_PASSWORD must be at least 8 characters");
-  }
-
   return {
     email,
     password: passwordValue
@@ -179,6 +230,7 @@ async function createSuperAdminUser(
     email,
     passwordHash: passwordDigest.hash,
     passwordSalt: passwordDigest.salt,
+    recoveryFailedAttempts: 0,
     role: "super_admin",
     createdAt: now,
     updatedAt: now
@@ -204,6 +256,7 @@ async function refreshStoredSuperAdmin(
     ...existingUser,
     passwordHash: passwordDigest?.hash ?? existingUser.passwordHash,
     passwordSalt: passwordDigest?.salt ?? existingUser.passwordSalt,
+    recoveryFailedAttempts: existingUser.recoveryFailedAttempts ?? 0,
     role: "super_admin",
     updatedAt: now
   });

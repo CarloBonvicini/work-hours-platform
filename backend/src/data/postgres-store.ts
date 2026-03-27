@@ -73,6 +73,14 @@ type AuthUserRow = {
   password_salt: string;
   recovery_code_hash: string | null;
   recovery_code_salt: string | null;
+  recovery_question_one: string | null;
+  recovery_question_two: string | null;
+  recovery_answer_one_hash: string | null;
+  recovery_answer_one_salt: string | null;
+  recovery_answer_two_hash: string | null;
+  recovery_answer_two_salt: string | null;
+  recovery_failed_attempts: number | null;
+  recovery_locked_until: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -313,6 +321,14 @@ export class PostgresStore implements AppStore {
         password_salt TEXT NOT NULL,
         recovery_code_hash TEXT,
         recovery_code_salt TEXT,
+        recovery_question_one TEXT,
+        recovery_question_two TEXT,
+        recovery_answer_one_hash TEXT,
+        recovery_answer_one_salt TEXT,
+        recovery_answer_two_hash TEXT,
+        recovery_answer_two_salt TEXT,
+        recovery_failed_attempts INTEGER NOT NULL DEFAULT 0,
+        recovery_locked_until TIMESTAMPTZ,
         role TEXT NOT NULL DEFAULT 'user',
         is_admin BOOLEAN NOT NULL DEFAULT FALSE,
         created_at TIMESTAMPTZ NOT NULL,
@@ -323,7 +339,15 @@ export class PostgresStore implements AppStore {
         ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'user',
         ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT FALSE,
         ADD COLUMN IF NOT EXISTS recovery_code_hash TEXT,
-        ADD COLUMN IF NOT EXISTS recovery_code_salt TEXT;
+        ADD COLUMN IF NOT EXISTS recovery_code_salt TEXT,
+        ADD COLUMN IF NOT EXISTS recovery_question_one TEXT,
+        ADD COLUMN IF NOT EXISTS recovery_question_two TEXT,
+        ADD COLUMN IF NOT EXISTS recovery_answer_one_hash TEXT,
+        ADD COLUMN IF NOT EXISTS recovery_answer_one_salt TEXT,
+        ADD COLUMN IF NOT EXISTS recovery_answer_two_hash TEXT,
+        ADD COLUMN IF NOT EXISTS recovery_answer_two_salt TEXT,
+        ADD COLUMN IF NOT EXISTS recovery_failed_attempts INTEGER NOT NULL DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS recovery_locked_until TIMESTAMPTZ;
 
       UPDATE auth_users
       SET role = CASE WHEN is_admin THEN 'admin' ELSE 'user' END
@@ -335,6 +359,10 @@ export class PostgresStore implements AppStore {
       UPDATE auth_users
       SET is_admin = CASE WHEN role IN ('admin', 'super_admin') THEN TRUE ELSE FALSE END
       WHERE is_admin IS DISTINCT FROM CASE WHEN role IN ('admin', 'super_admin') THEN TRUE ELSE FALSE END;
+
+      UPDATE auth_users
+      SET recovery_failed_attempts = 0
+      WHERE recovery_failed_attempts IS NULL;
 
       CREATE TABLE IF NOT EXISTS auth_sessions (
         token_hash TEXT PRIMARY KEY,
@@ -683,6 +711,14 @@ export class PostgresStore implements AppStore {
           password_salt,
           recovery_code_hash,
           recovery_code_salt,
+          recovery_question_one,
+          recovery_question_two,
+          recovery_answer_one_hash,
+          recovery_answer_one_salt,
+          recovery_answer_two_hash,
+          recovery_answer_two_salt,
+          recovery_failed_attempts,
+          TO_CHAR(recovery_locked_until AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS recovery_locked_until,
           TO_CHAR(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS created_at,
           TO_CHAR(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS updated_at
         FROM auth_users
@@ -705,6 +741,14 @@ export class PostgresStore implements AppStore {
       passwordSalt: row.password_salt,
       recoveryCodeHash: row.recovery_code_hash ?? undefined,
       recoveryCodeSalt: row.recovery_code_salt ?? undefined,
+      recoveryQuestionOne: row.recovery_question_one ?? undefined,
+      recoveryQuestionTwo: row.recovery_question_two ?? undefined,
+      recoveryAnswerOneHash: row.recovery_answer_one_hash ?? undefined,
+      recoveryAnswerOneSalt: row.recovery_answer_one_salt ?? undefined,
+      recoveryAnswerTwoHash: row.recovery_answer_two_hash ?? undefined,
+      recoveryAnswerTwoSalt: row.recovery_answer_two_salt ?? undefined,
+      recoveryFailedAttempts: row.recovery_failed_attempts ?? 0,
+      recoveryLockedUntil: row.recovery_locked_until ?? undefined,
       createdAt: row.created_at,
       updatedAt: row.updated_at
     };
@@ -720,12 +764,23 @@ export class PostgresStore implements AppStore {
           password_salt,
           recovery_code_hash,
           recovery_code_salt,
+          recovery_question_one,
+          recovery_question_two,
+          recovery_answer_one_hash,
+          recovery_answer_one_salt,
+          recovery_answer_two_hash,
+          recovery_answer_two_salt,
+          recovery_failed_attempts,
+          recovery_locked_until,
           role,
           is_admin,
           created_at,
           updated_at
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::timestamptz, $10::timestamptz)
+        VALUES (
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
+          $15, $16, $17::timestamptz, $18::timestamptz
+        )
         RETURNING
           id,
           email,
@@ -740,6 +795,14 @@ export class PostgresStore implements AppStore {
         user.passwordSalt,
         user.recoveryCodeHash ?? null,
         user.recoveryCodeSalt ?? null,
+        user.recoveryQuestionOne ?? null,
+        user.recoveryQuestionTwo ?? null,
+        user.recoveryAnswerOneHash ?? null,
+        user.recoveryAnswerOneSalt ?? null,
+        user.recoveryAnswerTwoHash ?? null,
+        user.recoveryAnswerTwoSalt ?? null,
+        user.recoveryFailedAttempts ?? 0,
+        user.recoveryLockedUntil ?? null,
         user.role,
         user.role !== "user",
         user.createdAt,
@@ -806,9 +869,17 @@ export class PostgresStore implements AppStore {
           password_salt = $4,
           recovery_code_hash = $5,
           recovery_code_salt = $6,
-          role = $7,
-          is_admin = CASE WHEN $7 IN ('admin', 'super_admin') THEN TRUE ELSE FALSE END,
-          updated_at = $8::timestamptz
+          recovery_question_one = $7,
+          recovery_question_two = $8,
+          recovery_answer_one_hash = $9,
+          recovery_answer_one_salt = $10,
+          recovery_answer_two_hash = $11,
+          recovery_answer_two_salt = $12,
+          recovery_failed_attempts = $13,
+          recovery_locked_until = $14::timestamptz,
+          role = $15,
+          is_admin = CASE WHEN $15 IN ('admin', 'super_admin') THEN TRUE ELSE FALSE END,
+          updated_at = $16::timestamptz
         WHERE id = $1
         RETURNING
           id,
@@ -824,6 +895,14 @@ export class PostgresStore implements AppStore {
         user.passwordSalt,
         user.recoveryCodeHash ?? null,
         user.recoveryCodeSalt ?? null,
+        user.recoveryQuestionOne ?? null,
+        user.recoveryQuestionTwo ?? null,
+        user.recoveryAnswerOneHash ?? null,
+        user.recoveryAnswerOneSalt ?? null,
+        user.recoveryAnswerTwoHash ?? null,
+        user.recoveryAnswerTwoSalt ?? null,
+        user.recoveryFailedAttempts ?? 0,
+        user.recoveryLockedUntil ?? null,
         user.role,
         user.updatedAt
       ]
