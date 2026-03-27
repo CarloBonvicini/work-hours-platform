@@ -4,6 +4,8 @@ enum WorkPermissionMovement { entryLate, exitEarly, entryEarly, exitLate }
 
 enum WorkAllowancePeriod { daily, weekly, monthly, yearly }
 
+enum WorkRulesPauseAdjustmentMode { keepWorkedMinutes, keepEndTime }
+
 class WorkPermissionRule {
   const WorkPermissionRule({
     required this.id,
@@ -103,6 +105,7 @@ class UserWorkRules {
     this.walletWeeklyExitEarlyMinutes = 0,
     this.implicitCreditEnabled = false,
     this.implicitCreditDailyCapMinutes = 0,
+    this.pauseAdjustmentMode = WorkRulesPauseAdjustmentMode.keepWorkedMinutes,
     this.additionalPermissions = const [],
     this.leaveBanks = const [],
   });
@@ -129,6 +132,7 @@ class UserWorkRules {
   final int walletWeeklyExitEarlyMinutes;
   final bool implicitCreditEnabled;
   final int implicitCreditDailyCapMinutes;
+  final WorkRulesPauseAdjustmentMode pauseAdjustmentMode;
   final List<WorkPermissionRule> additionalPermissions;
   final List<WorkPermissionRule> leaveBanks;
 
@@ -172,15 +176,12 @@ class UserWorkRules {
           _unboundedMonthlyLimitMinutes,
       overtimeEnabled: json['overtimeEnabled'] as bool? ?? false,
       overtimeCapEnabled: json['overtimeCapEnabled'] as bool? ?? false,
-      overtimeDailyCapMinutes: (json['overtimeDailyCapMinutes'] as num?)
-              ?.toInt() ??
-          0,
-      overtimeWeeklyCapMinutes: (json['overtimeWeeklyCapMinutes'] as num?)
-              ?.toInt() ??
-          0,
-      overtimeMonthlyCapMinutes: (json['overtimeMonthlyCapMinutes'] as num?)
-              ?.toInt() ??
-          0,
+      overtimeDailyCapMinutes:
+          (json['overtimeDailyCapMinutes'] as num?)?.toInt() ?? 0,
+      overtimeWeeklyCapMinutes:
+          (json['overtimeWeeklyCapMinutes'] as num?)?.toInt() ?? 0,
+      overtimeMonthlyCapMinutes:
+          (json['overtimeMonthlyCapMinutes'] as num?)?.toInt() ?? 0,
       fixedScheduleEnabled: json['fixedScheduleEnabled'] as bool? ?? false,
       flexibleStartEnabled: json['flexibleStartEnabled'] as bool? ?? false,
       flexibleStartWindowMinutes:
@@ -193,6 +194,9 @@ class UserWorkRules {
       implicitCreditEnabled: json['implicitCreditEnabled'] as bool? ?? false,
       implicitCreditDailyCapMinutes:
           (json['implicitCreditDailyCapMinutes'] as num?)?.toInt() ?? 0,
+      pauseAdjustmentMode: WorkRulesPauseAdjustmentModeX.fromApiValue(
+        json['pauseAdjustmentMode'] as String? ?? 'keep_worked_minutes',
+      ),
       additionalPermissions: rawAdditionalPermissions is List
           ? rawAdditionalPermissions
                 .whereType<Map<String, dynamic>>()
@@ -229,6 +233,7 @@ class UserWorkRules {
       'walletWeeklyExitEarlyMinutes': walletWeeklyExitEarlyMinutes,
       'implicitCreditEnabled': implicitCreditEnabled,
       'implicitCreditDailyCapMinutes': implicitCreditDailyCapMinutes,
+      'pauseAdjustmentMode': pauseAdjustmentMode.apiValue,
       'additionalPermissions': additionalPermissions
           .map((rule) => rule.toJson())
           .toList(growable: false),
@@ -258,6 +263,7 @@ class UserWorkRules {
     int? walletWeeklyExitEarlyMinutes,
     bool? implicitCreditEnabled,
     int? implicitCreditDailyCapMinutes,
+    WorkRulesPauseAdjustmentMode? pauseAdjustmentMode,
     List<WorkPermissionRule>? additionalPermissions,
     List<WorkPermissionRule>? leaveBanks,
   }) {
@@ -289,9 +295,11 @@ class UserWorkRules {
           walletDailyExitEarlyMinutes ?? this.walletDailyExitEarlyMinutes,
       walletWeeklyExitEarlyMinutes:
           walletWeeklyExitEarlyMinutes ?? this.walletWeeklyExitEarlyMinutes,
-      implicitCreditEnabled: implicitCreditEnabled ?? this.implicitCreditEnabled,
+      implicitCreditEnabled:
+          implicitCreditEnabled ?? this.implicitCreditEnabled,
       implicitCreditDailyCapMinutes:
           implicitCreditDailyCapMinutes ?? this.implicitCreditDailyCapMinutes,
+      pauseAdjustmentMode: pauseAdjustmentMode ?? this.pauseAdjustmentMode,
       additionalPermissions:
           additionalPermissions ?? this.additionalPermissions,
       leaveBanks: leaveBanks ?? this.leaveBanks,
@@ -352,7 +360,9 @@ class UserWorkRules {
   }
 
   int _effectiveMonthlyCreditLimit() {
-    if (!overtimeEnabled || !overtimeCapEnabled || overtimeMonthlyCapMinutes <= 0) {
+    if (!overtimeEnabled ||
+        !overtimeCapEnabled ||
+        overtimeMonthlyCapMinutes <= 0) {
       return maximumMonthlyCreditMinutes;
     }
     return math.min(maximumMonthlyCreditMinutes, overtimeMonthlyCapMinutes);
@@ -453,6 +463,27 @@ extension WorkAllowancePeriodX on WorkAllowancePeriod {
         return 'Mensile';
       case WorkAllowancePeriod.yearly:
         return 'Annuale';
+    }
+  }
+}
+
+extension WorkRulesPauseAdjustmentModeX on WorkRulesPauseAdjustmentMode {
+  static WorkRulesPauseAdjustmentMode fromApiValue(String value) {
+    switch (value) {
+      case 'keep_end_time':
+        return WorkRulesPauseAdjustmentMode.keepEndTime;
+      case 'keep_worked_minutes':
+      default:
+        return WorkRulesPauseAdjustmentMode.keepWorkedMinutes;
+    }
+  }
+
+  String get apiValue {
+    switch (this) {
+      case WorkRulesPauseAdjustmentMode.keepWorkedMinutes:
+        return 'keep_worked_minutes';
+      case WorkRulesPauseAdjustmentMode.keepEndTime:
+        return 'keep_end_time';
     }
   }
 }

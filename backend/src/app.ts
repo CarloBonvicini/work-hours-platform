@@ -755,6 +755,8 @@ function parseWorkRulesPayload(payload: unknown): Profile["workRules"] | null {
   const parseOptionalFlag = (value: unknown) => value === true;
   const parseOptionalMinutes = (value: unknown) =>
     isNonNegativeInteger(value) ? value : 0;
+  const parsePauseAdjustmentMode = (value: unknown) =>
+    value === "keep_end_time" ? "keep_end_time" : "keep_worked_minutes";
   const permissionMovements = new Set<WorkPermissionMovement>([
     "entry_late",
     "exit_early",
@@ -846,6 +848,7 @@ function parseWorkRulesPayload(payload: unknown): Profile["workRules"] | null {
     implicitCreditDailyCapMinutes: parseOptionalMinutes(
       body.implicitCreditDailyCapMinutes
     ),
+    pauseAdjustmentMode: parsePauseAdjustmentMode(body.pauseAdjustmentMode),
     additionalPermissions: parsePermissionRules(body.additionalPermissions),
     leaveBanks: parsePermissionRules(body.leaveBanks)
   };

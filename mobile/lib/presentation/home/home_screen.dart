@@ -199,6 +199,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _rulesFlexibleStartEnabled = false;
   bool _rulesWalletEnabled = false;
   bool _rulesImplicitCreditEnabled = false;
+  WorkRulesPauseAdjustmentMode _rulesPauseAdjustmentMode =
+      WorkRulesPauseAdjustmentMode.keepWorkedMinutes;
   List<WorkPermissionRule> _rulesAdditionalPermissions = const [];
   List<WorkPermissionRule> _rulesLeaveBanks = const [];
   LeaveType _selectedLeaveType = LeaveType.vacation;
@@ -590,6 +592,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _rulesImplicitCreditDailyCapController.text = _formatHoursInput(
       snapshot.profile.workRules.implicitCreditDailyCapMinutes,
     );
+    _rulesPauseAdjustmentMode = snapshot.profile.workRules.pauseAdjustmentMode;
     _rulesAdditionalPermissions = List<WorkPermissionRule>.from(
       snapshot.profile.workRules.additionalPermissions,
     );
@@ -711,9 +714,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       });
 
       if (showFeedback) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(successMessage)),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(successMessage)));
       }
     } catch (error) {
       if (!mounted) {
@@ -1419,7 +1422,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
       setState(() {
         _isRestoringCloudBackup = false;
-        _lastCloudBackupAt = restoreResult.bundle?.updatedAt ?? _lastCloudBackupAt;
+        _lastCloudBackupAt =
+            restoreResult.bundle?.updatedAt ?? _lastCloudBackupAt;
         _lastCloudBackupSucceeded = restoreResult.hasBackup;
         _lastCloudBackupFeedback = restoreResult.hasBackup
             ? 'Ripristino completato dal backup cloud.'
@@ -3381,6 +3385,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       walletWeeklyExitEarlyMinutes: walletWeeklyExitEarlyMinutes,
       implicitCreditEnabled: _rulesImplicitCreditEnabled,
       implicitCreditDailyCapMinutes: implicitCreditDailyCapMinutes,
+      pauseAdjustmentMode: _rulesPauseAdjustmentMode,
       additionalPermissions: List<WorkPermissionRule>.from(
         _rulesAdditionalPermissions,
       ),
@@ -3795,9 +3800,19 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _scheduleOverrideBreakController.text = _formatBreakInput(
       normalizedMinutes,
     );
-    _syncScheduleOverrideEndFromTarget(
-      markPendingConfirmation: widget.appearanceSettings.showDayEndTime,
-    );
+    if (_rulesPauseAdjustmentMode ==
+        WorkRulesPauseAdjustmentMode.keepWorkedMinutes) {
+      _syncScheduleOverrideEndFromTarget(
+        markPendingConfirmation: widget.appearanceSettings.showDayEndTime,
+      );
+    } else {
+      final didKeepEndTime = _syncScheduleOverrideTargetFromStartEndAndBreak();
+      if (!didKeepEndTime) {
+        _syncScheduleOverrideEndFromTarget(
+          markPendingConfirmation: widget.appearanceSettings.showDayEndTime,
+        );
+      }
+    }
     _normalizeSelectedDayPauseWindowForCurrentDraft();
     _clearAgendaPreviewState();
     setState(() {
@@ -3808,6 +3823,27 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       return;
     }
     await _autosaveScheduleOverride();
+  }
+
+  bool _syncScheduleOverrideTargetFromStartEndAndBreak() {
+    final startMinutes = parseTimeInput(
+      _scheduleOverrideStartTimeController.text.trim(),
+    );
+    final endMinutes = parseTimeInput(
+      _scheduleOverrideEndTimeController.text.trim(),
+    );
+    if (startMinutes == null ||
+        endMinutes == null ||
+        endMinutes <= startMinutes) {
+      return false;
+    }
+
+    final breakMinutes =
+        parseBreakDurationInput(_scheduleOverrideBreakController.text) ?? 0;
+    final targetMinutes = math.max(0, endMinutes - startMinutes - breakMinutes);
+    _scheduleOverrideTargetController.text = _formatHoursInput(targetMinutes);
+    _clearPendingExitConfirmationForSelectedDate();
+    return true;
   }
 
   Future<_ScheduleTimeWheelSelection?> _showScheduleTimeWheelPicker({
@@ -6272,12 +6308,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       if (error.message == 'answerTwo is required') {
         return 'La seconda risposta di recupero non è valida.';
       }
-      if (error.message ==
-          'answerOne must be between 1 and 120 characters') {
+      if (error.message == 'answerOne must be between 1 and 120 characters') {
         return 'La prima risposta di recupero non è valida.';
       }
-      if (error.message ==
-          'answerTwo must be between 1 and 120 characters') {
+      if (error.message == 'answerTwo must be between 1 and 120 characters') {
         return 'La seconda risposta di recupero non è valida.';
       }
       if (error.message ==
@@ -6602,6 +6636,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           rulesFlexibleStartEnabled: _rulesFlexibleStartEnabled,
           rulesWalletEnabled: _rulesWalletEnabled,
           rulesImplicitCreditEnabled: _rulesImplicitCreditEnabled,
+          rulesPauseAdjustmentMode: _rulesPauseAdjustmentMode,
           rulesOvertimeDailyCapController: _rulesOvertimeDailyCapController,
           rulesOvertimeWeeklyCapController: _rulesOvertimeWeeklyCapController,
           rulesOvertimeMonthlyCapController: _rulesOvertimeMonthlyCapController,
@@ -6666,6 +6701,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           onRulesImplicitCreditEnabledChanged: (value) {
             setState(() {
               _rulesImplicitCreditEnabled = value;
+            });
+          },
+          onRulesPauseAdjustmentModeChanged: (value) {
+            setState(() {
+              _rulesPauseAdjustmentMode = value;
             });
           },
           onPickRulesOvertimeDailyCapMinutes: _pickRulesOvertimeDailyCapMinutes,
@@ -12259,6 +12299,7 @@ class _WorkSettingsCard extends StatelessWidget {
     required this.rulesFlexibleStartEnabled,
     required this.rulesWalletEnabled,
     required this.rulesImplicitCreditEnabled,
+    required this.rulesPauseAdjustmentMode,
     required this.rulesOvertimeDailyCapController,
     required this.rulesOvertimeWeeklyCapController,
     required this.rulesOvertimeMonthlyCapController,
@@ -12289,6 +12330,7 @@ class _WorkSettingsCard extends StatelessWidget {
     required this.onRulesFlexibleStartEnabledChanged,
     required this.onRulesWalletEnabledChanged,
     required this.onRulesImplicitCreditEnabledChanged,
+    required this.onRulesPauseAdjustmentModeChanged,
     required this.onPickRulesOvertimeDailyCapMinutes,
     required this.onPickRulesOvertimeWeeklyCapMinutes,
     required this.onPickRulesOvertimeMonthlyCapMinutes,
@@ -12329,6 +12371,7 @@ class _WorkSettingsCard extends StatelessWidget {
   final bool rulesFlexibleStartEnabled;
   final bool rulesWalletEnabled;
   final bool rulesImplicitCreditEnabled;
+  final WorkRulesPauseAdjustmentMode rulesPauseAdjustmentMode;
   final TextEditingController rulesOvertimeDailyCapController;
   final TextEditingController rulesOvertimeWeeklyCapController;
   final TextEditingController rulesOvertimeMonthlyCapController;
@@ -12360,6 +12403,8 @@ class _WorkSettingsCard extends StatelessWidget {
   final ValueChanged<bool> onRulesFlexibleStartEnabledChanged;
   final ValueChanged<bool> onRulesWalletEnabledChanged;
   final ValueChanged<bool> onRulesImplicitCreditEnabledChanged;
+  final ValueChanged<WorkRulesPauseAdjustmentMode>
+  onRulesPauseAdjustmentModeChanged;
   final Future<void> Function() onPickRulesOvertimeDailyCapMinutes;
   final Future<void> Function() onPickRulesOvertimeWeeklyCapMinutes;
   final Future<void> Function() onPickRulesOvertimeMonthlyCapMinutes;
@@ -12577,6 +12622,10 @@ class _WorkSettingsCard extends StatelessWidget {
                   const SizedBox(height: 8),
                   _WorkRulesCoreEditor(
                     minimumBreakText: rulesMinimumBreakController.text,
+                    pauseAdjustmentMode: rulesPauseAdjustmentMode,
+                    onPauseAdjustmentModeChanged:
+                        onRulesPauseAdjustmentModeChanged,
+                    isBusy: isBusy,
                     onPickMinimumBreak: onPickRulesMinimumBreakMinutes,
                   ),
                   const SizedBox(height: 10),
@@ -13271,17 +13320,22 @@ class _SettingsScheduleEditor extends StatelessWidget {
 class _WorkRulesCoreEditor extends StatelessWidget {
   const _WorkRulesCoreEditor({
     required this.minimumBreakText,
+    required this.pauseAdjustmentMode,
+    required this.onPauseAdjustmentModeChanged,
+    required this.isBusy,
     required this.onPickMinimumBreak,
   });
 
   final String minimumBreakText;
+  final WorkRulesPauseAdjustmentMode pauseAdjustmentMode;
+  final ValueChanged<WorkRulesPauseAdjustmentMode> onPauseAdjustmentModeChanged;
+  final bool isBusy;
   final Future<void> Function() onPickMinimumBreak;
 
   @override
   Widget build(BuildContext context) {
-    return Wrap(
-      spacing: 10,
-      runSpacing: 10,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _SlimSettingsScheduleValue(
           label: 'Pausa minima',
@@ -13292,6 +13346,42 @@ class _WorkRulesCoreEditor extends StatelessWidget {
           icon: Icons.free_breakfast_outlined,
           kind: _SettingsValueKind.duration,
           onTap: onPickMinimumBreak,
+        ),
+        const SizedBox(height: 12),
+        Text(
+          'Quando cambi la pausa in Oggi',
+          style: Theme.of(
+            context,
+          ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700),
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          children: [
+            ChoiceChip(
+              label: const Text('Ore lavorate fisse'),
+              selected:
+                  pauseAdjustmentMode ==
+                  WorkRulesPauseAdjustmentMode.keepWorkedMinutes,
+              onSelected: isBusy
+                  ? null
+                  : (_) => onPauseAdjustmentModeChanged(
+                      WorkRulesPauseAdjustmentMode.keepWorkedMinutes,
+                    ),
+            ),
+            ChoiceChip(
+              label: const Text('Uscita fissa'),
+              selected:
+                  pauseAdjustmentMode ==
+                  WorkRulesPauseAdjustmentMode.keepEndTime,
+              onSelected: isBusy
+                  ? null
+                  : (_) => onPauseAdjustmentModeChanged(
+                      WorkRulesPauseAdjustmentMode.keepEndTime,
+                    ),
+            ),
+          ],
         ),
       ],
     );

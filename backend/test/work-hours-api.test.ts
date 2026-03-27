@@ -100,6 +100,44 @@ describe("Profile API", () => {
       }
     });
   });
+
+  it("persists pause adjustment mode inside work rules", async () => {
+    const updateResponse = await app.inject({
+      method: "PUT",
+      url: "/profile",
+      payload: {
+        fullName: "Modalita pausa",
+        dailyTargetMinutes: 480,
+        workRules: {
+          expectedDailyMinutes: 480,
+          minimumBreakMinutes: 0,
+          maximumDailyCreditMinutes: 1440,
+          maximumDailyDebitMinutes: 1440,
+          maximumMonthlyCreditMinutes: 44640,
+          maximumMonthlyDebitMinutes: 44640,
+          pauseAdjustmentMode: "keep_end_time"
+        }
+      }
+    });
+
+    expect(updateResponse.statusCode).toBe(200);
+    expect(updateResponse.json()).toMatchObject({
+      workRules: {
+        pauseAdjustmentMode: "keep_end_time"
+      }
+    });
+
+    const profileResponse = await app.inject({
+      method: "GET",
+      url: "/profile"
+    });
+    expect(profileResponse.statusCode).toBe(200);
+    expect(profileResponse.json()).toMatchObject({
+      workRules: {
+        pauseAdjustmentMode: "keep_end_time"
+      }
+    });
+  });
 });
 
 describe("Auth and cloud backup API", () => {
