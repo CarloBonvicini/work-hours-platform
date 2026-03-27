@@ -16,6 +16,10 @@ function normalizeRecoveryCode(value: string) {
   return value.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
 }
 
+function normalizeText(value: string) {
+  return value.trim().replace(/\s+/g, " ");
+}
+
 function invalidBody(): ParseFailure {
   return { value: null, error: "Invalid body" };
 }
@@ -40,8 +44,8 @@ function parseRequiredPassword(
   field: "password" | "newPassword"
 ): ParseResult<string> {
   const value = typeof body[field] === "string" ? body[field] : null;
-  if (!value || value.trim().length < 8) {
-    return { value: null, error: `${field} must be at least 8 characters` };
+  if (!value || value.trim().length === 0) {
+    return { value: null, error: `${field} is required` };
   }
   return { value };
 }
@@ -119,6 +123,84 @@ function parseRecoveryCode(body: Record<string, unknown>): ParseResult<string> {
   }
 
   return { value: recoveryCode };
+}
+
+function parseBoundedNormalizedText(
+  body: Record<string, unknown>,
+  field: string,
+  minLength: number,
+  maxLength: number
+): ParseResult<string> {
+  const rawValue = body[field];
+  const value = typeof rawValue === "string" ? normalizeText(rawValue) : null;
+  if (!value || value.length < minLength || value.length > maxLength) {
+    return {
+      value: null,
+      error: `${field} must be between ${minLength} and ${maxLength} characters`
+    };
+  }
+
+  return { value };
+}
+
+function parseRequiredQuestion(
+  body: Record<string, unknown>,
+  field: "questionOne" | "questionTwo"
+): ParseResult<string> {
+  return parseBoundedNormalizedText(body, field, 8, 140);
+}
+
+function parseRequiredAnswer(
+  body: Record<string, unknown>,
+  field: "answerOne" | "answerTwo"
+): ParseResult<string> {
+  return parseBoundedNormalizedText(body, field, 2, 120);
+}
+
+function parsePasswordRecoveryByCode(
+  body: Record<string, unknown>,
+  email: string,
+  newPassword: string
+) {
+  const recoveryCodeResult = parseRecoveryCode(body);
+  if (hasParseError(recoveryCodeResult)) {
+    return recoveryCodeResult;
+  }
+
+  return {
+    value: {
+      email,
+      mode: "code" as const,
+      recoveryCode: recoveryCodeResult.value,
+      newPassword
+    }
+  };
+}
+
+function parsePasswordRecoveryByQuestions(
+  body: Record<string, unknown>,
+  email: string,
+  newPassword: string
+) {
+  const answerOneResult = parseRequiredAnswer(body, "answerOne");
+  if (hasParseError(answerOneResult)) {
+    return answerOneResult;
+  }
+
+  const answerTwoResult = parseRequiredAnswer(body, "answerTwo");
+  if (hasParseError(answerTwoResult)) {
+    return answerTwoResult;
+  }
+
+  return {
+    value: {
+      email,
+      mode: "questions" as const,
+      answerOne: answerOneResult.value,
+      answerTwo: answerTwoResult.value,
+      newPassword
+    }
+  };
 }
 
 function ensureHasAdminUpdateFields(body: Record<string, unknown>): ParseFailure | null {
@@ -285,21 +367,84 @@ export function parsePasswordRecoveryPayload(payload: unknown) {
     return emailResult;
   }
 
-  const recoveryCodeResult = parseRecoveryCode(body);
-  if (hasParseError(recoveryCodeResult)) {
-    return recoveryCodeResult;
-  }
-
   const newPasswordResult = parseRequiredPassword(body, "newPassword");
   if (hasParseError(newPasswordResult)) {
     return newPasswordResult;
   }
 
+  if (typeof body.recoveryCode === "string" && body.recoveryCode.trim().length > 0) {
+    return parsePasswordRecoveryByCode(
+      body,
+      emailResult.value,
+      newPasswordResult.value
+    );
+  }
+
+  return parsePasswordRecoveryByQuestions(
+    body,
+    emailResult.value,
+    newPasswordResult.value
+  );
+}
+
+export function parseRecoveryQuestionLookupPayload(payload: unknown) {
+  const bodyResult = getPayloadBody(payload);
+  if (hasParseError(bodyResult)) {
+    return bodyResult;
+  }
+
+  const emailResult = parseRequiredEmail(bodyResult.value);
+  if (hasParseError(emailResult)) {
+    return emailResult;
+  }
+
   return {
     value: {
-      email: emailResult.value,
-      recoveryCode: recoveryCodeResult.value,
-      newPassword: newPasswordResult.value
+      email: emailResult.value
+    }
+  };
+}
+
+export function parseRecoveryQuestionSetupPayload(payload: unknown) {
+  const bodyResult = getPayloadBody(payload);
+  if (hasParseError(bodyResult)) {
+    return bodyResult;
+  }
+
+  const body = bodyResult.value;
+  const questionOneResult = parseRequiredQuestion(body, "questionOne");
+  if (hasParseError(questionOneResult)) {
+    return questionOneResult;
+  }
+
+  const questionTwoResult = parseRequiredQuestion(body, "questionTwo");
+  if (hasParseError(questionTwoResult)) {
+    return questionTwoResult;
+  }
+
+  if (questionOneResult.value.toLowerCase() === questionTwoResult.value.toLowerCase()) {
+    return {
+      value: null,
+      error: "questionTwo must be different from questionOne"
+    };
+  }
+
+  const answerOneResult = parseRequiredAnswer(body, "answerOne");
+  if (hasParseError(answerOneResult)) {
+    return answerOneResult;
+  }
+
+  const answerTwoResult = parseRequiredAnswer(body, "answerTwo");
+  if (hasParseError(answerTwoResult)) {
+    return answerTwoResult;
+  }
+
+  return {
+    value: {
+      questionOne: questionOneResult.value,
+      questionTwo: questionTwoResult.value,
+      answerOne: answerOneResult.value,
+      answerTwo: answerTwoResult.value
     }
   };
 }
