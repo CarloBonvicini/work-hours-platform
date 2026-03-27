@@ -392,6 +392,7 @@ class WorkHoursApiClient {
     );
 
     final body = _decodeObject(response);
+    final droppedItems = body['droppedItems'] as Map<String, dynamic>? ?? const {};
     return CloudBackupStatus(
       hasBackup: true,
       updatedAt:
@@ -399,6 +400,9 @@ class WorkHoursApiClient {
           _parseDateTimeOrNull(
             (body['bundle'] as Map<String, dynamic>?)?['updatedAt'],
           ),
+      droppedWorkEntries: droppedItems['workEntries'] as int? ?? 0,
+      droppedLeaveEntries: droppedItems['leaveEntries'] as int? ?? 0,
+      droppedScheduleOverrides: droppedItems['scheduleOverrides'] as int? ?? 0,
     );
   }
 

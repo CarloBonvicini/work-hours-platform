@@ -997,7 +997,15 @@ function parseAppearanceSettingsRecord(
 function parseCloudBackupPayload(
   payload: unknown,
   fallbackProfileId: string
-): { value: CloudBackupRecord | null; error?: string } {
+): {
+  value: CloudBackupRecord | null;
+  error?: string;
+  droppedItems?: {
+    workEntries: number;
+    leaveEntries: number;
+    scheduleOverrides: number;
+  };
+} {
   if (!payload || typeof payload !== "object") {
     return { value: null, error: "Invalid body" };
   }
@@ -1019,23 +1027,10 @@ function parseCloudBackupPayload(
     };
   }
 
-  const workEntries = Array.isArray(body.workEntries)
-    ? body.workEntries.map(parseWorkEntryRecord)
-    : null;
-  const leaveEntries = Array.isArray(body.leaveEntries)
-    ? body.leaveEntries.map(parseLeaveEntryRecord)
-    : null;
-  const scheduleOverrides = Array.isArray(body.scheduleOverrides)
-    ? body.scheduleOverrides.map(parseScheduleOverrideRecord)
-    : null;
-
   if (
-    !workEntries ||
-    workEntries.some((entry) => entry === null) ||
-    !leaveEntries ||
-    leaveEntries.some((entry) => entry === null) ||
-    !scheduleOverrides ||
-    scheduleOverrides.some((entry) => entry === null)
+    !Array.isArray(body.workEntries) ||
+    !Array.isArray(body.leaveEntries) ||
+    !Array.isArray(body.scheduleOverrides)
   ) {
     return {
       value: null,
@@ -1044,15 +1039,33 @@ function parseCloudBackupPayload(
     };
   }
 
+  const parsedWorkEntries = body.workEntries
+    .map(parseWorkEntryRecord)
+    .filter((entry): entry is WorkEntry => entry !== null);
+  const parsedLeaveEntries = body.leaveEntries
+    .map(parseLeaveEntryRecord)
+    .filter((entry): entry is LeaveEntry => entry !== null);
+  const parsedScheduleOverrides = body.scheduleOverrides
+    .map(parseScheduleOverrideRecord)
+    .filter((entry): entry is ScheduleOverride => entry !== null);
+
+  const droppedItems = {
+    workEntries: body.workEntries.length - parsedWorkEntries.length,
+    leaveEntries: body.leaveEntries.length - parsedLeaveEntries.length,
+    scheduleOverrides:
+      body.scheduleOverrides.length - parsedScheduleOverrides.length
+  };
+
   return {
     value: {
       profile: parsedProfile.value,
       appearanceSettings,
-      workEntries: workEntries as WorkEntry[],
-      leaveEntries: leaveEntries as LeaveEntry[],
-      scheduleOverrides: scheduleOverrides as ScheduleOverride[],
+      workEntries: parsedWorkEntries,
+      leaveEntries: parsedLeaveEntries,
+      scheduleOverrides: parsedScheduleOverrides,
       updatedAt: new Date().toISOString()
-    }
+    },
+    droppedItems
   };
 }
 
@@ -4390,7 +4403,12 @@ export function buildApp(options: BuildAppOptions = {}) {
     const savedBundle = await store.saveCloudBackup(user.id, parsedBundle.value);
     return {
       savedAt: savedBundle.updatedAt,
-      bundle: savedBundle
+      bundle: savedBundle,
+      droppedItems: parsedBundle.droppedItems ?? {
+        workEntries: 0,
+        leaveEntries: 0,
+        scheduleOverrides: 0
+      }
     };
   });
 

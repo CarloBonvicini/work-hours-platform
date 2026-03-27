@@ -698,20 +698,21 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       }
 
       final savedAt = backupStatus.updatedAt ?? attemptedAt;
+      final droppedItemsCount = backupStatus.droppedItemsCount;
+      final baseSuccessMessage =
+          'Backup cloud completato alle ${_formatTicketDateTime(savedAt)}.';
+      final successMessage = droppedItemsCount > 0
+          ? '$baseSuccessMessage Ho ignorato $droppedItemsCount voce${droppedItemsCount == 1 ? '' : 'i'} non valida${droppedItemsCount == 1 ? '' : 'e'} per evitare il blocco del backup.'
+          : baseSuccessMessage;
       setState(() {
         _lastCloudBackupAt = savedAt;
         _lastCloudBackupSucceeded = true;
-        _lastCloudBackupFeedback =
-            'Backup cloud completato con successo alle ${_formatTicketDateTime(savedAt)}.';
+        _lastCloudBackupFeedback = successMessage;
       });
 
       if (showFeedback) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Backup cloud completato alle ${_formatTicketDateTime(savedAt)}.',
-            ),
-          ),
+          SnackBar(content: Text(successMessage)),
         );
       }
     } catch (error) {

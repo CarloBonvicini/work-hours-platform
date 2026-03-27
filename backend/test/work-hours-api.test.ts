@@ -183,6 +183,11 @@ describe("Auth and cloud backup API", () => {
     expect(backupResponse.statusCode).toBe(200);
     expect(backupResponse.json().bundle.profile.fullName).toBe("Carlo");
     expect(typeof backupResponse.json().savedAt).toBe("string");
+    expect(backupResponse.json().droppedItems).toEqual({
+      workEntries: 0,
+      leaveEntries: 0,
+      scheduleOverrides: 0
+    });
 
     const backupMetaResponse = await app.inject({
       method: "GET",
@@ -364,6 +369,116 @@ describe("Auth and cloud backup API", () => {
       error: "too many recovery attempts",
       retryAfterMinutes: expect.any(Number)
     });
+  });
+
+  it("keeps backup working even when some items are invalid", async () => {
+    const registerResponse = await app.inject({
+      method: "POST",
+      url: "/auth/register",
+      payload: {
+        email: "sanitize@example.com",
+        password: "super-segreta"
+      }
+    });
+    expect(registerResponse.statusCode).toBe(201);
+    const token = registerResponse.json().token as string;
+
+    const backupResponse = await app.inject({
+      method: "PUT",
+      url: "/me/backup",
+      headers: {
+        authorization: `Bearer ${token}`
+      },
+      payload: {
+        profile: {
+          id: "local-profile",
+          fullName: "Sanitize",
+          useUniformDailyTarget: true,
+          dailyTargetMinutes: 480,
+          weekdayTargetMinutes: buildUniformWeekdayTargetMinutes(480),
+          weekdaySchedule: buildUniformWeekdaySchedule(480),
+          workRules: {
+            expectedDailyMinutes: 480,
+            minimumBreakMinutes: 0,
+            maximumDailyCreditMinutes: 120,
+            maximumDailyDebitMinutes: 120,
+            maximumMonthlyCreditMinutes: 480,
+            maximumMonthlyDebitMinutes: 480
+          }
+        },
+        appearanceSettings: {
+          themeMode: "dark",
+          primaryColor: 123,
+          secondaryColor: 456,
+          textColor: 789,
+          fontFamily: "system",
+          textScale: 1
+        },
+        workEntries: [
+          {
+            id: "ok-work",
+            date: "2026-03-20",
+            minutes: 120
+          },
+          {
+            id: "bad-work",
+            date: "invalid-date",
+            minutes: 60
+          }
+        ],
+        leaveEntries: [
+          {
+            id: "ok-leave",
+            date: "2026-03-20",
+            minutes: 60,
+            type: "permit"
+          },
+          {
+            id: "bad-leave",
+            date: "2026-03-20",
+            minutes: -10,
+            type: "permit"
+          }
+        ],
+        scheduleOverrides: [
+          {
+            id: "ok-override",
+            date: "2026-03-20",
+            targetMinutes: 420,
+            startTime: "08:30",
+            endTime: "16:30",
+            breakMinutes: 60
+          },
+          {
+            id: "bad-override",
+            date: "2026-03-20",
+            targetMinutes: 420,
+            startTime: "invalid",
+            endTime: "16:30",
+            breakMinutes: 60
+          }
+        ]
+      }
+    });
+
+    expect(backupResponse.statusCode).toBe(200);
+    expect(backupResponse.json().droppedItems).toEqual({
+      workEntries: 1,
+      leaveEntries: 1,
+      scheduleOverrides: 1
+    });
+
+    const restoreResponse = await app.inject({
+      method: "GET",
+      url: "/me/backup",
+      headers: {
+        authorization: `Bearer ${token}`
+      }
+    });
+    expect(restoreResponse.statusCode).toBe(200);
+    expect(restoreResponse.json().bundle.workEntries).toHaveLength(1);
+    expect(restoreResponse.json().bundle.leaveEntries).toHaveLength(1);
+    expect(restoreResponse.json().bundle.scheduleOverrides).toHaveLength(1);
   });
 });
 
