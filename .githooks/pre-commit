@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(git rev-parse --show-toplevel)"
+cd "$ROOT_DIR"
+
+CHANGED_FILES="$(git diff --cached --name-only)"
+
+if echo "$CHANGED_FILES" | grep -q "^backend/"; then
+  echo "[pre-commit] backend checks..."
+  (
+    cd backend
+    npm run lint
+    npm test
+  )
+fi
+
+if echo "$CHANGED_FILES" | grep -q "^mobile/"; then
+  MOBILE_STAGED="$(echo "$CHANGED_FILES" | grep "^mobile/")"
+  MOBILE_CODE_STAGED="$(
+    echo "$MOBILE_STAGED" | grep -E '^mobile/(lib/|test/|android/|ios/|linux/|macos/|windows/|web/|pubspec\.yaml|analysis_options\.yaml|.*\.dart|.*\.yaml)' || true
+  )"
+
+  if [ -n "$MOBILE_CODE_STAGED" ]; then
+    if ! command -v flutter >/dev/null 2>&1; then
+      echo "[pre-commit] flutter non trovato nel PATH."
+      echo "[pre-commit] Installa Flutter per validare le modifiche mobile oppure usa --no-verify in emergenza."
+      exit 1
+    fi
+
+    echo "[pre-commit] mobile checks..."
+    (
+      cd mobile
+      flutter analyze
+      flutter test --concurrency=4
+    )
+  else
+    echo "[pre-commit] solo file documentazione/meta in mobile: skip flutter checks."
+  fi
+fi
+
+echo "[pre-commit] done."
