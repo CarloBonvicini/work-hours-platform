@@ -651,7 +651,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              _humanizeError(error, apiBaseUrl: _apiBaseUrl),
+              _humanizeError(error),
             ),
           ),
         );
