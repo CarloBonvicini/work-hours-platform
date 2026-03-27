@@ -1,4 +1,4 @@
-import { createHash, randomBytes, randomUUID, scryptSync } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { createReadStream, promises as fs } from "node:fs";
 import path from "node:path";
 import cors from "@fastify/cors";
@@ -8,10 +8,8 @@ import { InMemoryStore } from "./data/in-memory-store.js";
 import type {
   AppStore,
   AppearanceSettingsRecord,
-  AuthRole,
   AuthUser,
   CloudBackupRecord,
-  StoredAuthUser
 } from "./data/store.js";
 import {
   buildDefaultWorkRules,
@@ -21,6 +19,33 @@ import {
   isYearMonth,
   WEEKDAY_KEYS
 } from "./domain/monthly-summary.js";
+import { buildAdminOverview } from "./domain/admin-overview.js";
+import {
+  createPasswordDigest,
+  verifyPasswordDigest,
+  createRecoveryCode,
+  createRecoveryCodeDigest,
+  verifyRecoveryCodeDigest,
+  createSessionToken,
+  hashSessionToken,
+  isLegacyAdminProfileEmail,
+  isAdminRole,
+  getEffectiveAuthRole,
+  isAdminUser,
+  isSuperAdminUser,
+  getConfiguredSuperAdminCredentials,
+  serializeAuthUser,
+  syncConfiguredSuperAdmin,
+  isValidEmail
+} from "./domain/auth.js";
+import {
+  parseAdminRolePayload,
+  parseAdminPasswordPayload,
+  parseAdminUserCreatePayload,
+  parseAdminUserUpdatePayload,
+  parseAuthCredentials,
+  parsePasswordRecoveryPayload
+} from "./domain/auth-payloads.js";
 import type {
   DaySchedule,
   LeaveEntry,
@@ -541,436 +566,6 @@ function normalizeRequiredText(value: unknown, maxLength: number) {
   }
 
   return normalizedValue.slice(0, maxLength);
-}
-
-function isValidEmail(value: string) {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
-}
-
-function normalizeEmail(value: string) {
-  return value.trim().toLowerCase();
-}
-
-function createPasswordDigest(password: string) {
-  const salt = randomBytes(16).toString("hex");
-  const hash = scryptSync(password, salt, 64).toString("hex");
-  return { salt, hash };
-}
-
-function verifyPasswordDigest(password: string, user: StoredAuthUser) {
-  const hash = scryptSync(password, user.passwordSalt, 64).toString("hex");
-  return hash === user.passwordHash;
-}
-
-function normalizeRecoveryCode(value: string) {
-  return value.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
-}
-
-function createRecoveryCode() {
-  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  let normalized = "";
-  for (let index = 0; index < 10; index += 1) {
-    const randomIndex = randomBytes(1)[0] % alphabet.length;
-    normalized += alphabet[randomIndex];
-  }
-
-  return `${normalized.slice(0, 5)}-${normalized.slice(5)}`;
-}
-
-function createRecoveryCodeDigest(recoveryCode: string) {
-  return createPasswordDigest(normalizeRecoveryCode(recoveryCode));
-}
-
-function verifyRecoveryCodeDigest(recoveryCode: string, user: StoredAuthUser) {
-  if (!user.recoveryCodeHash || !user.recoveryCodeSalt) {
-    return false;
-  }
-
-  const normalizedCode = normalizeRecoveryCode(recoveryCode);
-  const hash = scryptSync(normalizedCode, user.recoveryCodeSalt, 64).toString(
-    "hex"
-  );
-  return hash === user.recoveryCodeHash;
-}
-
-function createSessionToken() {
-  return randomBytes(32).toString("hex");
-}
-
-function hashSessionToken(token: string) {
-  return createHash("sha256").update(token).digest("hex");
-}
-
-function getLegacyAdminProfileEmails() {
-  return new Set(
-    (process.env.ADMIN_EMAILS ?? "")
-      .split(",")
-      .map((value) => value.trim())
-      .filter((value) => value.length > 0)
-      .map(normalizeEmail)
-  );
-}
-
-function isLegacyAdminProfileEmail(email: string) {
-  return getLegacyAdminProfileEmails().has(normalizeEmail(email));
-}
-
-function isAuthRole(value: unknown): value is AuthRole {
-  return value === "user" || value === "admin" || value === "super_admin";
-}
-
-function isAdminRole(role: AuthRole) {
-  return role === "admin" || role === "super_admin";
-}
-
-function isSuperAdminRole(role: AuthRole) {
-  return role === "super_admin";
-}
-
-function getEffectiveAuthRole(user: Pick<AuthUser, "email" | "role">): AuthRole {
-  if (isAuthRole(user.role)) {
-    return user.role;
-  }
-
-  return isLegacyAdminProfileEmail(user.email) ? "admin" : "user";
-}
-
-function isAdminUser(user: Pick<AuthUser, "email" | "role">) {
-  return isAdminRole(getEffectiveAuthRole(user));
-}
-
-function isSuperAdminUser(user: Pick<AuthUser, "email" | "role">) {
-  return isSuperAdminRole(getEffectiveAuthRole(user));
-}
-
-function getConfiguredSuperAdminCredentials() {
-  const emailValue = process.env.SUPER_ADMIN_EMAIL?.trim();
-  const passwordValueRaw = process.env.SUPER_ADMIN_PASSWORD;
-  const passwordValue =
-    typeof passwordValueRaw === "string" ? passwordValueRaw.trim() : undefined;
-
-  if (!emailValue && (!passwordValue || passwordValue.length === 0)) {
-    return null;
-  }
-
-  if (!emailValue || !passwordValue) {
-    throw new Error(
-      "SUPER_ADMIN_EMAIL and SUPER_ADMIN_PASSWORD must both be configured"
-    );
-  }
-
-  const email = normalizeEmail(emailValue);
-  if (!isValidEmail(email)) {
-    throw new Error("SUPER_ADMIN_EMAIL is not a valid email");
-  }
-
-  if (passwordValue.length < 8) {
-    throw new Error("SUPER_ADMIN_PASSWORD must be at least 8 characters");
-  }
-
-  return {
-    email,
-    password: passwordValue
-  };
-}
-
-async function hasAnyConfiguredAdmin(store: AppStore) {
-  const users = await store.listAuthUsers();
-  return users.some((user) => isAdminUser(user));
-}
-
-function serializeAuthUser(
-  user: Pick<AuthUser, "id" | "email" | "role" | "createdAt" | "updatedAt">
-) {
-  const role = getEffectiveAuthRole(user);
-  return {
-    id: user.id,
-    email: user.email,
-    createdAt: user.createdAt,
-    updatedAt: user.updatedAt,
-    role,
-    isAdmin: isAdminRole(role),
-    isSuperAdmin: isSuperAdminRole(role)
-  };
-}
-
-async function syncConfiguredSuperAdmin(store: AppStore) {
-  const configuredSuperAdmin = getConfiguredSuperAdminCredentials();
-  if (!configuredSuperAdmin) {
-    return;
-  }
-
-  const now = new Date().toISOString();
-  const users = await store.listAuthUsers();
-
-  for (const user of users) {
-    if (
-      user.email !== configuredSuperAdmin.email &&
-      getEffectiveAuthRole(user) === "super_admin"
-    ) {
-      await store.updateAuthUserRole(user.id, "admin");
-    }
-  }
-
-  const existingUser = await store.findAuthUserByEmail(configuredSuperAdmin.email);
-  if (!existingUser) {
-    const passwordDigest = createPasswordDigest(configuredSuperAdmin.password);
-    await store.createAuthUser({
-      id: randomUUID(),
-      email: configuredSuperAdmin.email,
-      passwordHash: passwordDigest.hash,
-      passwordSalt: passwordDigest.salt,
-      role: "super_admin",
-      createdAt: now,
-      updatedAt: now
-    });
-    return;
-  }
-
-  const needsPasswordRefresh = !verifyPasswordDigest(
-    configuredSuperAdmin.password,
-    existingUser
-  );
-  const effectiveRole = getEffectiveAuthRole(existingUser);
-  if (!needsPasswordRefresh && effectiveRole === "super_admin") {
-    return;
-  }
-
-  const passwordDigest = needsPasswordRefresh
-    ? createPasswordDigest(configuredSuperAdmin.password)
-    : null;
-
-  await store.updateStoredAuthUser({
-    ...existingUser,
-    passwordHash: passwordDigest?.hash ?? existingUser.passwordHash,
-    passwordSalt: passwordDigest?.salt ?? existingUser.passwordSalt,
-    role: "super_admin",
-    updatedAt: now
-  });
-}
-
-function parseAdminRolePayload(payload: unknown) {
-  if (!payload || typeof payload !== "object") {
-    return { value: null, error: "Invalid body" as const };
-  }
-
-  const body = payload as Record<string, unknown>;
-  if (typeof body.isAdmin !== "boolean") {
-    return { value: null, error: "isAdmin must be boolean" as const };
-  }
-
-  return {
-    value: {
-      isAdmin: body.isAdmin
-    }
-  };
-}
-
-function parseAdminPasswordPayload(payload: unknown) {
-  if (!payload || typeof payload !== "object") {
-    return { value: null, error: "Invalid body" as const };
-  }
-
-  const body = payload as Record<string, unknown>;
-  const newPassword =
-    typeof body.newPassword === "string" ? body.newPassword : null;
-  if (!newPassword || newPassword.trim().length < 8) {
-    return {
-      value: null,
-      error: "newPassword must be at least 8 characters" as const
-    };
-  }
-
-  return {
-    value: {
-      newPassword
-    }
-  };
-}
-
-function parseAdminUserCreatePayload(payload: unknown) {
-  if (!payload || typeof payload !== "object") {
-    return { value: null, error: "Invalid body" as const };
-  }
-
-  const body = payload as Record<string, unknown>;
-  const email =
-    typeof body.email === "string" ? normalizeEmail(body.email) : null;
-  if (!email || !isValidEmail(email)) {
-    return { value: null, error: "email must be valid" as const };
-  }
-
-  const password = typeof body.password === "string" ? body.password : null;
-  if (!password || password.trim().length < 8) {
-    return {
-      value: null,
-      error: "password must be at least 8 characters" as const
-    };
-  }
-
-  let role: "user" | "admin";
-  if (typeof body.role === "string") {
-    const normalizedRole = body.role.trim().toLowerCase();
-    if (normalizedRole !== "user" && normalizedRole !== "admin") {
-      return {
-        value: null,
-        error: "role must be one of: user, admin" as const
-      };
-    }
-    role = normalizedRole;
-  } else if (typeof body.isAdmin === "boolean") {
-    role = body.isAdmin ? "admin" : "user";
-  } else {
-    role = "user";
-  }
-
-  return {
-    value: {
-      email,
-      password,
-      role
-    }
-  };
-}
-
-function parseAdminUserUpdatePayload(payload: unknown) {
-  if (!payload || typeof payload !== "object") {
-    return { value: null, error: "Invalid body" as const };
-  }
-
-  const body = payload as Record<string, unknown>;
-  const hasEmail = body.email !== undefined;
-  const hasRole = body.role !== undefined;
-  const hasIsAdmin = body.isAdmin !== undefined;
-  if (!hasEmail && !hasRole && !hasIsAdmin) {
-    return {
-      value: null,
-      error: "At least one field is required: email, role, isAdmin" as const
-    };
-  }
-
-  let email: string | undefined;
-  if (hasEmail) {
-    if (typeof body.email !== "string") {
-      return { value: null, error: "email must be valid" as const };
-    }
-    const normalizedEmail = normalizeEmail(body.email);
-    if (!isValidEmail(normalizedEmail)) {
-      return { value: null, error: "email must be valid" as const };
-    }
-    email = normalizedEmail;
-  }
-
-  let role: "user" | "admin" | undefined;
-  if (hasRole) {
-    if (typeof body.role !== "string") {
-      return {
-        value: null,
-        error: "role must be one of: user, admin" as const
-      };
-    }
-    const normalizedRole = body.role.trim().toLowerCase();
-    if (normalizedRole !== "user" && normalizedRole !== "admin") {
-      return {
-        value: null,
-        error: "role must be one of: user, admin" as const
-      };
-    }
-    role = normalizedRole;
-  }
-
-  if (hasIsAdmin) {
-    if (typeof body.isAdmin !== "boolean") {
-      return {
-        value: null,
-        error: "isAdmin must be boolean" as const
-      };
-    }
-    const roleFromIsAdmin: "user" | "admin" = body.isAdmin ? "admin" : "user";
-    if (role && role !== roleFromIsAdmin) {
-      return {
-        value: null,
-        error: "role and isAdmin are inconsistent" as const
-      };
-    }
-    role = roleFromIsAdmin;
-  }
-
-  return {
-    value: {
-      email,
-      role
-    }
-  };
-}
-
-function parseAuthCredentials(payload: unknown) {
-  if (!payload || typeof payload !== "object") {
-    return { value: null, error: "Invalid body" as const };
-  }
-
-  const body = payload as Record<string, unknown>;
-  const email =
-    typeof body.email === "string" ? normalizeEmail(body.email) : null;
-  if (!email || !isValidEmail(email)) {
-    return { value: null, error: "email must be valid" as const };
-  }
-
-  const password = typeof body.password === "string" ? body.password : null;
-  if (!password || password.trim().length < 8) {
-    return {
-      value: null,
-      error: "password must be at least 8 characters" as const
-    };
-  }
-
-  return {
-    value: {
-      email,
-      password
-    }
-  };
-}
-
-function parsePasswordRecoveryPayload(payload: unknown) {
-  if (!payload || typeof payload !== "object") {
-    return { value: null, error: "Invalid body" as const };
-  }
-
-  const body = payload as Record<string, unknown>;
-  const email =
-    typeof body.email === "string" ? normalizeEmail(body.email) : null;
-  if (!email || !isValidEmail(email)) {
-    return { value: null, error: "email must be valid" as const };
-  }
-
-  const recoveryCode =
-    typeof body.recoveryCode === "string"
-      ? normalizeRecoveryCode(body.recoveryCode)
-      : null;
-  if (!recoveryCode || recoveryCode.length < 8) {
-    return {
-      value: null,
-      error: "recoveryCode must be valid" as const
-    };
-  }
-
-  const newPassword =
-    typeof body.newPassword === "string" ? body.newPassword : null;
-  if (!newPassword || newPassword.trim().length < 8) {
-    return {
-      value: null,
-      error: "newPassword must be at least 8 characters" as const
-    };
-  }
-
-  return {
-    value: {
-      email,
-      recoveryCode,
-      newPassword
-    }
-  };
 }
 
 function parseProfilePayload(
@@ -1872,66 +1467,6 @@ async function authorizeSuperAdminProfileRequest(
   }
 
   return adminAccess;
-}
-
-function buildAdminOverview(options: {
-  baseUrl: string;
-  latestRelease: MobileReleaseMetadata | null;
-  releaseStatus: MobileReleaseStatus | null;
-  tickets: SupportTicket[];
-}) {
-  const { baseUrl, latestRelease, releaseStatus, tickets } = options;
-  const waitingCount = tickets.filter((ticket) => ticket.status === "new").length;
-  const inProgressCount = tickets.filter(
-    (ticket) => ticket.status === "in_progress"
-  ).length;
-  const answeredCount = tickets.filter(
-    (ticket) => ticket.status === "answered"
-  ).length;
-  const closedCount = tickets.filter((ticket) => ticket.status === "closed").length;
-
-  return {
-    generatedAt: new Date().toISOString(),
-    service: "work-hours-backend",
-    dataProvider: process.env.DATA_PROVIDER ?? "memory",
-    links: {
-      landing: `${baseUrl}/`,
-      publicTickets: `${baseUrl}/tickets`,
-      health: `${baseUrl}/health`,
-      releaseFeed: `${baseUrl}/mobile-updates/latest.json`
-    },
-    release: {
-      current: latestRelease
-        ? {
-            version: latestRelease.version,
-            tag: latestRelease.tag,
-            publishedAt: latestRelease.publishedAt ?? null,
-            fileName: latestRelease.fileName
-          }
-        : null,
-      publishing: releaseStatus
-        ? {
-            version: releaseStatus.version,
-            tag: releaseStatus.tag,
-            startedAt: releaseStatus.startedAt ?? null
-          }
-        : null
-    },
-    tickets: {
-      total: tickets.length,
-      waiting: waitingCount,
-      inProgress: inProgressCount,
-      answered: answeredCount,
-      closed: closedCount,
-      active: waitingCount + inProgressCount,
-      resolved: answeredCount + closedCount,
-      bug: tickets.filter((ticket) => ticket.category === "bug").length,
-      feature: tickets.filter((ticket) => ticket.category === "feature").length,
-      support: tickets.filter((ticket) => ticket.category === "support").length,
-      latestCreatedAt: tickets[0]?.createdAt ?? null,
-      latestUpdatedAt: tickets[0]?.updatedAt ?? null
-    }
-  };
 }
 
 function escapeHtml(value: string) {

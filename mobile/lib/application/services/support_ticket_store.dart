@@ -76,12 +76,22 @@ abstract class SupportTicketStore {
     required String ticketId,
     required int adminReplyCount,
   });
+
+  Future<void> markAdminRepliesNotifiedBatch({
+    required Map<String, int> adminReplyCountByTicketId,
+  });
+
+  Future<void> markAdminRepliesSeenAndNotified({
+    required String ticketId,
+    required int adminReplyCount,
+  });
 }
 
 class SharedPreferencesSupportTicketStore implements SupportTicketStore {
   const SharedPreferencesSupportTicketStore();
 
   static const _key = 'support_ticket_store.items';
+  static Future<void> _pendingWrite = Future.value();
 
   @override
   Future<List<TrackedSupportTicket>> loadTrackedTickets() async {
@@ -119,12 +129,12 @@ class SharedPreferencesSupportTicketStore implements SupportTicketStore {
 
   @override
   Future<void> upsertTrackedTicket(TrackedSupportTicket ticket) async {
-    final currentTickets = await loadTrackedTickets();
-    final updatedTickets = [
-      ticket,
-      ...currentTickets.where((entry) => entry.id != ticket.id),
-    ];
-    await saveTrackedTickets(updatedTickets);
+    await _updateTrackedTickets((currentTickets) {
+      return [
+        ticket,
+        ...currentTickets.where((entry) => entry.id != ticket.id),
+      ];
+    });
   }
 
   @override
@@ -132,15 +142,15 @@ class SharedPreferencesSupportTicketStore implements SupportTicketStore {
     required String ticketId,
     required int adminReplyCount,
   }) async {
-    final currentTickets = await loadTrackedTickets();
-    final updatedTickets = currentTickets
-        .map(
-          (ticket) => ticket.id == ticketId
-              ? ticket.copyWith(lastSeenAdminReplyCount: adminReplyCount)
-              : ticket,
-        )
-        .toList(growable: false);
-    await saveTrackedTickets(updatedTickets);
+    await _updateTrackedTickets((currentTickets) {
+      return currentTickets
+          .map(
+            (ticket) => ticket.id == ticketId
+                ? ticket.copyWith(lastSeenAdminReplyCount: adminReplyCount)
+                : ticket,
+          )
+          .toList(growable: false);
+    });
   }
 
   @override
@@ -148,14 +158,73 @@ class SharedPreferencesSupportTicketStore implements SupportTicketStore {
     required String ticketId,
     required int adminReplyCount,
   }) async {
-    final currentTickets = await loadTrackedTickets();
-    final updatedTickets = currentTickets
-        .map(
-          (ticket) => ticket.id == ticketId
-              ? ticket.copyWith(lastNotifiedAdminReplyCount: adminReplyCount)
-              : ticket,
-        )
-        .toList(growable: false);
-    await saveTrackedTickets(updatedTickets);
+    await _updateTrackedTickets((currentTickets) {
+      return currentTickets
+          .map(
+            (ticket) => ticket.id == ticketId
+                ? ticket.copyWith(lastNotifiedAdminReplyCount: adminReplyCount)
+                : ticket,
+          )
+          .toList(growable: false);
+    });
+  }
+
+  @override
+  Future<void> markAdminRepliesNotifiedBatch({
+    required Map<String, int> adminReplyCountByTicketId,
+  }) async {
+    if (adminReplyCountByTicketId.isEmpty) {
+      return;
+    }
+
+    await _updateTrackedTickets((currentTickets) {
+      return currentTickets.map((ticket) {
+        final adminReplyCount = adminReplyCountByTicketId[ticket.id];
+        if (adminReplyCount == null) {
+          return ticket;
+        }
+
+        if (adminReplyCount <= ticket.lastNotifiedAdminReplyCount) {
+          return ticket;
+        }
+
+        return ticket.copyWith(lastNotifiedAdminReplyCount: adminReplyCount);
+      }).toList(growable: false);
+    });
+  }
+
+  @override
+  Future<void> markAdminRepliesSeenAndNotified({
+    required String ticketId,
+    required int adminReplyCount,
+  }) async {
+    await _updateTrackedTickets((currentTickets) {
+      return currentTickets.map((ticket) {
+        if (ticket.id != ticketId) {
+          return ticket;
+        }
+
+        return ticket.copyWith(
+          lastSeenAdminReplyCount: adminReplyCount,
+          lastNotifiedAdminReplyCount: adminReplyCount,
+        );
+      }).toList(growable: false);
+    });
+  }
+
+  Future<void> _updateTrackedTickets(
+    List<TrackedSupportTicket> Function(List<TrackedSupportTicket>) updater,
+  ) async {
+    await _runWriteTransaction(() async {
+      final currentTickets = await loadTrackedTickets();
+      final updatedTickets = updater(currentTickets);
+      await saveTrackedTickets(updatedTickets);
+    });
+  }
+
+  Future<void> _runWriteTransaction(Future<void> Function() action) async {
+    final nextWrite = _pendingWrite.then((_) => action());
+    _pendingWrite = nextWrite.catchError((_) {});
+    await nextWrite;
   }
 }
