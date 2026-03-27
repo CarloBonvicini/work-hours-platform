@@ -25,6 +25,7 @@ export type WorkPermissionMovement =
   | "exit_late";
 
 export type WorkAllowancePeriod = "daily" | "weekly" | "monthly" | "yearly";
+export type PauseAdjustmentMode = "keep_worked_minutes" | "keep_end_time";
 
 export interface WorkPermissionRule {
   id: string;
@@ -56,6 +57,7 @@ export interface UserWorkRules {
   walletWeeklyExitEarlyMinutes?: number;
   implicitCreditEnabled?: boolean;
   implicitCreditDailyCapMinutes?: number;
+  pauseAdjustmentMode?: PauseAdjustmentMode;
   additionalPermissions?: WorkPermissionRule[];
   leaveBanks?: WorkPermissionRule[];
 }

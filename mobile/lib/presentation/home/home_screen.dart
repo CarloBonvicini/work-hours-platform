@@ -199,6 +199,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _rulesFlexibleStartEnabled = false;
   bool _rulesWalletEnabled = false;
   bool _rulesImplicitCreditEnabled = false;
+  WorkRulesPauseAdjustmentMode _rulesPauseAdjustmentMode =
+      WorkRulesPauseAdjustmentMode.keepWorkedMinutes;
   List<WorkPermissionRule> _rulesAdditionalPermissions = const [];
   List<WorkPermissionRule> _rulesLeaveBanks = const [];
   LeaveType _selectedLeaveType = LeaveType.vacation;
@@ -225,6 +227,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _isConfiguringRecoveryQuestions = false;
   bool _isRestoringCloudBackup = false;
   bool _isSyncingCloudBackup = false;
+  bool _isLoadingCloudBackupStatus = false;
   bool _isBackgroundUpdateDownloadInProgress = false;
   bool _isPromptingBackgroundUpdateInstall = false;
   bool _cloudBackupQueued = false;
@@ -256,6 +259,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   String? _pendingExitConfirmationDateKey;
   String? _lastOvertimeExceededNotificationKey;
   AccountSession? _accountSession;
+  DateTime? _lastCloudBackupAt;
+  DateTime? _lastCloudBackupAttemptAt;
+  bool? _lastCloudBackupSucceeded;
+  String? _lastCloudBackupFeedback;
   _AccountAuthMode _accountAuthMode = _AccountAuthMode.login;
   Timer? _ticketNotificationTimer;
   Timer? _liveWorkedMinutesTimer;
@@ -275,6 +282,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _entryDateController.text = DashboardService.defaultEntryDateOf(
       _selectedDate,
     );
+    if (_accountSession != null) {
+      unawaited(_refreshCloudBackupStatus(silent: true));
+    }
     unawaited(_primeSnapshotFromLocalCache());
     _loadSnapshot();
     unawaited(_loadWorkdaySessionForDate(_selectedDate));
@@ -582,6 +592,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _rulesImplicitCreditDailyCapController.text = _formatHoursInput(
       snapshot.profile.workRules.implicitCreditDailyCapMinutes,
     );
+    _rulesPauseAdjustmentMode = snapshot.profile.workRules.pauseAdjustmentMode;
     _rulesAdditionalPermissions = List<WorkPermissionRule>.from(
       snapshot.profile.workRules.additionalPermissions,
     );
@@ -621,7 +632,52 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool get _isCloudBackupEnabled =>
       widget.accountService != null && _accountSession != null;
 
-  Future<void> _queueCloudBackup() async {
+  Future<void> _triggerManualCloudBackup() {
+    return _queueCloudBackup(showFeedback: true);
+  }
+
+  Future<void> _refreshCloudBackupStatus({bool silent = false}) async {
+    if (!_isCloudBackupEnabled ||
+        widget.accountService == null ||
+        _accountSession == null) {
+      return;
+    }
+
+    if (mounted) {
+      setState(() {
+        _isLoadingCloudBackupStatus = true;
+      });
+    }
+
+    try {
+      final status = await widget.accountService!.loadCloudBackupStatus(
+        session: _accountSession,
+      );
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _isLoadingCloudBackupStatus = false;
+        _lastCloudBackupAt = status.hasBackup ? status.updatedAt : null;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _isLoadingCloudBackupStatus = false;
+      });
+      if (!silent) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(_humanizeError(error))));
+      }
+    }
+  }
+
+  Future<void> _queueCloudBackup({bool showFeedback = false}) async {
     if (!_isCloudBackupEnabled) {
       return;
     }
@@ -631,13 +687,37 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       return;
     }
 
+    final attemptedAt = DateTime.now();
     setState(() {
       _isSyncingCloudBackup = true;
+      _lastCloudBackupAttemptAt = attemptedAt;
     });
 
     var rerunQueuedBackup = false;
     try {
-      await widget.accountService!.backupToCloud();
+      final backupStatus = await widget.accountService!.backupToCloud();
+      if (!mounted) {
+        return;
+      }
+
+      final savedAt = backupStatus.updatedAt ?? attemptedAt;
+      final droppedItemsCount = backupStatus.droppedItemsCount;
+      final baseSuccessMessage =
+          'Backup cloud completato alle ${_formatTicketDateTime(savedAt)}.';
+      final successMessage = droppedItemsCount > 0
+          ? '$baseSuccessMessage Ho ignorato $droppedItemsCount voce${droppedItemsCount == 1 ? '' : 'i'} non valida${droppedItemsCount == 1 ? '' : 'e'} per evitare il blocco del backup.'
+          : baseSuccessMessage;
+      setState(() {
+        _lastCloudBackupAt = savedAt;
+        _lastCloudBackupSucceeded = true;
+        _lastCloudBackupFeedback = successMessage;
+      });
+
+      if (showFeedback) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(successMessage)));
+      }
     } catch (error) {
       if (!mounted) {
         return;
@@ -645,23 +725,28 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
       if (error is ApiException &&
           (error.statusCode == 401 || error.statusCode == 403)) {
-        await widget.accountService!.logout();
-        if (mounted) {
-          setState(() {
-            _accountSession = null;
-          });
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                'Sessione cloud scaduta. Accedi di nuovo e riprova il backup.',
-              ),
-            ),
-          );
+        const message =
+            'Sessione cloud non valida sul server. Può succedere dopo riavvio o aggiornamento backend: fai Esci e rientra per riattivare il backup.';
+        setState(() {
+          _lastCloudBackupSucceeded = false;
+          _lastCloudBackupFeedback = message;
+        });
+        if (showFeedback) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text(message)));
         }
       } else {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(_humanizeError(error))));
+        final message = _humanizeError(error);
+        setState(() {
+          _lastCloudBackupSucceeded = false;
+          _lastCloudBackupFeedback = message;
+        });
+        if (showFeedback) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text(message)));
+        }
       }
     } finally {
       if (mounted) {
@@ -796,9 +881,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                             ),
                             validator: (value) {
                               final answer = value?.trim() ?? '';
-                              return answer.length >= 2
+                              return answer.isNotEmpty
                                   ? null
-                                  : 'Inserisci una risposta valida.';
+                                  : 'Inserisci una risposta.';
                             },
                           ),
                           const SizedBox(height: 12),
@@ -815,9 +900,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                             ),
                             validator: (value) {
                               final answer = value?.trim() ?? '';
-                              return answer.length >= 2
+                              return answer.isNotEmpty
                                   ? null
-                                  : 'Inserisci una risposta valida.';
+                                  : 'Inserisci una risposta.';
                             },
                           ),
                           const SizedBox(height: 12),
@@ -1042,9 +1127,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         ),
                         validator: (value) {
                           final question = value?.trim() ?? '';
-                          return question.length >= 8
+                          return question.isNotEmpty
                               ? null
-                              : 'La domanda deve avere almeno 8 caratteri.';
+                              : 'Inserisci una domanda.';
                         },
                       ),
                       const SizedBox(height: 8),
@@ -1057,9 +1142,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         ),
                         validator: (value) {
                           final answer = value?.trim() ?? '';
-                          return answer.length >= 2
+                          return answer.isNotEmpty
                               ? null
-                              : 'Inserisci una risposta valida.';
+                              : 'Inserisci una risposta.';
                         },
                       ),
                       const SizedBox(height: 14),
@@ -1070,14 +1155,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         ),
                         validator: (value) {
                           final question = value?.trim() ?? '';
-                          if (question.length < 8) {
-                            return 'La domanda deve avere almeno 8 caratteri.';
-                          }
-                          if (question.toLowerCase() ==
-                              questionOneController.text.trim().toLowerCase()) {
-                            return 'La seconda domanda deve essere diversa.';
-                          }
-                          return null;
+                          return question.isNotEmpty
+                              ? null
+                              : 'Inserisci una domanda.';
                         },
                       ),
                       const SizedBox(height: 8),
@@ -1090,9 +1170,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         ),
                         validator: (value) {
                           final answer = value?.trim() ?? '';
-                          return answer.length >= 2
+                          return answer.isNotEmpty
                               ? null
-                              : 'Inserisci una risposta valida.';
+                              : 'Inserisci una risposta.';
                         },
                       ),
                     ],
@@ -1207,8 +1287,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _accountSession = session;
         _isAuthenticatingAccount = false;
         _accountAuthMode = _AccountAuthMode.login;
+        _lastCloudBackupSucceeded = null;
+        _lastCloudBackupFeedback = null;
       });
       _accountPasswordController.clear();
+      unawaited(_refreshCloudBackupStatus(silent: true));
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
@@ -1264,8 +1347,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _accountSession = session;
         _isAuthenticatingAccount = false;
         _accountAuthMode = _AccountAuthMode.login;
+        _lastCloudBackupAt = restoreResult.bundle?.updatedAt;
+        _lastCloudBackupSucceeded = restoreResult.hasBackup;
+        _lastCloudBackupFeedback = restoreResult.hasBackup
+            ? 'Backup cloud disponibile e ripristinato su questo dispositivo.'
+            : 'Account attivo, ma non ci sono backup cloud salvati.';
       });
       _accountPasswordController.clear();
+      if (restoreResult.bundle == null) {
+        unawaited(_refreshCloudBackupStatus(silent: true));
+      }
 
       if (restoreResult.bundle != null) {
         await widget.onAppearanceSettingsChanged(
@@ -1331,7 +1422,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
       setState(() {
         _isRestoringCloudBackup = false;
+        _lastCloudBackupAt =
+            restoreResult.bundle?.updatedAt ?? _lastCloudBackupAt;
+        _lastCloudBackupSucceeded = restoreResult.hasBackup;
+        _lastCloudBackupFeedback = restoreResult.hasBackup
+            ? 'Ripristino completato dal backup cloud.'
+            : 'Nessun backup cloud disponibile per questo account.';
       });
+      unawaited(_refreshCloudBackupStatus(silent: true));
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
@@ -1374,6 +1472,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _accountSession = null;
         _isAuthenticatingAccount = false;
         _accountAuthMode = _AccountAuthMode.login;
+        _lastCloudBackupAt = null;
+        _lastCloudBackupAttemptAt = null;
+        _lastCloudBackupSucceeded = null;
+        _lastCloudBackupFeedback = null;
+        _isLoadingCloudBackupStatus = false;
       });
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -3282,6 +3385,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       walletWeeklyExitEarlyMinutes: walletWeeklyExitEarlyMinutes,
       implicitCreditEnabled: _rulesImplicitCreditEnabled,
       implicitCreditDailyCapMinutes: implicitCreditDailyCapMinutes,
+      pauseAdjustmentMode: _rulesPauseAdjustmentMode,
       additionalPermissions: List<WorkPermissionRule>.from(
         _rulesAdditionalPermissions,
       ),
@@ -3696,9 +3800,19 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _scheduleOverrideBreakController.text = _formatBreakInput(
       normalizedMinutes,
     );
-    _syncScheduleOverrideEndFromTarget(
-      markPendingConfirmation: widget.appearanceSettings.showDayEndTime,
-    );
+    if (_rulesPauseAdjustmentMode ==
+        WorkRulesPauseAdjustmentMode.keepWorkedMinutes) {
+      _syncScheduleOverrideEndFromTarget(
+        markPendingConfirmation: widget.appearanceSettings.showDayEndTime,
+      );
+    } else {
+      final didKeepEndTime = _syncScheduleOverrideTargetFromStartEndAndBreak();
+      if (!didKeepEndTime) {
+        _syncScheduleOverrideEndFromTarget(
+          markPendingConfirmation: widget.appearanceSettings.showDayEndTime,
+        );
+      }
+    }
     _normalizeSelectedDayPauseWindowForCurrentDraft();
     _clearAgendaPreviewState();
     setState(() {
@@ -3709,6 +3823,27 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       return;
     }
     await _autosaveScheduleOverride();
+  }
+
+  bool _syncScheduleOverrideTargetFromStartEndAndBreak() {
+    final startMinutes = parseTimeInput(
+      _scheduleOverrideStartTimeController.text.trim(),
+    );
+    final endMinutes = parseTimeInput(
+      _scheduleOverrideEndTimeController.text.trim(),
+    );
+    if (startMinutes == null ||
+        endMinutes == null ||
+        endMinutes <= startMinutes) {
+      return false;
+    }
+
+    final breakMinutes =
+        parseBreakDurationInput(_scheduleOverrideBreakController.text) ?? 0;
+    final targetMinutes = math.max(0, endMinutes - startMinutes - breakMinutes);
+    _scheduleOverrideTargetController.text = _formatHoursInput(targetMinutes);
+    _clearPendingExitConfirmationForSelectedDate();
+    return true;
   }
 
   Future<_ScheduleTimeWheelSelection?> _showScheduleTimeWheelPicker({
@@ -6149,6 +6284,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     bool isTicketRequest = false,
   }) {
     if (error is ApiException) {
+      if (error.statusCode == 401 || error.statusCode == 403) {
+        return 'Sessione cloud non valida. Fai Esci e accedi di nuovo.';
+      }
       if (error.message == 'account not found') {
         return 'Nessun account trovato con questa email.';
       }
@@ -6157,6 +6295,28 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       }
       if (error.message == 'too many recovery attempts') {
         return 'Troppi tentativi di recupero. Riprova tra qualche minuto.';
+      }
+      if (error.message == 'questionOne is required') {
+        return 'La prima domanda di recupero non è valida.';
+      }
+      if (error.message == 'questionTwo is required') {
+        return 'La seconda domanda di recupero non è valida.';
+      }
+      if (error.message == 'answerOne is required') {
+        return 'La prima risposta di recupero non è valida.';
+      }
+      if (error.message == 'answerTwo is required') {
+        return 'La seconda risposta di recupero non è valida.';
+      }
+      if (error.message == 'answerOne must be between 1 and 120 characters') {
+        return 'La prima risposta di recupero non è valida.';
+      }
+      if (error.message == 'answerTwo must be between 1 and 120 characters') {
+        return 'La seconda risposta di recupero non è valida.';
+      }
+      if (error.message ==
+          'workEntries, leaveEntries and scheduleOverrides must contain valid items') {
+        return 'Backup cloud non riuscito: alcuni dati locali risultano incompleti o danneggiati. Modifica gli ultimi inserimenti e riprova.';
       }
       if (error.message.contains('weekdaySchedule must include') ||
           error.message.contains('weekdayTargetMinutes must include') ||
@@ -6476,6 +6636,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           rulesFlexibleStartEnabled: _rulesFlexibleStartEnabled,
           rulesWalletEnabled: _rulesWalletEnabled,
           rulesImplicitCreditEnabled: _rulesImplicitCreditEnabled,
+          rulesPauseAdjustmentMode: _rulesPauseAdjustmentMode,
           rulesOvertimeDailyCapController: _rulesOvertimeDailyCapController,
           rulesOvertimeWeeklyCapController: _rulesOvertimeWeeklyCapController,
           rulesOvertimeMonthlyCapController: _rulesOvertimeMonthlyCapController,
@@ -6542,6 +6703,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               _rulesImplicitCreditEnabled = value;
             });
           },
+          onRulesPauseAdjustmentModeChanged: (value) {
+            setState(() {
+              _rulesPauseAdjustmentMode = value;
+            });
+          },
           onPickRulesOvertimeDailyCapMinutes: _pickRulesOvertimeDailyCapMinutes,
           onPickRulesOvertimeWeeklyCapMinutes:
               _pickRulesOvertimeWeeklyCapMinutes,
@@ -6605,9 +6771,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           },
           onOpenPasswordRecovery: _openPasswordRecoveryFlow,
           onOpenRecoveryQuestionsSetup: _openRecoveryQuestionsSetupFlow,
-          onBackupNow: _queueCloudBackup,
+          onBackupNow: _triggerManualCloudBackup,
           onRestoreCloudBackup: _restoreCloudBackup,
           onLogoutAccount: _logoutAccount,
+          isLoadingCloudBackupStatus: _isLoadingCloudBackupStatus,
+          lastCloudBackupAt: _lastCloudBackupAt,
+          lastCloudBackupAttemptAt: _lastCloudBackupAttemptAt,
+          lastCloudBackupSucceeded: _lastCloudBackupSucceeded,
+          lastCloudBackupFeedback: _lastCloudBackupFeedback,
           onReload: _reloadProfileDraft,
           onSubmit: _submitProfile,
         );
@@ -11946,6 +12117,11 @@ class _ProfileCard extends StatelessWidget {
     required this.isConfiguringRecoveryQuestions,
     required this.isRestoringCloudBackup,
     required this.isSyncingCloudBackup,
+    required this.isLoadingCloudBackupStatus,
+    required this.lastCloudBackupAt,
+    required this.lastCloudBackupAttemptAt,
+    required this.lastCloudBackupSucceeded,
+    required this.lastCloudBackupFeedback,
     required this.onDarkThemeChanged,
     required this.onOpenUpdateFromSettings,
     required this.onAppearanceSettingsChanged,
@@ -11983,6 +12159,11 @@ class _ProfileCard extends StatelessWidget {
   final bool isConfiguringRecoveryQuestions;
   final bool isRestoringCloudBackup;
   final bool isSyncingCloudBackup;
+  final bool isLoadingCloudBackupStatus;
+  final DateTime? lastCloudBackupAt;
+  final DateTime? lastCloudBackupAttemptAt;
+  final bool? lastCloudBackupSucceeded;
+  final String? lastCloudBackupFeedback;
   final Future<void> Function(bool) onDarkThemeChanged;
   final Future<void> Function() onOpenUpdateFromSettings;
   final Future<void> Function(AppAppearanceSettings settings)
@@ -12049,6 +12230,11 @@ class _ProfileCard extends StatelessWidget {
               isConfiguringRecoveryQuestions: isConfiguringRecoveryQuestions,
               isRestoring: isRestoringCloudBackup,
               isSyncing: isSyncingCloudBackup,
+              isLoadingStatus: isLoadingCloudBackupStatus,
+              lastCloudBackupAt: lastCloudBackupAt,
+              lastCloudBackupAttemptAt: lastCloudBackupAttemptAt,
+              lastCloudBackupSucceeded: lastCloudBackupSucceeded,
+              lastCloudBackupFeedback: lastCloudBackupFeedback,
               onRegister: onRegisterAccount,
               onLogin: onLoginAccount,
               onAuthModeChanged: onAuthModeChanged,
@@ -12113,6 +12299,7 @@ class _WorkSettingsCard extends StatelessWidget {
     required this.rulesFlexibleStartEnabled,
     required this.rulesWalletEnabled,
     required this.rulesImplicitCreditEnabled,
+    required this.rulesPauseAdjustmentMode,
     required this.rulesOvertimeDailyCapController,
     required this.rulesOvertimeWeeklyCapController,
     required this.rulesOvertimeMonthlyCapController,
@@ -12143,6 +12330,7 @@ class _WorkSettingsCard extends StatelessWidget {
     required this.onRulesFlexibleStartEnabledChanged,
     required this.onRulesWalletEnabledChanged,
     required this.onRulesImplicitCreditEnabledChanged,
+    required this.onRulesPauseAdjustmentModeChanged,
     required this.onPickRulesOvertimeDailyCapMinutes,
     required this.onPickRulesOvertimeWeeklyCapMinutes,
     required this.onPickRulesOvertimeMonthlyCapMinutes,
@@ -12183,6 +12371,7 @@ class _WorkSettingsCard extends StatelessWidget {
   final bool rulesFlexibleStartEnabled;
   final bool rulesWalletEnabled;
   final bool rulesImplicitCreditEnabled;
+  final WorkRulesPauseAdjustmentMode rulesPauseAdjustmentMode;
   final TextEditingController rulesOvertimeDailyCapController;
   final TextEditingController rulesOvertimeWeeklyCapController;
   final TextEditingController rulesOvertimeMonthlyCapController;
@@ -12214,6 +12403,8 @@ class _WorkSettingsCard extends StatelessWidget {
   final ValueChanged<bool> onRulesFlexibleStartEnabledChanged;
   final ValueChanged<bool> onRulesWalletEnabledChanged;
   final ValueChanged<bool> onRulesImplicitCreditEnabledChanged;
+  final ValueChanged<WorkRulesPauseAdjustmentMode>
+  onRulesPauseAdjustmentModeChanged;
   final Future<void> Function() onPickRulesOvertimeDailyCapMinutes;
   final Future<void> Function() onPickRulesOvertimeWeeklyCapMinutes;
   final Future<void> Function() onPickRulesOvertimeMonthlyCapMinutes;
@@ -12431,6 +12622,10 @@ class _WorkSettingsCard extends StatelessWidget {
                   const SizedBox(height: 8),
                   _WorkRulesCoreEditor(
                     minimumBreakText: rulesMinimumBreakController.text,
+                    pauseAdjustmentMode: rulesPauseAdjustmentMode,
+                    onPauseAdjustmentModeChanged:
+                        onRulesPauseAdjustmentModeChanged,
+                    isBusy: isBusy,
                     onPickMinimumBreak: onPickRulesMinimumBreakMinutes,
                   ),
                   const SizedBox(height: 10),
@@ -13125,17 +13320,22 @@ class _SettingsScheduleEditor extends StatelessWidget {
 class _WorkRulesCoreEditor extends StatelessWidget {
   const _WorkRulesCoreEditor({
     required this.minimumBreakText,
+    required this.pauseAdjustmentMode,
+    required this.onPauseAdjustmentModeChanged,
+    required this.isBusy,
     required this.onPickMinimumBreak,
   });
 
   final String minimumBreakText;
+  final WorkRulesPauseAdjustmentMode pauseAdjustmentMode;
+  final ValueChanged<WorkRulesPauseAdjustmentMode> onPauseAdjustmentModeChanged;
+  final bool isBusy;
   final Future<void> Function() onPickMinimumBreak;
 
   @override
   Widget build(BuildContext context) {
-    return Wrap(
-      spacing: 10,
-      runSpacing: 10,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _SlimSettingsScheduleValue(
           label: 'Pausa minima',
@@ -13146,6 +13346,42 @@ class _WorkRulesCoreEditor extends StatelessWidget {
           icon: Icons.free_breakfast_outlined,
           kind: _SettingsValueKind.duration,
           onTap: onPickMinimumBreak,
+        ),
+        const SizedBox(height: 12),
+        Text(
+          'Quando cambi la pausa in Oggi',
+          style: Theme.of(
+            context,
+          ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700),
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          children: [
+            ChoiceChip(
+              label: const Text('Ore lavorate fisse'),
+              selected:
+                  pauseAdjustmentMode ==
+                  WorkRulesPauseAdjustmentMode.keepWorkedMinutes,
+              onSelected: isBusy
+                  ? null
+                  : (_) => onPauseAdjustmentModeChanged(
+                      WorkRulesPauseAdjustmentMode.keepWorkedMinutes,
+                    ),
+            ),
+            ChoiceChip(
+              label: const Text('Uscita fissa'),
+              selected:
+                  pauseAdjustmentMode ==
+                  WorkRulesPauseAdjustmentMode.keepEndTime,
+              onSelected: isBusy
+                  ? null
+                  : (_) => onPauseAdjustmentModeChanged(
+                      WorkRulesPauseAdjustmentMode.keepEndTime,
+                    ),
+            ),
+          ],
         ),
       ],
     );
@@ -14018,6 +14254,11 @@ class _CloudBackupAccountCard extends StatelessWidget {
     required this.isConfiguringRecoveryQuestions,
     required this.isRestoring,
     required this.isSyncing,
+    required this.isLoadingStatus,
+    required this.lastCloudBackupAt,
+    required this.lastCloudBackupAttemptAt,
+    required this.lastCloudBackupSucceeded,
+    required this.lastCloudBackupFeedback,
     required this.onRegister,
     required this.onLogin,
     required this.onAuthModeChanged,
@@ -14037,6 +14278,11 @@ class _CloudBackupAccountCard extends StatelessWidget {
   final bool isConfiguringRecoveryQuestions;
   final bool isRestoring;
   final bool isSyncing;
+  final bool isLoadingStatus;
+  final DateTime? lastCloudBackupAt;
+  final DateTime? lastCloudBackupAttemptAt;
+  final bool? lastCloudBackupSucceeded;
+  final String? lastCloudBackupFeedback;
   final Future<void> Function() onRegister;
   final Future<void> Function() onLogin;
   final ValueChanged<_AccountAuthMode> onAuthModeChanged;
@@ -14205,6 +14451,89 @@ class _CloudBackupAccountCard extends StatelessWidget {
                 ),
               ],
             ),
+            const SizedBox(height: 12),
+            _CloudBackupStatusInfo(
+              isLoadingStatus: isLoadingStatus,
+              isSyncing: isSyncing,
+              lastCloudBackupAt: lastCloudBackupAt,
+              lastCloudBackupAttemptAt: lastCloudBackupAttemptAt,
+              lastCloudBackupSucceeded: lastCloudBackupSucceeded,
+              lastCloudBackupFeedback: lastCloudBackupFeedback,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _CloudBackupStatusInfo extends StatelessWidget {
+  const _CloudBackupStatusInfo({
+    required this.isLoadingStatus,
+    required this.isSyncing,
+    required this.lastCloudBackupAt,
+    required this.lastCloudBackupAttemptAt,
+    required this.lastCloudBackupSucceeded,
+    required this.lastCloudBackupFeedback,
+  });
+
+  final bool isLoadingStatus;
+  final bool isSyncing;
+  final DateTime? lastCloudBackupAt;
+  final DateTime? lastCloudBackupAttemptAt;
+  final bool? lastCloudBackupSucceeded;
+  final String? lastCloudBackupFeedback;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final statusColor = switch (lastCloudBackupSucceeded) {
+      true => theme.colorScheme.primary,
+      false => theme.colorScheme.error,
+      null => theme.colorScheme.onSurfaceVariant,
+    };
+
+    final statusLabel = switch (lastCloudBackupSucceeded) {
+      true when lastCloudBackupAttemptAt != null =>
+        'Ultimo tentativo: riuscito alle ${_formatTicketDateTime(lastCloudBackupAttemptAt!)}',
+      true => 'Ultimo tentativo: riuscito',
+      false when lastCloudBackupAttemptAt != null =>
+        'Ultimo tentativo: non riuscito alle ${_formatTicketDateTime(lastCloudBackupAttemptAt!)}',
+      false => 'Ultimo tentativo: non riuscito',
+      null when isSyncing => 'Backup in corso...',
+      null => 'Nessun tentativo recente.',
+    };
+
+    final lastCloudBackupLabel = isLoadingStatus
+        ? 'Controllo ultimo backup cloud...'
+        : lastCloudBackupAt == null
+        ? 'Ultimo backup cloud: nessun backup salvato.'
+        : 'Ultimo backup cloud: ${_formatTicketDateTime(lastCloudBackupAt!)}';
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(lastCloudBackupLabel, style: theme.textTheme.bodySmall),
+          const SizedBox(height: 6),
+          Text(
+            statusLabel,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: statusColor,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          if (lastCloudBackupFeedback != null &&
+              lastCloudBackupFeedback!.trim().isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text(lastCloudBackupFeedback!, style: theme.textTheme.bodySmall),
           ],
         ],
       ),

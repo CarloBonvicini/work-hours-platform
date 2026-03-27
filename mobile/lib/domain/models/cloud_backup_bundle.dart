@@ -55,6 +55,7 @@ class CloudBackupBundle {
     required this.workEntries,
     required this.leaveEntries,
     required this.scheduleOverrides,
+    this.updatedAt,
   });
 
   final UserProfile profile;
@@ -62,6 +63,7 @@ class CloudBackupBundle {
   final List<WorkEntry> workEntries;
   final List<LeaveEntry> leaveEntries;
   final List<ScheduleOverride> scheduleOverrides;
+  final DateTime? updatedAt;
 
   factory CloudBackupBundle.fromJson(Map<String, dynamic> json) {
     return CloudBackupBundle(
@@ -82,6 +84,17 @@ class CloudBackupBundle {
                     ScheduleOverride.fromJson(item as Map<String, dynamic>),
               )
               .toList(growable: false),
+      updatedAt: (() {
+        final rawValue = json['updatedAt'];
+        if (rawValue is! String || rawValue.trim().isEmpty) {
+          return null;
+        }
+        try {
+          return DateTime.parse(rawValue).toLocal();
+        } catch (_) {
+          return null;
+        }
+      })(),
     );
   }
 

@@ -199,6 +199,7 @@ export function buildDefaultWorkRules(
     walletWeeklyExitEarlyMinutes: 0,
     implicitCreditEnabled: false,
     implicitCreditDailyCapMinutes: 0,
+    pauseAdjustmentMode: "keep_worked_minutes",
     additionalPermissions: [],
     leaveBanks: []
   };
@@ -355,6 +356,10 @@ export function sanitizeWorkRules(
       (value.implicitCreditDailyCapMinutes as number) >= 0
         ? (value.implicitCreditDailyCapMinutes as number)
         : 0,
+    pauseAdjustmentMode:
+      value.pauseAdjustmentMode === "keep_end_time"
+        ? "keep_end_time"
+        : "keep_worked_minutes",
     additionalPermissions: sanitizeWorkPermissionRules(value.additionalPermissions),
     leaveBanks: sanitizeWorkPermissionRules(value.leaveBanks)
   };

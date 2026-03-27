@@ -755,6 +755,8 @@ function parseWorkRulesPayload(payload: unknown): Profile["workRules"] | null {
   const parseOptionalFlag = (value: unknown) => value === true;
   const parseOptionalMinutes = (value: unknown) =>
     isNonNegativeInteger(value) ? value : 0;
+  const parsePauseAdjustmentMode = (value: unknown) =>
+    value === "keep_end_time" ? "keep_end_time" : "keep_worked_minutes";
   const permissionMovements = new Set<WorkPermissionMovement>([
     "entry_late",
     "exit_early",
@@ -846,6 +848,7 @@ function parseWorkRulesPayload(payload: unknown): Profile["workRules"] | null {
     implicitCreditDailyCapMinutes: parseOptionalMinutes(
       body.implicitCreditDailyCapMinutes
     ),
+    pauseAdjustmentMode: parsePauseAdjustmentMode(body.pauseAdjustmentMode),
     additionalPermissions: parsePermissionRules(body.additionalPermissions),
     leaveBanks: parsePermissionRules(body.leaveBanks)
   };
@@ -861,7 +864,7 @@ function parseWorkEntryRecord(payload: unknown): WorkEntry | null {
     typeof body.id !== "string" ||
     typeof body.date !== "string" ||
     !isIsoDate(body.date) ||
-    !isPositiveInteger(body.minutes)
+    !isNonNegativeInteger(body.minutes)
   ) {
     return null;
   }
@@ -888,7 +891,7 @@ function parseLeaveEntryRecord(payload: unknown): LeaveEntry | null {
     typeof body.id !== "string" ||
     typeof body.date !== "string" ||
     !isIsoDate(body.date) ||
-    !isPositiveInteger(body.minutes) ||
+    !isNonNegativeInteger(body.minutes) ||
     !isLeaveType(body.type)
   ) {
     return null;
@@ -997,7 +1000,15 @@ function parseAppearanceSettingsRecord(
 function parseCloudBackupPayload(
   payload: unknown,
   fallbackProfileId: string
-): { value: CloudBackupRecord | null; error?: string } {
+): {
+  value: CloudBackupRecord | null;
+  error?: string;
+  droppedItems?: {
+    workEntries: number;
+    leaveEntries: number;
+    scheduleOverrides: number;
+  };
+} {
   if (!payload || typeof payload !== "object") {
     return { value: null, error: "Invalid body" };
   }
@@ -1019,23 +1030,10 @@ function parseCloudBackupPayload(
     };
   }
 
-  const workEntries = Array.isArray(body.workEntries)
-    ? body.workEntries.map(parseWorkEntryRecord)
-    : null;
-  const leaveEntries = Array.isArray(body.leaveEntries)
-    ? body.leaveEntries.map(parseLeaveEntryRecord)
-    : null;
-  const scheduleOverrides = Array.isArray(body.scheduleOverrides)
-    ? body.scheduleOverrides.map(parseScheduleOverrideRecord)
-    : null;
-
   if (
-    !workEntries ||
-    workEntries.some((entry) => entry === null) ||
-    !leaveEntries ||
-    leaveEntries.some((entry) => entry === null) ||
-    !scheduleOverrides ||
-    scheduleOverrides.some((entry) => entry === null)
+    !Array.isArray(body.workEntries) ||
+    !Array.isArray(body.leaveEntries) ||
+    !Array.isArray(body.scheduleOverrides)
   ) {
     return {
       value: null,
@@ -1044,15 +1042,33 @@ function parseCloudBackupPayload(
     };
   }
 
+  const parsedWorkEntries = body.workEntries
+    .map(parseWorkEntryRecord)
+    .filter((entry): entry is WorkEntry => entry !== null);
+  const parsedLeaveEntries = body.leaveEntries
+    .map(parseLeaveEntryRecord)
+    .filter((entry): entry is LeaveEntry => entry !== null);
+  const parsedScheduleOverrides = body.scheduleOverrides
+    .map(parseScheduleOverrideRecord)
+    .filter((entry): entry is ScheduleOverride => entry !== null);
+
+  const droppedItems = {
+    workEntries: body.workEntries.length - parsedWorkEntries.length,
+    leaveEntries: body.leaveEntries.length - parsedLeaveEntries.length,
+    scheduleOverrides:
+      body.scheduleOverrides.length - parsedScheduleOverrides.length
+  };
+
   return {
     value: {
       profile: parsedProfile.value,
       appearanceSettings,
-      workEntries: workEntries as WorkEntry[],
-      leaveEntries: leaveEntries as LeaveEntry[],
-      scheduleOverrides: scheduleOverrides as ScheduleOverride[],
+      workEntries: parsedWorkEntries,
+      leaveEntries: parsedLeaveEntries,
+      scheduleOverrides: parsedScheduleOverrides,
       updatedAt: new Date().toISOString()
-    }
+    },
+    droppedItems
   };
 }
 
@@ -4358,6 +4374,19 @@ export function buildApp(options: BuildAppOptions = {}) {
     };
   });
 
+  app.get("/me/backup/meta", async (request, reply) => {
+    const { user } = await readAuthenticatedUser(request, store);
+    if (!user) {
+      return reply.code(401).send({ error: "Unauthorized" });
+    }
+
+    const bundle = await store.loadCloudBackup(user.id);
+    return {
+      hasBackup: bundle !== null,
+      updatedAt: bundle?.updatedAt ?? null
+    };
+  });
+
   app.put("/me/backup", async (request, reply) => {
     const { user } = await readAuthenticatedUser(request, store);
     if (!user) {
@@ -4377,7 +4406,12 @@ export function buildApp(options: BuildAppOptions = {}) {
     const savedBundle = await store.saveCloudBackup(user.id, parsedBundle.value);
     return {
       savedAt: savedBundle.updatedAt,
-      bundle: savedBundle
+      bundle: savedBundle,
+      droppedItems: parsedBundle.droppedItems ?? {
+        workEntries: 0,
+        leaveEntries: 0,
+        scheduleOverrides: 0
+      }
     };
   });
 
