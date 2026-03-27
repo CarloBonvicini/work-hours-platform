@@ -626,13 +626,32 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
     var rerunQueuedBackup = false;
     try {
-      await widget.accountService!.backupToCloud(session: _accountSession);
-    } catch (_) {
-      if (mounted) {
+      await widget.accountService!.backupToCloud();
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      if (error is ApiException &&
+          (error.statusCode == 401 || error.statusCode == 403)) {
+        await widget.accountService!.logout();
+        if (mounted) {
+          setState(() {
+            _accountSession = null;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Sessione cloud scaduta. Accedi di nuovo e riprova il backup.',
+              ),
+            ),
+          );
+        }
+      } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
+          SnackBar(
             content: Text(
-              'Backup cloud non riuscito. I dati restano comunque su questo dispositivo.',
+              _humanizeError(error),
             ),
           ),
         );
@@ -1247,13 +1266,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       }
     }
 
-    await Future.wait(
-      latestAdminReplyCountByTicket.entries.map(
-        (entry) => widget.supportTicketStore.markAdminRepliesNotified(
-          ticketId: entry.key,
-          adminReplyCount: entry.value,
-        ),
-      ),
+    await widget.supportTicketStore.markAdminRepliesNotifiedBatch(
+      adminReplyCountByTicketId: latestAdminReplyCountByTicket,
     );
     if (!mounted) {
       return;
@@ -1470,16 +1484,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       return;
     }
 
-    await Future.wait([
-      widget.supportTicketStore.markAdminRepliesSeen(
-        ticketId: ticketId,
-        adminReplyCount: thread.adminReplyCount,
-      ),
-      widget.supportTicketStore.markAdminRepliesNotified(
-        ticketId: ticketId,
-        adminReplyCount: thread.adminReplyCount,
-      ),
-    ]);
+    await widget.supportTicketStore.markAdminRepliesSeenAndNotified(
+      ticketId: ticketId,
+      adminReplyCount: thread.adminReplyCount,
+    );
     if (!mounted) {
       return;
     }

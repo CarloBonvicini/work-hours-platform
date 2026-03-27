@@ -13,9 +13,6 @@ on:
       - synchronize
       - reopened
       - ready_for_review
-    paths:
-      - "mobile/**"
-      - ".github/workflows/mobile-ci.yml"
 
 permissions:
   contents: read
@@ -26,6 +23,7 @@ concurrency:
 
 jobs:
   analyze-and-test:
+    name: Mobile CI / analyze-and-test (pull_request)
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -33,6 +31,29 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          fetch-depth: 0
+
+      - name: Detect mobile changes
+        id: changes
+        shell: bash
+        run: |
+          set -eu
+
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "has_mobile_changes=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          base_sha="${{ github.event.pull_request.base.sha }}"
+          head_sha="${{ github.sha }}"
+          changed_files="$(git diff --name-only "$base_sha...$head_sha")"
+
+          if printf '%s\n' "$changed_files" | grep -E -q '^(mobile/|\.github/workflows/mobile-ci\.yml$)'; then
+            echo "has_mobile_changes=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_mobile_changes=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Detect Flutter project
         id: detect
@@ -44,12 +65,16 @@ jobs:
             echo "has_flutter=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Skip (no mobile changes)
+        if: ${{ steps.changes.outputs.has_mobile_changes != 'true' }}
+        run: echo "Nessuna modifica mobile in questa PR. Mobile CI marcata come riuscita."
+
       - name: Skip (no pubspec.yaml yet)
-        if: ${{ steps.detect.outputs.has_flutter == 'false' }}
+        if: ${{ steps.changes.outputs.has_mobile_changes == 'true' && steps.detect.outputs.has_flutter == 'false' }}
         run: echo "Nessun progetto Flutter in mobile/. CI mobile saltata."
 
       - name: Setup Flutter SDK
-        if: ${{ steps.detect.outputs.has_flutter == 'true' }}
+        if: ${{ steps.changes.outputs.has_mobile_changes == 'true' && steps.detect.outputs.has_flutter == 'true' }}
         shell: bash
         run: |
           set -eu
@@ -60,16 +85,16 @@ jobs:
           flutter --version
 
       - name: Install dependencies
-        if: ${{ steps.detect.outputs.has_flutter == 'true' }}
+        if: ${{ steps.changes.outputs.has_mobile_changes == 'true' && steps.detect.outputs.has_flutter == 'true' }}
         working-directory: mobile
         run: flutter pub get
 
       - name: Analyze
-        if: ${{ steps.detect.outputs.has_flutter == 'true' }}
+        if: ${{ steps.changes.outputs.has_mobile_changes == 'true' && steps.detect.outputs.has_flutter == 'true' }}
         working-directory: mobile
         run: flutter analyze
 
       - name: Tests
-        if: ${{ steps.detect.outputs.has_flutter == 'true' }}
+        if: ${{ steps.changes.outputs.has_mobile_changes == 'true' && steps.detect.outputs.has_flutter == 'true' }}
         working-directory: mobile
         run: flutter test --concurrency=4
