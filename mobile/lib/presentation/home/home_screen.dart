@@ -880,7 +880,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                               final answer = value?.trim() ?? '';
                               return answer.isNotEmpty
                                   ? null
-                                  : 'Inserisci almeno 1 carattere.';
+                                  : 'Inserisci una risposta.';
                             },
                           ),
                           const SizedBox(height: 12),
@@ -899,7 +899,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                               final answer = value?.trim() ?? '';
                               return answer.isNotEmpty
                                   ? null
-                                  : 'Inserisci almeno 1 carattere.';
+                                  : 'Inserisci una risposta.';
                             },
                           ),
                           const SizedBox(height: 12),
@@ -1124,9 +1124,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         ),
                         validator: (value) {
                           final question = value?.trim() ?? '';
-                          return question.length >= 8
+                          return question.isNotEmpty
                               ? null
-                              : 'La domanda deve avere almeno 8 caratteri.';
+                              : 'Inserisci una domanda.';
                         },
                       ),
                       const SizedBox(height: 8),
@@ -1141,7 +1141,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                           final answer = value?.trim() ?? '';
                           return answer.isNotEmpty
                               ? null
-                              : 'Inserisci almeno 1 carattere.';
+                              : 'Inserisci una risposta.';
                         },
                       ),
                       const SizedBox(height: 14),
@@ -1152,14 +1152,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         ),
                         validator: (value) {
                           final question = value?.trim() ?? '';
-                          if (question.length < 8) {
-                            return 'La domanda deve avere almeno 8 caratteri.';
-                          }
-                          if (question.toLowerCase() ==
-                              questionOneController.text.trim().toLowerCase()) {
-                            return 'La seconda domanda deve essere diversa.';
-                          }
-                          return null;
+                          return question.isNotEmpty
+                              ? null
+                              : 'Inserisci una domanda.';
                         },
                       ),
                       const SizedBox(height: 8),
@@ -1174,7 +1169,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                           final answer = value?.trim() ?? '';
                           return answer.isNotEmpty
                               ? null
-                              : 'Inserisci almeno 1 carattere.';
+                              : 'Inserisci una risposta.';
                         },
                       ),
                     ],
@@ -6264,6 +6259,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       }
       if (error.message == 'too many recovery attempts') {
         return 'Troppi tentativi di recupero. Riprova tra qualche minuto.';
+      }
+      if (error.message == 'questionOne is required') {
+        return 'La prima domanda di recupero non è valida.';
+      }
+      if (error.message == 'questionTwo is required') {
+        return 'La seconda domanda di recupero non è valida.';
+      }
+      if (error.message == 'answerOne is required') {
+        return 'La prima risposta di recupero non è valida.';
+      }
+      if (error.message == 'answerTwo is required') {
+        return 'La seconda risposta di recupero non è valida.';
       }
       if (error.message ==
           'answerOne must be between 1 and 120 characters') {

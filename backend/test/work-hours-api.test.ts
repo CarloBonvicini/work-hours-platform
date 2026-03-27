@@ -219,17 +219,17 @@ describe("Auth and cloud backup API", () => {
         authorization: `Bearer ${loginResponse.json().token}`
       },
       payload: {
-        questionOne: "Nome del primo animale?",
+        questionOne: "A",
         answerOne: "2",
-        questionTwo: "Citta in cui sei nato?",
+        questionTwo: "A",
         answerTwo: "T"
       }
     });
     expect(setupRecoveryQuestionsResponse.statusCode).toBe(200);
     expect(setupRecoveryQuestionsResponse.json()).toMatchObject({
       success: true,
-      questionOne: "Nome del primo animale?",
-      questionTwo: "Citta in cui sei nato?"
+      questionOne: "A",
+      questionTwo: "A"
     });
 
     const lookupQuestionsResponse = await app.inject({
@@ -242,8 +242,8 @@ describe("Auth and cloud backup API", () => {
     expect(lookupQuestionsResponse.statusCode).toBe(200);
     expect(lookupQuestionsResponse.json()).toMatchObject({
       available: true,
-      questionOne: "Nome del primo animale?",
-      questionTwo: "Citta in cui sei nato?"
+      questionOne: "A",
+      questionTwo: "A"
     });
 
     const resetResponse = await app.inject({

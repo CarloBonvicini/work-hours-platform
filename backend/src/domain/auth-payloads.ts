@@ -125,18 +125,16 @@ function parseRecoveryCode(body: Record<string, unknown>): ParseResult<string> {
   return { value: recoveryCode };
 }
 
-function parseBoundedNormalizedText(
+function parseRequiredNormalizedText(
   body: Record<string, unknown>,
-  field: string,
-  minLength: number,
-  maxLength: number
+  field: string
 ): ParseResult<string> {
   const rawValue = body[field];
   const value = typeof rawValue === "string" ? normalizeText(rawValue) : null;
-  if (!value || value.length < minLength || value.length > maxLength) {
+  if (!value || value.length === 0) {
     return {
       value: null,
-      error: `${field} must be between ${minLength} and ${maxLength} characters`
+      error: `${field} is required`
     };
   }
 
@@ -147,14 +145,14 @@ function parseRequiredQuestion(
   body: Record<string, unknown>,
   field: "questionOne" | "questionTwo"
 ): ParseResult<string> {
-  return parseBoundedNormalizedText(body, field, 8, 140);
+  return parseRequiredNormalizedText(body, field);
 }
 
 function parseRequiredAnswer(
   body: Record<string, unknown>,
   field: "answerOne" | "answerTwo"
 ): ParseResult<string> {
-  return parseBoundedNormalizedText(body, field, 1, 120);
+  return parseRequiredNormalizedText(body, field);
 }
 
 function parsePasswordRecoveryByCode(
@@ -420,13 +418,6 @@ export function parseRecoveryQuestionSetupPayload(payload: unknown) {
   const questionTwoResult = parseRequiredQuestion(body, "questionTwo");
   if (hasParseError(questionTwoResult)) {
     return questionTwoResult;
-  }
-
-  if (questionOneResult.value.toLowerCase() === questionTwoResult.value.toLowerCase()) {
-    return {
-      value: null,
-      error: "questionTwo must be different from questionOne"
-    };
   }
 
   const answerOneResult = parseRequiredAnswer(body, "answerOne");
