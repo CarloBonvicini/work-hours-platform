@@ -26,6 +26,12 @@ import {
   createRecoveryCode,
   createRecoveryCodeDigest,
   verifyRecoveryCodeDigest,
+  createRecoveryAnswerDigest,
+  verifyRecoveryAnswerDigest,
+  hasRecoveryQuestionsConfigured,
+  isRecoveryTemporarilyLocked,
+  RECOVERY_MAX_ATTEMPTS,
+  RECOVERY_LOCK_WINDOW_MINUTES,
   createSessionToken,
   hashSessionToken,
   isLegacyAdminProfileEmail,
@@ -44,7 +50,9 @@ import {
   parseAdminUserCreatePayload,
   parseAdminUserUpdatePayload,
   parseAuthCredentials,
-  parsePasswordRecoveryPayload
+  parsePasswordRecoveryPayload,
+  parseRecoveryQuestionLookupPayload,
+  parseRecoveryQuestionSetupPayload
 } from "./domain/auth-payloads.js";
 import type {
   DaySchedule,
@@ -138,6 +146,40 @@ interface AuthResponse {
   token: string;
   user: AuthUser & { isAdmin: boolean; isSuperAdmin: boolean };
   recoveryCode?: string;
+}
+
+function readConfiguredRecoveryQuestions(user: {
+  recoveryQuestionOne?: string;
+  recoveryQuestionTwo?: string;
+}) {
+  if (!user.recoveryQuestionOne || !user.recoveryQuestionTwo) {
+    return null;
+  }
+
+  return {
+    questionOne: user.recoveryQuestionOne,
+    questionTwo: user.recoveryQuestionTwo
+  };
+}
+
+function buildRecoveryLockTimestamp(now = new Date()) {
+  const lockUntil = new Date(
+    now.getTime() + RECOVERY_LOCK_WINDOW_MINUTES * 60 * 1000
+  );
+  return lockUntil.toISOString();
+}
+
+function getRecoveryLockRemainingMinutes(user: { recoveryLockedUntil?: string }) {
+  if (!user.recoveryLockedUntil) {
+    return 0;
+  }
+
+  const remainingMs = new Date(user.recoveryLockedUntil).getTime() - Date.now();
+  if (!Number.isFinite(remainingMs) || remainingMs <= 0) {
+    return 0;
+  }
+
+  return Math.ceil(remainingMs / 60000);
 }
 
 function parseMonthQuery(query: unknown): string | null | undefined {
@@ -2114,7 +2156,7 @@ function renderAdminPage(options: {
                     <input id="admin-register-email-input" type="email" autocomplete="username" placeholder="utente@example.com" required />
                   </label>
                   <label>Password
-                    <input id="admin-register-password-input" type="password" autocomplete="new-password" placeholder="Almeno 8 caratteri" required />
+                    <input id="admin-register-password-input" type="password" autocomplete="new-password" placeholder="Scegli la password" required />
                   </label>
                   <div class="toolbar-actions" style="justify-content:flex-start;">
                     <button type="submit">Registrati</button>
@@ -2232,7 +2274,7 @@ function renderAdminPage(options: {
                       </label>
                       <label class="field">
                         <span class="field-label">Password</span>
-                        <input id="admin-create-user-password-input" type="password" placeholder="Almeno 8 caratteri" required />
+                        <input id="admin-create-user-password-input" type="password" placeholder="Scegli la password" required />
                       </label>
                       <label class="field">
                         <span class="field-label">Ruolo</span>
@@ -2782,16 +2824,16 @@ function renderAdminPage(options: {
 
             if (action === "reset-password") {
               const newPassword = window.prompt(
-                "Nuova password per questo utente (minimo 8 caratteri):",
+                "Nuova password per questo utente:",
                 ""
               );
               if (newPassword === null) {
                 return;
               }
 
-              if (String(newPassword).trim().length < 8) {
+              if (String(newPassword).trim().length === 0) {
                 setStatus(
-                  "La password deve avere almeno 8 caratteri.",
+                  "La password non puo essere vuota.",
                   "error",
                   "dashboard"
                 );
@@ -3044,8 +3086,8 @@ function renderAdminPage(options: {
           setStatus("Inserisci email e password per creare l utente.", "error", "dashboard");
           return;
         }
-        if (password.trim().length < 8) {
-          setStatus("La password deve avere almeno 8 caratteri.", "error", "dashboard");
+        if (password.trim().length === 0) {
+          setStatus("La password non puo essere vuota.", "error", "dashboard");
           return;
         }
         if (role !== "user" && role !== "admin") {
@@ -3696,6 +3738,7 @@ export function buildApp(options: BuildAppOptions = {}) {
       passwordSalt: passwordDigest.salt,
       recoveryCodeHash: recoveryCodeDigest.hash,
       recoveryCodeSalt: recoveryCodeDigest.salt,
+      recoveryFailedAttempts: 0,
       role: parsedPayload.value.role,
       createdAt: now,
       updatedAt: now
@@ -4036,6 +4079,7 @@ export function buildApp(options: BuildAppOptions = {}) {
       passwordSalt: passwordDigest.salt,
       recoveryCodeHash: recoveryCodeDigest.hash,
       recoveryCodeSalt: recoveryCodeDigest.salt,
+      recoveryFailedAttempts: 0,
       role: isLegacyAdminProfileEmail(parsedCredentials.value.email)
         ? "admin"
         : "user",
@@ -4111,6 +4155,79 @@ export function buildApp(options: BuildAppOptions = {}) {
     return response;
   });
 
+  app.post("/auth/recovery-questions", async (request, reply) => {
+    const parsedPayload = parseRecoveryQuestionLookupPayload(request.body);
+    if (!parsedPayload.value) {
+      return reply.code(400).send({
+        error: parsedPayload.error ?? "Invalid recovery lookup payload"
+      });
+    }
+
+    const user = await store.findAuthUserByEmail(parsedPayload.value.email);
+    if (!user) {
+      return reply.code(404).send({ error: "account not found" });
+    }
+
+    const questions = readConfiguredRecoveryQuestions(user);
+    if (!questions) {
+      return reply.code(404).send({ error: "recovery questions not configured" });
+    }
+
+    const retryAfterMinutes = getRecoveryLockRemainingMinutes(user);
+    return {
+      available: true,
+      locked: retryAfterMinutes > 0,
+      retryAfterMinutes: retryAfterMinutes > 0 ? retryAfterMinutes : undefined,
+      ...questions
+    };
+  });
+
+  app.put("/me/recovery-questions", async (request, reply) => {
+    const { user } = await readAuthenticatedUser(request, store);
+    if (!user) {
+      return reply.code(401).send({ error: "Unauthorized" });
+    }
+
+    const parsedPayload = parseRecoveryQuestionSetupPayload(request.body);
+    if (!parsedPayload.value) {
+      return reply.code(400).send({
+        error: parsedPayload.error ?? "Invalid recovery question payload"
+      });
+    }
+
+    const storedUser = await store.findAuthUserByEmail(user.email);
+    if (!storedUser) {
+      return reply.code(404).send({ error: "User not found" });
+    }
+
+    const answerOneDigest = createRecoveryAnswerDigest(
+      parsedPayload.value.answerOne
+    );
+    const answerTwoDigest = createRecoveryAnswerDigest(
+      parsedPayload.value.answerTwo
+    );
+    const now = new Date().toISOString();
+
+    await store.updateStoredAuthUser({
+      ...storedUser,
+      recoveryQuestionOne: parsedPayload.value.questionOne,
+      recoveryQuestionTwo: parsedPayload.value.questionTwo,
+      recoveryAnswerOneHash: answerOneDigest.hash,
+      recoveryAnswerOneSalt: answerOneDigest.salt,
+      recoveryAnswerTwoHash: answerTwoDigest.hash,
+      recoveryAnswerTwoSalt: answerTwoDigest.salt,
+      recoveryFailedAttempts: 0,
+      recoveryLockedUntil: undefined,
+      updatedAt: now
+    });
+
+    return {
+      success: true,
+      questionOne: parsedPayload.value.questionOne,
+      questionTwo: parsedPayload.value.questionTwo
+    };
+  });
+
   app.post("/auth/recover-password", async (request, reply) => {
     const parsedPayload = parsePasswordRecoveryPayload(request.body);
     if (!parsedPayload.value) {
@@ -4120,10 +4237,71 @@ export function buildApp(options: BuildAppOptions = {}) {
     }
 
     const user = await store.findAuthUserByEmail(parsedPayload.value.email);
-    if (!user || !verifyRecoveryCodeDigest(parsedPayload.value.recoveryCode, user)) {
+    if (!user) {
       return reply.code(401).send({
         error: "invalid recovery credentials"
       });
+    }
+
+    if (parsedPayload.value.mode === "code") {
+      if (!verifyRecoveryCodeDigest(parsedPayload.value.recoveryCode, user)) {
+        return reply.code(401).send({
+          error: "invalid recovery credentials"
+        });
+      }
+    } else {
+      if (!hasRecoveryQuestionsConfigured(user)) {
+        return reply.code(400).send({
+          error: "recovery questions not configured"
+        });
+      }
+
+      if (isRecoveryTemporarilyLocked(user)) {
+        const retryAfterMinutes = getRecoveryLockRemainingMinutes(user);
+        return reply.code(429).send({
+          error: "too many recovery attempts",
+          retryAfterMinutes: retryAfterMinutes > 0
+            ? retryAfterMinutes
+            : RECOVERY_LOCK_WINDOW_MINUTES
+        });
+      }
+
+      const isAnswerOneValid = verifyRecoveryAnswerDigest({
+        answer: parsedPayload.value.answerOne,
+        hash: user.recoveryAnswerOneHash,
+        salt: user.recoveryAnswerOneSalt
+      });
+      const isAnswerTwoValid = verifyRecoveryAnswerDigest({
+        answer: parsedPayload.value.answerTwo,
+        hash: user.recoveryAnswerTwoHash,
+        salt: user.recoveryAnswerTwoSalt
+      });
+
+      if (!isAnswerOneValid || !isAnswerTwoValid) {
+        const now = new Date().toISOString();
+        const failedAttempts = (user.recoveryFailedAttempts ?? 0) + 1;
+        const shouldLock = failedAttempts >= RECOVERY_MAX_ATTEMPTS;
+
+        await store.updateStoredAuthUser({
+          ...user,
+          recoveryFailedAttempts: shouldLock ? 0 : failedAttempts,
+          recoveryLockedUntil: shouldLock
+            ? buildRecoveryLockTimestamp(new Date(now))
+            : undefined,
+          updatedAt: now
+        });
+
+        if (shouldLock) {
+          return reply.code(429).send({
+            error: "too many recovery attempts",
+            retryAfterMinutes: RECOVERY_LOCK_WINDOW_MINUTES
+          });
+        }
+
+        return reply.code(401).send({
+          error: "invalid recovery credentials"
+        });
+      }
     }
 
     const passwordDigest = createPasswordDigest(parsedPayload.value.newPassword);
@@ -4137,6 +4315,8 @@ export function buildApp(options: BuildAppOptions = {}) {
       passwordSalt: passwordDigest.salt,
       recoveryCodeHash: nextRecoveryDigest.hash,
       recoveryCodeSalt: nextRecoveryDigest.salt,
+      recoveryFailedAttempts: 0,
+      recoveryLockedUntil: undefined,
       updatedAt: now
     });
 

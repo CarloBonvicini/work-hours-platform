@@ -193,12 +193,47 @@ describe("Auth and cloud backup API", () => {
     });
     expect(loginResponse.statusCode).toBe(200);
 
+    const setupRecoveryQuestionsResponse = await app.inject({
+      method: "PUT",
+      url: "/me/recovery-questions",
+      headers: {
+        authorization: `Bearer ${loginResponse.json().token}`
+      },
+      payload: {
+        questionOne: "Nome del primo animale?",
+        answerOne: "Bobby",
+        questionTwo: "Citta in cui sei nato?",
+        answerTwo: "Torino"
+      }
+    });
+    expect(setupRecoveryQuestionsResponse.statusCode).toBe(200);
+    expect(setupRecoveryQuestionsResponse.json()).toMatchObject({
+      success: true,
+      questionOne: "Nome del primo animale?",
+      questionTwo: "Citta in cui sei nato?"
+    });
+
+    const lookupQuestionsResponse = await app.inject({
+      method: "POST",
+      url: "/auth/recovery-questions",
+      payload: {
+        email: "carlo@example.com"
+      }
+    });
+    expect(lookupQuestionsResponse.statusCode).toBe(200);
+    expect(lookupQuestionsResponse.json()).toMatchObject({
+      available: true,
+      questionOne: "Nome del primo animale?",
+      questionTwo: "Citta in cui sei nato?"
+    });
+
     const resetResponse = await app.inject({
       method: "POST",
       url: "/auth/recover-password",
       payload: {
         email: "carlo@example.com",
-        recoveryCode: registerBody.recoveryCode,
+        answerOne: "Bobby",
+        answerTwo: "Torino",
         newPassword: "nuova-password"
       }
     });
@@ -256,6 +291,64 @@ describe("Auth and cloud backup API", () => {
           themeMode: "dark"
         }
       }
+    });
+  });
+
+  it("locks password recovery after too many wrong answers", async () => {
+    const registerResponse = await app.inject({
+      method: "POST",
+      url: "/auth/register",
+      payload: {
+        email: "locked@example.com",
+        password: "super-segreta"
+      }
+    });
+    expect(registerResponse.statusCode).toBe(201);
+    const token = registerResponse.json().token as string;
+
+    const setupResponse = await app.inject({
+      method: "PUT",
+      url: "/me/recovery-questions",
+      headers: {
+        authorization: `Bearer ${token}`
+      },
+      payload: {
+        questionOne: "Domanda uno personalizzata?",
+        answerOne: "risposta uno",
+        questionTwo: "Domanda due personalizzata?",
+        answerTwo: "risposta due"
+      }
+    });
+    expect(setupResponse.statusCode).toBe(200);
+
+    for (let attempt = 1; attempt < 5; attempt += 1) {
+      const response = await app.inject({
+        method: "POST",
+        url: "/auth/recover-password",
+        payload: {
+          email: "locked@example.com",
+          answerOne: "sbagliata",
+          answerTwo: "sbagliata",
+          newPassword: "nuova-password"
+        }
+      });
+      expect(response.statusCode).toBe(401);
+    }
+
+    const lockedResponse = await app.inject({
+      method: "POST",
+      url: "/auth/recover-password",
+      payload: {
+        email: "locked@example.com",
+        answerOne: "sbagliata",
+        answerTwo: "sbagliata",
+        newPassword: "nuova-password"
+      }
+    });
+    expect(lockedResponse.statusCode).toBe(429);
+    expect(lockedResponse.json()).toMatchObject({
+      error: "too many recovery attempts",
+      retryAfterMinutes: expect.any(Number)
     });
   });
 });

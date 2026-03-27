@@ -32,6 +32,14 @@ export interface StoredAuthUser {
   passwordSalt: string;
   recoveryCodeHash?: string;
   recoveryCodeSalt?: string;
+  recoveryQuestionOne?: string;
+  recoveryQuestionTwo?: string;
+  recoveryAnswerOneHash?: string;
+  recoveryAnswerOneSalt?: string;
+  recoveryAnswerTwoHash?: string;
+  recoveryAnswerTwoSalt?: string;
+  recoveryFailedAttempts: number;
+  recoveryLockedUntil?: string;
   role: AuthRole;
   createdAt: string;
   updatedAt: string;

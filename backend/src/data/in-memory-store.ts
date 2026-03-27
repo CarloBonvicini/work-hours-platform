@@ -129,7 +129,11 @@ export class InMemoryStore implements AppStore {
   }
 
   createAuthUser(user: StoredAuthUser): AuthUser {
-    this.authUsers.push({ ...user });
+    this.authUsers.push({
+      ...user,
+      recoveryFailedAttempts: user.recoveryFailedAttempts ?? 0,
+      recoveryLockedUntil: user.recoveryLockedUntil
+    });
     return {
       id: user.id,
       email: user.email,
@@ -174,7 +178,11 @@ export class InMemoryStore implements AppStore {
       return null;
     }
 
-    this.authUsers[index] = { ...user };
+    this.authUsers[index] = {
+      ...user,
+      recoveryFailedAttempts: user.recoveryFailedAttempts ?? 0,
+      recoveryLockedUntil: user.recoveryLockedUntil
+    };
     return {
       id: user.id,
       email: user.email,
