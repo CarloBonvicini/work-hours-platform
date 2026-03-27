@@ -16,6 +16,7 @@ on:
 
 permissions:
   contents: read
+  statuses: write
 
 concurrency:
   group: mobile-ci-${{ github.event.pull_request.number || github.ref }}
@@ -97,3 +98,53 @@ jobs:
         if: ${{ steps.changes.outputs.has_mobile_changes == 'true' && steps.detect.outputs.has_flutter == 'true' }}
         working-directory: mobile
         run: flutter test --concurrency=4
+
+      - name: Publish PR required status context
+        if: ${{ always() && github.event_name == 'pull_request' }}
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          STATUS_SHA: ${{ github.event.pull_request.head.sha }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -eu
+
+          state="success"
+          description="Mobile CI completata."
+          case "${{ job.status }}" in
+            success)
+              state="success"
+              description="Mobile CI completata."
+              ;;
+            failure)
+              state="failure"
+              description="Mobile CI fallita."
+              ;;
+            cancelled)
+              state="error"
+              description="Mobile CI annullata."
+              ;;
+            *)
+              state="error"
+              description="Mobile CI in stato inatteso."
+              ;;
+          esac
+
+          payload="$(cat <<EOF
+          {
+            \"state\": \"$state\",
+            \"target_url\": \"$RUN_URL\",
+            \"description\": \"$description\",
+            \"context\": \"Mobile CI / analyze-and-test (pull_request)\"
+          }
+          EOF
+          )"
+
+          curl -fsSL \
+            -X POST \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -d "$payload" \
+            "https://api.github.com/repos/$REPOSITORY/statuses/$STATUS_SHA" \
+            >/dev/null
