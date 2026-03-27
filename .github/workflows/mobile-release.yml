@@ -261,11 +261,15 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Setup Flutter
-        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
-        with:
-          channel: stable
-          cache: false
+      - name: Setup Flutter SDK
+        shell: bash
+        run: |
+          set -eu
+          FLUTTER_ROOT="$RUNNER_TEMP/flutter-sdk"
+          git clone --depth 1 -b stable https://github.com/flutter/flutter.git "$FLUTTER_ROOT"
+          echo "$FLUTTER_ROOT/bin" >> "$GITHUB_PATH"
+          export PATH="$FLUTTER_ROOT/bin:$PATH"
+          flutter --version
 
       - name: Install dependencies
         run: flutter pub get
