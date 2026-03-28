@@ -11,6 +11,7 @@ Thumbs.db
 .flutter-plugins-dependencies
 .packages
 build/
+mobile/android/app/google-services.json
 
 # Runtime data
 infra/tickets/*

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:work_hours_mobile/application/services/account_service.dart';
 import 'package:work_hours_mobile/application/services/account_session_store.dart';
 import 'package:work_hours_mobile/application/services/app_update_service.dart';
@@ -9,6 +11,7 @@ import 'package:work_hours_mobile/application/services/theme_preference_store.da
 import 'package:work_hours_mobile/application/services/update_reminder_store.dart';
 import 'package:work_hours_mobile/application/services/update_launcher.dart';
 import 'package:work_hours_mobile/application/services/workday_start_store.dart';
+import 'package:work_hours_mobile/application/services/remote_push_registration_service.dart';
 import 'package:work_hours_mobile/data/api/github_release_client.dart';
 import 'package:work_hours_mobile/data/api/release_feed_config.dart';
 import 'package:work_hours_mobile/data/api/work_hours_api_client.dart';
@@ -59,6 +62,15 @@ Future<void> main() async {
           localRepository: localRepository,
           themePreferenceStore: themePreferenceStore,
         );
+  final remotePushRegistrationService = isUiDemoMode
+      ? null
+      : RemotePushRegistrationService(
+          baseUrl: apiConfig.baseUrl,
+          appVersion: const String.fromEnvironment(
+            'APP_VERSION',
+            defaultValue: '0.1.0',
+          ),
+        );
 
   if (!isUiDemoMode) {
     await _migrateLegacyApiDataIfNeeded(
@@ -87,6 +99,9 @@ Future<void> main() async {
   final hasCompletedInitialSetup = isUiDemoMode
       ? true
       : await onboardingPreferenceStore.hasCompletedInitialSetup();
+  if (!isUiDemoMode && remotePushRegistrationService != null) {
+    unawaited(remotePushRegistrationService.initialize());
+  }
 
   runApp(
     WorkHoursApp(
@@ -98,6 +113,7 @@ Future<void> main() async {
       onboardingPreferenceStore: onboardingPreferenceStore,
       workdayStartStore: workdayStartStore,
       accountService: accountService,
+      remotePushRegistrationService: remotePushRegistrationService,
       initialAccountSession: initialAccountSession,
       initialAppearanceSettings: resolvedAppearanceSettings,
       hasCompletedInitialSetup: hasCompletedInitialSetup,

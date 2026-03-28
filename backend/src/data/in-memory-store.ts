@@ -8,6 +8,7 @@ import type {
   AppStore,
   AuthUser,
   CloudBackupRecord,
+  MobilePushTokenRecord,
   StoredAuthUser
 } from "./store.js";
 import {
@@ -43,6 +44,7 @@ export class InMemoryStore implements AppStore {
   private authUsers: StoredAuthUser[] = [];
   private sessionsByTokenHash = new Map<string, string>();
   private cloudBackupsByUserId = new Map<string, CloudBackupRecord>();
+  private mobilePushTokensByToken = new Map<string, MobilePushTokenRecord>();
 
   getProfile(): Profile {
     return {
@@ -250,5 +252,38 @@ export class InMemoryStore implements AppStore {
     const nextRecord = structuredClone(record);
     this.cloudBackupsByUserId.set(userId, nextRecord);
     return structuredClone(nextRecord);
+  }
+
+  saveMobilePushToken(record: MobilePushTokenRecord): MobilePushTokenRecord {
+    const existingRecord = this.mobilePushTokensByToken.get(record.token);
+    const savedRecord: MobilePushTokenRecord = {
+      token: record.token,
+      platform: record.platform,
+      appVersion: record.appVersion,
+      createdAt: existingRecord?.createdAt ?? record.createdAt,
+      updatedAt: record.updatedAt,
+      lastSeenAt: record.lastSeenAt
+    };
+    this.mobilePushTokensByToken.set(record.token, savedRecord);
+    return { ...savedRecord };
+  }
+
+  listMobilePushTokens(): MobilePushTokenRecord[] {
+    return [...this.mobilePushTokensByToken.values()].map((record) => ({ ...record }));
+  }
+
+  deleteMobilePushTokens(tokens: string[]): number {
+    if (tokens.length === 0) {
+      return 0;
+    }
+
+    let removedCount = 0;
+    for (const token of tokens) {
+      if (this.mobilePushTokensByToken.delete(token)) {
+        removedCount += 1;
+      }
+    }
+
+    return removedCount;
   }
 }

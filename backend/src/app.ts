@@ -21,6 +21,10 @@ import {
 } from "./domain/monthly-summary.js";
 import { buildAdminOverview } from "./domain/admin-overview.js";
 import {
+  broadcastMobilePush,
+  isMobilePushConfigured
+} from "./domain/mobile-push.js";
+import {
   createPasswordDigest,
   verifyPasswordDigest,
   createRecoveryCode,
@@ -473,6 +477,101 @@ function resolveUpdateFilePath(fileName: string) {
   }
 
   return filePath;
+}
+
+function isTechnicalUpdateLine(value: string) {
+  const normalized = value.toLowerCase();
+  const technicalHints = [
+    "ci",
+    "cd",
+    "pipeline",
+    "workflow",
+    "docker",
+    "commit",
+    "merge",
+    "build",
+    "gradle",
+    "flutter",
+    "backend",
+    "frontend",
+    "api",
+    "sha",
+    "lint",
+    "test"
+  ];
+
+  return (
+    /^([a-z]+)\s*:/.test(normalized) ||
+    technicalHints.some((hint) => normalized.includes(hint))
+  );
+}
+
+function normalizeUpdateNotificationLine(line: string) {
+  return line
+    .trim()
+    .replace(/^[-*+]\s+/, "")
+    .replace(/^\d+\.\s+/, "")
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function buildUpdateNotificationBody(releaseNotes?: string) {
+  if (typeof releaseNotes === "string" && releaseNotes.trim().length > 0) {
+    const candidateLine = releaseNotes
+      .split(/\r?\n/)
+      .map((line) => normalizeUpdateNotificationLine(line))
+      .find((line) => {
+        if (!line || line.startsWith("#")) {
+          return false;
+        }
+
+        return !isTechnicalUpdateLine(line);
+      });
+
+    if (candidateLine) {
+      return candidateLine.length > 140
+        ? `${candidateLine.slice(0, 137)}...`
+        : candidateLine;
+    }
+  }
+
+  return "Nuova versione disponibile. Apri l app per vedere le novita.";
+}
+
+function parseMobilePushTokenPayload(payload: unknown): {
+  value: {
+    token: string;
+    platform?: string;
+    appVersion?: string;
+  } | null;
+  error?: string;
+} {
+  if (!payload || typeof payload !== "object") {
+    return { value: null, error: "Invalid body" };
+  }
+
+  const body = payload as Record<string, unknown>;
+  const token = typeof body.token === "string" ? body.token.trim() : "";
+  if (token.length < 20 || token.length > 4096) {
+    return { value: null, error: "token is invalid" };
+  }
+
+  const platform = normalizeOptionalText(body.platform, 30);
+  const appVersion = normalizeOptionalText(body.appVersion, 40);
+  return {
+    value: {
+      token,
+      platform: platform || undefined,
+      appVersion: appVersion || undefined
+    }
+  };
+}
+
+function getMobilePushNotifyToken() {
+  const value = process.env.MOBILE_PUSH_NOTIFY_TOKEN?.trim();
+  return value && value.length > 0 ? value : null;
 }
 
 function isSupportTicketCategory(value: unknown): value is SupportTicketCategory {
@@ -4412,6 +4511,98 @@ export function buildApp(options: BuildAppOptions = {}) {
         leaveEntries: 0,
         scheduleOverrides: 0
       }
+    };
+  });
+
+  app.post("/mobile-push/tokens", async (request, reply) => {
+    const parsedPayload = parseMobilePushTokenPayload(request.body);
+    if (!parsedPayload.value) {
+      return reply.code(400).send({
+        error: parsedPayload.error ?? "Invalid push token payload"
+      });
+    }
+
+    const now = new Date().toISOString();
+    await store.saveMobilePushToken({
+      token: parsedPayload.value.token,
+      platform: parsedPayload.value.platform,
+      appVersion: parsedPayload.value.appVersion,
+      createdAt: now,
+      updatedAt: now,
+      lastSeenAt: now
+    });
+
+    return reply.code(204).send();
+  });
+
+  app.post("/mobile-push/tokens/remove", async (request, reply) => {
+    const parsedPayload = parseMobilePushTokenPayload(request.body);
+    if (!parsedPayload.value) {
+      return reply.code(400).send({
+        error: parsedPayload.error ?? "Invalid push token payload"
+      });
+    }
+
+    const removed = await store.deleteMobilePushTokens([
+      parsedPayload.value.token
+    ]);
+    return {
+      removed
+    };
+  });
+
+  app.post("/internal/mobile-updates/notify", async (request, reply) => {
+    const expectedToken = getMobilePushNotifyToken();
+    if (!expectedToken) {
+      return reply.code(503).send({
+        error: "MOBILE_PUSH_NOTIFY_TOKEN is not configured"
+      });
+    }
+
+    const headerToken =
+      typeof request.headers["x-release-token"] === "string"
+        ? request.headers["x-release-token"].trim()
+        : "";
+    if (!headerToken || headerToken !== expectedToken) {
+      return reply.code(401).send({ error: "Unauthorized" });
+    }
+
+    const metadata = await loadReleaseMetadata();
+    if (!metadata) {
+      return reply.code(404).send({ error: "No mobile release published" });
+    }
+
+    if (!isMobilePushConfigured()) {
+      return reply.code(503).send({
+        error: "FCM is not configured"
+      });
+    }
+
+    const uniqueTokens = [
+      ...new Set((await store.listMobilePushTokens()).map((item) => item.token))
+    ];
+    const pushResult = await broadcastMobilePush({
+      tokens: uniqueTokens,
+      payload: {
+        title: `Nuovo aggiornamento ${metadata.version}`,
+        body: buildUpdateNotificationBody(metadata.releaseNotes),
+        data: {
+          version: metadata.version
+        }
+      }
+    });
+
+    const removedInvalidTokens = pushResult.invalidTokens.length > 0
+      ? await store.deleteMobilePushTokens(pushResult.invalidTokens)
+      : 0;
+
+    return {
+      targeted: uniqueTokens.length,
+      delivered: pushResult.sentCount,
+      failed: pushResult.failedCount,
+      invalidRemoved: removedInvalidTokens,
+      skipped: pushResult.skipped,
+      reason: pushResult.reason ?? null
     };
   });
 

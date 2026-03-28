@@ -357,6 +357,37 @@ class WorkHoursApiClient {
     _decodeResponse(response);
   }
 
+  Future<void> registerMobilePushToken({
+    required String token,
+    String? platform,
+    String? appVersion,
+  }) async {
+    final response = await _httpClient.post(
+      _buildUri('mobile-push/tokens'),
+      headers: _headers(json: true),
+      body: jsonEncode({
+        'token': token,
+        if (platform != null && platform.trim().isNotEmpty) 'platform': platform,
+        if (appVersion != null && appVersion.trim().isNotEmpty)
+          'appVersion': appVersion,
+      }),
+    );
+    _decodeResponse(response);
+  }
+
+  Future<void> unregisterMobilePushToken({
+    required String token,
+  }) async {
+    final response = await _httpClient.post(
+      _buildUri('mobile-push/tokens/remove'),
+      headers: _headers(json: true),
+      body: jsonEncode({
+        'token': token,
+      }),
+    );
+    _decodeResponse(response);
+  }
+
   Future<CloudBackupBundle?> fetchCloudBackup() async {
     final response = await _httpClient.get(
       _buildUri('me/backup'),

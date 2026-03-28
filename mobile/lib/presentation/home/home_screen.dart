@@ -636,6 +636,62 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     return _queueCloudBackup(showFeedback: true);
   }
 
+  bool _isUnauthorizedApiError(Object error) {
+    return error is ApiException &&
+        (error.statusCode == 401 || error.statusCode == 403);
+  }
+
+  Future<void> _handleInvalidCloudSession({required bool showFeedback}) async {
+    if (widget.accountService != null) {
+      try {
+        await widget.accountService!.logout();
+      } catch (_) {
+        // Best effort: local reset below is still enough to recover.
+      }
+    }
+
+    if (!mounted) {
+      return;
+    }
+
+    const message =
+        'Accesso cloud non piu valido sul server. Ti ho disconnesso dal cloud: apri Profilo, accedi di nuovo e riprova.';
+    setState(() {
+      _accountSession = null;
+      _accountAuthMode = _AccountAuthMode.login;
+      _isLoadingCloudBackupStatus = false;
+      _isRestoringCloudBackup = false;
+      _isSyncingCloudBackup = false;
+      _lastCloudBackupSucceeded = false;
+      _lastCloudBackupFeedback = message;
+    });
+
+    if (!showFeedback) {
+      return;
+    }
+
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(
+      SnackBar(
+        content: const Text(message),
+        duration: const Duration(seconds: 7),
+        action: SnackBarAction(
+          label: 'Apri profilo',
+          onPressed: () {
+            if (!mounted) {
+              return;
+            }
+
+            setState(() {
+              _selectedSection = _HomeSection.profile;
+            });
+          },
+        ),
+      ),
+    );
+  }
+
   Future<void> _refreshCloudBackupStatus({bool silent = false}) async {
     if (!_isCloudBackupEnabled ||
         widget.accountService == null ||
@@ -663,6 +719,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       });
     } catch (error) {
       if (!mounted) {
+        return;
+      }
+
+      if (_isUnauthorizedApiError(error)) {
+        await _handleInvalidCloudSession(showFeedback: !silent);
         return;
       }
 
@@ -723,19 +784,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         return;
       }
 
-      if (error is ApiException &&
-          (error.statusCode == 401 || error.statusCode == 403)) {
-        const message =
-            'Sessione cloud non valida sul server. Può succedere dopo riavvio o aggiornamento backend: fai Esci e rientra per riattivare il backup.';
-        setState(() {
-          _lastCloudBackupSucceeded = false;
-          _lastCloudBackupFeedback = message;
-        });
-        if (showFeedback) {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(const SnackBar(content: Text(message)));
-        }
+      if (_isUnauthorizedApiError(error)) {
+        await _handleInvalidCloudSession(showFeedback: showFeedback);
       } else {
         final message = _humanizeError(error);
         setState(() {
@@ -1441,6 +1491,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       );
     } catch (error) {
       if (!mounted) {
+        return;
+      }
+
+      if (_isUnauthorizedApiError(error)) {
+        await _handleInvalidCloudSession(showFeedback: true);
         return;
       }
 
@@ -6285,7 +6340,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }) {
     if (error is ApiException) {
       if (error.statusCode == 401 || error.statusCode == 403) {
-        return 'Sessione cloud non valida. Fai Esci e accedi di nuovo.';
+        return 'Accesso cloud non valido. Apri Profilo e accedi di nuovo.';
       }
       if (error.message == 'account not found') {
         return 'Nessun account trovato con questa email.';
@@ -7198,6 +7253,12 @@ class _CalendarCard extends StatelessWidget {
         hasQuickTimeWindow &&
         (quickEditorDaySchedule.startTime != baseDaySchedule.startTime ||
             quickEditorDaySchedule.endTime != baseDaySchedule.endTime);
+    final hasManualQuickStartInput = overrideStartTimeController.text
+        .trim()
+        .isNotEmpty;
+    final hasManualQuickEndInput = overrideEndTimeController.text
+        .trim()
+        .isNotEmpty;
     final isQuickEditorDayOff = _isExplicitDayOffSchedule(
       quickEditorDaySchedule,
     );
@@ -7231,7 +7292,11 @@ class _CalendarCard extends StatelessWidget {
     final hasStartForSuggestion =
         !isQuickEditorDayOff && resolvedStartMinutesForSuggestion != null;
     final hasQuickResultContext =
-        hasRecordedWorkContext || hasQuickWorkedOverride;
+        hasRecordedWorkContext ||
+        hasElapsedManualExit ||
+        (!isSelectedDateToday && hasQuickWorkedOverride) ||
+        (isSelectedDateToday &&
+            (hasManualQuickStartInput || hasManualQuickEndInput));
     final hasExitSuggestionContext =
         hasQuickResultContext || hasStartForSuggestion;
     final displayedWorkedMinutes = hasQuickResultContext
