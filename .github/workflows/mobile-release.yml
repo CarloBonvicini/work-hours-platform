@@ -332,7 +332,43 @@ jobs:
             exit 0
           fi
 
-          printf '%s' "${FIREBASE_ANDROID_CONFIG_BASE64}" | base64 --decode > mobile/android/app/google-services.json
+          FIREBASE_ANDROID_CONFIG_BASE64="${FIREBASE_ANDROID_CONFIG_BASE64}" python3 - <<'PY'
+          import base64
+          import binascii
+          import os
+          import sys
+          from pathlib import Path
+
+          raw_value = os.environ.get("FIREBASE_ANDROID_CONFIG_BASE64", "")
+          compact_value = "".join(raw_value.split())
+          if not compact_value:
+            print("FIREBASE_ANDROID_CONFIG_BASE64 vuoto dopo la normalizzazione.")
+            sys.exit(1)
+
+          decoded_bytes = None
+          decode_errors = []
+          for decoder in (
+            lambda value: base64.b64decode(value, validate=True),
+            lambda value: base64.urlsafe_b64decode(
+              value + ("=" * ((4 - len(value) % 4) % 4))
+            ),
+          ):
+            try:
+              decoded_bytes = decoder(compact_value)
+              break
+            except (binascii.Error, ValueError) as error:
+              decode_errors.append(str(error))
+
+          if decoded_bytes is None:
+            print("FIREBASE_ANDROID_CONFIG_BASE64 non valido.")
+            for error in decode_errors:
+              print(f"- {error}")
+            sys.exit(1)
+
+          target_path = Path("mobile/android/app/google-services.json")
+          target_path.parent.mkdir(parents=True, exist_ok=True)
+          target_path.write_bytes(decoded_bytes)
+          PY
           echo "google-services.json generato da secret."
 
       - name: Build release APK
