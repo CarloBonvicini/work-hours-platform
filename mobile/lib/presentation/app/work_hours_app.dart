@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:work_hours_mobile/application/services/account_service.dart';
@@ -5,6 +7,7 @@ import 'package:work_hours_mobile/application/services/app_update_service.dart';
 import 'package:work_hours_mobile/application/services/dashboard_service.dart';
 import 'package:work_hours_mobile/application/services/dashboard_snapshot_store.dart';
 import 'package:work_hours_mobile/application/services/onboarding_preference_store.dart';
+import 'package:work_hours_mobile/application/services/remote_push_registration_service.dart';
 import 'package:work_hours_mobile/application/services/support_ticket_store.dart';
 import 'package:work_hours_mobile/application/services/theme_preference_store.dart';
 import 'package:work_hours_mobile/application/services/update_reminder_store.dart';
@@ -24,6 +27,7 @@ class WorkHoursApp extends StatefulWidget {
     required this.workdayStartStore,
     this.supportTicketStore = const SharedPreferencesSupportTicketStore(),
     this.accountService,
+    this.remotePushRegistrationService,
     this.initialAccountSession,
     this.initialAppearanceSettings = AppAppearanceSettings.defaults,
     this.hasCompletedInitialSetup = false,
@@ -38,6 +42,7 @@ class WorkHoursApp extends StatefulWidget {
   final WorkdayStartStore workdayStartStore;
   final SupportTicketStore supportTicketStore;
   final AccountService? accountService;
+  final RemotePushRegistrationService? remotePushRegistrationService;
   final AccountSession? initialAccountSession;
   final AppAppearanceSettings initialAppearanceSettings;
   final bool hasCompletedInitialSetup;
@@ -77,6 +82,12 @@ class _WorkHoursAppState extends State<WorkHoursApp> {
     });
 
     await widget.themePreferenceStore.saveAppearanceSettings(nextSettings);
+  }
+
+  @override
+  void dispose() {
+    unawaited(widget.remotePushRegistrationService?.dispose());
+    super.dispose();
   }
 
   @override

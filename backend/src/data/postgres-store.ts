@@ -4,6 +4,7 @@ import type {
   AuthRole,
   AuthUser,
   CloudBackupRecord,
+  MobilePushTokenRecord,
   StoredAuthUser,
 } from "./store.js";
 import type {
@@ -97,6 +98,15 @@ type CloudBackupRow = {
   user_id: string;
   payload: CloudBackupRecord;
   updated_at: string;
+};
+
+type MobilePushTokenRow = {
+  token: string;
+  platform: string | null;
+  app_version: string | null;
+  created_at: string;
+  updated_at: string;
+  last_seen_at: string;
 };
 
 const DEFAULT_WEEKDAY_SCHEDULE = buildUniformWeekdaySchedule(480);
@@ -378,6 +388,17 @@ export class PostgresStore implements AppStore {
         payload JSONB NOT NULL,
         updated_at TIMESTAMPTZ NOT NULL
       );
+
+      CREATE TABLE IF NOT EXISTS mobile_push_tokens (
+        token TEXT PRIMARY KEY,
+        platform TEXT,
+        app_version TEXT,
+        created_at TIMESTAMPTZ NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL,
+        last_seen_at TIMESTAMPTZ NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_mobile_push_tokens_updated_at ON mobile_push_tokens(updated_at);
     `);
   }
 
@@ -1029,6 +1050,94 @@ export class PostgresStore implements AppStore {
       ...result.rows[0].payload,
       updatedAt: result.rows[0].updated_at
     } as CloudBackupRecord);
+  }
+
+  async saveMobilePushToken(
+    record: MobilePushTokenRecord
+  ): Promise<MobilePushTokenRecord> {
+    const result = await this.pool.query<MobilePushTokenRow>(
+      `
+        INSERT INTO mobile_push_tokens (
+          token,
+          platform,
+          app_version,
+          created_at,
+          updated_at,
+          last_seen_at
+        )
+        VALUES ($1, $2, $3, $4::timestamptz, $5::timestamptz, $6::timestamptz)
+        ON CONFLICT (token)
+        DO UPDATE SET
+          platform = EXCLUDED.platform,
+          app_version = EXCLUDED.app_version,
+          updated_at = EXCLUDED.updated_at,
+          last_seen_at = EXCLUDED.last_seen_at
+        RETURNING
+          token,
+          platform,
+          app_version,
+          TO_CHAR(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS created_at,
+          TO_CHAR(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS updated_at,
+          TO_CHAR(last_seen_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS last_seen_at
+      `,
+      [
+        record.token,
+        record.platform ?? null,
+        record.appVersion ?? null,
+        record.createdAt,
+        record.updatedAt,
+        record.lastSeenAt
+      ]
+    );
+
+    return {
+      token: result.rows[0].token,
+      platform: result.rows[0].platform ?? undefined,
+      appVersion: result.rows[0].app_version ?? undefined,
+      createdAt: result.rows[0].created_at,
+      updatedAt: result.rows[0].updated_at,
+      lastSeenAt: result.rows[0].last_seen_at
+    };
+  }
+
+  async listMobilePushTokens(): Promise<MobilePushTokenRecord[]> {
+    const result = await this.pool.query<MobilePushTokenRow>(
+      `
+        SELECT
+          token,
+          platform,
+          app_version,
+          TO_CHAR(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS created_at,
+          TO_CHAR(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS updated_at,
+          TO_CHAR(last_seen_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS last_seen_at
+        FROM mobile_push_tokens
+      `
+    );
+
+    return result.rows.map((row) => ({
+      token: row.token,
+      platform: row.platform ?? undefined,
+      appVersion: row.app_version ?? undefined,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      lastSeenAt: row.last_seen_at
+    }));
+  }
+
+  async deleteMobilePushTokens(tokens: string[]): Promise<number> {
+    if (tokens.length === 0) {
+      return 0;
+    }
+
+    const result = await this.pool.query(
+      `
+        DELETE FROM mobile_push_tokens
+        WHERE token = ANY($1::text[])
+      `,
+      [tokens]
+    );
+
+    return result.rowCount ?? 0;
   }
 
   async close(): Promise<void> {

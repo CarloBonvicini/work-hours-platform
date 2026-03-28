@@ -23,6 +23,15 @@ export interface CloudBackupRecord {
   updatedAt: string;
 }
 
+export interface MobilePushTokenRecord {
+  token: string;
+  platform?: string;
+  appVersion?: string;
+  createdAt: string;
+  updatedAt: string;
+  lastSeenAt: string;
+}
+
 export type AuthRole = "user" | "admin" | "super_admin";
 
 export interface StoredAuthUser {
@@ -91,5 +100,10 @@ export interface AppStore {
     userId: string,
     record: CloudBackupRecord
   ): Promise<CloudBackupRecord> | CloudBackupRecord;
+  saveMobilePushToken(
+    record: MobilePushTokenRecord
+  ): Promise<MobilePushTokenRecord> | MobilePushTokenRecord;
+  listMobilePushTokens(): Promise<MobilePushTokenRecord[]> | MobilePushTokenRecord[];
+  deleteMobilePushTokens(tokens: string[]): Promise<number> | number;
   close?(): Promise<void>;
 }
