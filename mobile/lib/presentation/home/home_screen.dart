@@ -641,9 +641,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         (error.statusCode == 401 || error.statusCode == 403);
   }
 
-  Future<void> _handleInvalidCloudSession({
-    required bool showFeedback,
-  }) async {
+  Future<void> _handleInvalidCloudSession({required bool showFeedback}) async {
     if (widget.accountService != null) {
       try {
         await widget.accountService!.logout();
@@ -7255,6 +7253,12 @@ class _CalendarCard extends StatelessWidget {
         hasQuickTimeWindow &&
         (quickEditorDaySchedule.startTime != baseDaySchedule.startTime ||
             quickEditorDaySchedule.endTime != baseDaySchedule.endTime);
+    final hasManualQuickStartInput = overrideStartTimeController.text
+        .trim()
+        .isNotEmpty;
+    final hasManualQuickEndInput = overrideEndTimeController.text
+        .trim()
+        .isNotEmpty;
     final isQuickEditorDayOff = _isExplicitDayOffSchedule(
       quickEditorDaySchedule,
     );
@@ -7288,7 +7292,11 @@ class _CalendarCard extends StatelessWidget {
     final hasStartForSuggestion =
         !isQuickEditorDayOff && resolvedStartMinutesForSuggestion != null;
     final hasQuickResultContext =
-        hasRecordedWorkContext || hasQuickWorkedOverride;
+        hasRecordedWorkContext ||
+        hasElapsedManualExit ||
+        (!isSelectedDateToday && hasQuickWorkedOverride) ||
+        (isSelectedDateToday &&
+            (hasManualQuickStartInput || hasManualQuickEndInput));
     final hasExitSuggestionContext =
         hasQuickResultContext || hasStartForSuggestion;
     final displayedWorkedMinutes = hasQuickResultContext

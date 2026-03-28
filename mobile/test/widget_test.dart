@@ -29,12 +29,28 @@ void main() {
   testWidgets('shows simplified dashboard flow', (tester) async {
     await tester.binding.setSurfaceSize(const Size(1400, 2200));
     addTearDown(() => tester.binding.setSurfaceSize(null));
+    final today = DateTime.now();
+    final todayIsoDate =
+        '${today.year.toString().padLeft(4, '0')}-'
+        '${today.month.toString().padLeft(2, '0')}-'
+        '${today.day.toString().padLeft(2, '0')}';
+    final repository = _FakeDashboardRepository(
+      initialScheduleOverrides: {
+        todayIsoDate: ScheduleOverride(
+          id: 'today-working-day',
+          date: todayIsoDate,
+          targetMinutes: 480,
+          startTime: '08:30',
+          endTime: '17:00',
+          breakMinutes: 30,
+          note: 'Giorno lavorativo per test widget',
+        ),
+      },
+    );
 
     await tester.pumpWidget(
       WorkHoursApp(
-        dashboardService: DashboardService(
-          repository: _FakeDashboardRepository(),
-        ),
+        dashboardService: DashboardService(repository: repository),
         appUpdateService: _FakeAppUpdateService(),
         updateReminderStore: _FakeUpdateReminderStore(),
         onboardingPreferenceStore: _FakeOnboardingPreferenceStore(
@@ -266,12 +282,12 @@ void main() {
         'Da iniziare',
       );
       expect(
-      tester
-          .widget<Text>(
-            find.byKey(const ValueKey('calendar-live-overtime-value')),
-          )
-          .data,
-      'Da calcolare',
+        tester
+            .widget<Text>(
+              find.byKey(const ValueKey('calendar-live-overtime-value')),
+            )
+            .data,
+        'Da calcolare',
       );
     },
   );
@@ -1250,7 +1266,9 @@ void main() {
 
     await tester.pumpWidget(
       WorkHoursApp(
-        dashboardService: DashboardService(repository: _FakeDashboardRepository()),
+        dashboardService: DashboardService(
+          repository: _FakeDashboardRepository(),
+        ),
         appUpdateService: _CountingAppUpdateService(),
         updateReminderStore: _FakeUpdateReminderStore(),
         onboardingPreferenceStore: onboardingStore,
