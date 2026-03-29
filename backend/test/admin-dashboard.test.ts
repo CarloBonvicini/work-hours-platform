@@ -380,6 +380,31 @@ describe("Admin dashboard", () => {
     expect(overviewResponse.statusCode).toBe(200);
   });
 
+  it("accepts quoted super admin env credentials", async () => {
+    process.env.SUPER_ADMIN_EMAIL = "\"owner@example.com\"";
+    process.env.SUPER_ADMIN_PASSWORD = "\"super-segreta\"";
+    app = buildApp();
+
+    const loginResponse = await app.inject({
+      method: "POST",
+      url: "/auth/login",
+      headers: {
+        "content-type": "application/json"
+      },
+      payload: {
+        email: "owner@example.com",
+        password: "super-segreta"
+      }
+    });
+
+    expect(loginResponse.statusCode).toBe(200);
+    expect(loginResponse.json().user).toMatchObject({
+      email: "owner@example.com",
+      role: "super_admin",
+      isSuperAdmin: true
+    });
+  });
+
   it("rejects authenticated profiles without admin access", async () => {
     app = buildApp();
 

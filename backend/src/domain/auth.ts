@@ -1,5 +1,6 @@
 import { createHash, randomBytes, randomUUID, scryptSync } from "node:crypto";
 import type { AppStore, AuthRole, AuthUser, StoredAuthUser } from "../data/store.js";
+import { normalizeRuntimeEnvValue } from "./env-value.js";
 
 function normalizeEmail(value: string) {
   return value.trim().toLowerCase();
@@ -162,10 +163,8 @@ export function isSuperAdminUser(user: Pick<AuthUser, "email" | "role">) {
 }
 
 export function getConfiguredSuperAdminCredentials() {
-  const emailValue = process.env.SUPER_ADMIN_EMAIL?.trim();
-  const passwordValueRaw = process.env.SUPER_ADMIN_PASSWORD;
-  const passwordValue =
-    typeof passwordValueRaw === "string" ? passwordValueRaw.trim() : undefined;
+  const emailValue = normalizeRuntimeEnvValue(process.env.SUPER_ADMIN_EMAIL);
+  const passwordValue = normalizeRuntimeEnvValue(process.env.SUPER_ADMIN_PASSWORD);
 
   if (!emailValue && (!passwordValue || passwordValue.length === 0)) {
     return null;
