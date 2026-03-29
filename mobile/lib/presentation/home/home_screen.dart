@@ -657,7 +657,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       'accountCloud=${accountEmail == null ? "non loggato" : _maskEmailForDiagnostic(accountEmail)}',
       'ultimoBackupAt=${_lastCloudBackupAt?.toIso8601String() ?? "n/d"}',
       'ultimoTentativoBackupAt=${_lastCloudBackupAttemptAt?.toIso8601String() ?? "n/d"}',
-      'ultimoBackupOk=${_lastCloudBackupSucceeded == null ? "n/d" : _lastCloudBackupSucceeded}',
+      'ultimoBackupOk=${_lastCloudBackupSucceeded?.toString() ?? "n/d"}',
       '',
       _diagnosticLogService.exportText(header: 'Log eventi'),
     ];
@@ -668,7 +668,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
 
     final cutIndex = payload.length - _maxTicketDiagnosticLogChars;
-    return '...log troncati (${cutIndex} caratteri rimossi)\n${payload.substring(cutIndex)}';
+    return '...log troncati ($cutIndex caratteri rimossi)\n${payload.substring(cutIndex)}';
   }
 
   String _maskEmailForDiagnostic(String email) {
