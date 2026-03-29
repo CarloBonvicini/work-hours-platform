@@ -571,6 +571,10 @@ function buildUpdatePushPayload(metadata: MobileReleaseMetadata) {
     // Use the same delivery channel used by support ticket pushes.
     // This keeps user-visible behavior consistent and avoids channel drift.
     androidChannelId: MOBILE_PUSH_TICKET_CHANNEL_ID,
+    // Prevent duplicate "same update" notifications when the notify endpoint
+    // is triggered more than once for the same release.
+    androidNotificationTag: "app_update",
+    androidCollapseKey: "app_update",
     data: {
       type: "app_update",
       version: metadata.version,
