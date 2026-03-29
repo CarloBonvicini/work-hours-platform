@@ -4,6 +4,8 @@ enum WorkPermissionMovement { entryLate, exitEarly, entryEarly, exitLate }
 
 enum WorkAllowancePeriod { daily, weekly, monthly, yearly }
 
+enum WorkPermissionAllowanceType { hours, days, both }
+
 enum WorkRulesPauseAdjustmentMode { keepWorkedMinutes, keepEndTime }
 
 class WorkPermissionRule {
@@ -12,8 +14,11 @@ class WorkPermissionRule {
     required this.name,
     required this.enabled,
     required this.period,
-    required this.allowanceMinutes,
-    required this.usedMinutes,
+    this.allowanceType = WorkPermissionAllowanceType.hours,
+    this.allowanceMinutes = 0,
+    this.usedMinutes = 0,
+    this.allowanceDays = 0,
+    this.usedDays = 0,
     required this.movements,
   });
 
@@ -21,12 +26,17 @@ class WorkPermissionRule {
   final String name;
   final bool enabled;
   final WorkAllowancePeriod period;
+  final WorkPermissionAllowanceType allowanceType;
   final int allowanceMinutes;
   final int usedMinutes;
+  final int allowanceDays;
+  final int usedDays;
   final List<WorkPermissionMovement> movements;
 
   factory WorkPermissionRule.fromJson(Map<String, dynamic> json) {
     final rawMovements = json['movements'];
+    final allowanceMinutes = (json['allowanceMinutes'] as num?)?.toInt() ?? 0;
+    final allowanceDays = (json['allowanceDays'] as num?)?.toInt() ?? 0;
     return WorkPermissionRule(
       id: json['id'] as String? ?? '',
       name: json['name'] as String? ?? '',
@@ -34,8 +44,15 @@ class WorkPermissionRule {
       period: WorkAllowancePeriodX.fromApiValue(
         json['period'] as String? ?? 'monthly',
       ),
-      allowanceMinutes: (json['allowanceMinutes'] as num?)?.toInt() ?? 0,
+      allowanceType: WorkPermissionAllowanceTypeX.fromApiValue(
+        json['allowanceType'] as String?,
+        allowanceMinutes: allowanceMinutes,
+        allowanceDays: allowanceDays,
+      ),
+      allowanceMinutes: allowanceMinutes,
       usedMinutes: (json['usedMinutes'] as num?)?.toInt() ?? 0,
+      allowanceDays: allowanceDays,
+      usedDays: (json['usedDays'] as num?)?.toInt() ?? 0,
       movements: rawMovements is List
           ? rawMovements
                 .whereType<String>()
@@ -55,8 +72,11 @@ class WorkPermissionRule {
       'name': name,
       'enabled': enabled,
       'period': period.apiValue,
+      'allowanceType': allowanceType.apiValue,
       'allowanceMinutes': allowanceMinutes,
       'usedMinutes': usedMinutes,
+      'allowanceDays': allowanceDays,
+      'usedDays': usedDays,
       'movements': movements
           .map((movement) => movement.apiValue)
           .toList(growable: false),
@@ -68,8 +88,11 @@ class WorkPermissionRule {
     String? name,
     bool? enabled,
     WorkAllowancePeriod? period,
+    WorkPermissionAllowanceType? allowanceType,
     int? allowanceMinutes,
     int? usedMinutes,
+    int? allowanceDays,
+    int? usedDays,
     List<WorkPermissionMovement>? movements,
   }) {
     return WorkPermissionRule(
@@ -77,8 +100,11 @@ class WorkPermissionRule {
       name: name ?? this.name,
       enabled: enabled ?? this.enabled,
       period: period ?? this.period,
+      allowanceType: allowanceType ?? this.allowanceType,
       allowanceMinutes: allowanceMinutes ?? this.allowanceMinutes,
       usedMinutes: usedMinutes ?? this.usedMinutes,
+      allowanceDays: allowanceDays ?? this.allowanceDays,
+      usedDays: usedDays ?? this.usedDays,
       movements: movements ?? this.movements,
     );
   }
@@ -465,6 +491,60 @@ extension WorkAllowancePeriodX on WorkAllowancePeriod {
         return 'Annuale';
     }
   }
+}
+
+extension WorkPermissionAllowanceTypeX on WorkPermissionAllowanceType {
+  static WorkPermissionAllowanceType fromApiValue(
+    String? value, {
+    required int allowanceMinutes,
+    required int allowanceDays,
+  }) {
+    switch (value) {
+      case 'hours':
+        return WorkPermissionAllowanceType.hours;
+      case 'days':
+        return WorkPermissionAllowanceType.days;
+      case 'both':
+        return WorkPermissionAllowanceType.both;
+      default:
+        if (allowanceDays > 0) {
+          return allowanceMinutes > 0
+              ? WorkPermissionAllowanceType.both
+              : WorkPermissionAllowanceType.days;
+        }
+        return WorkPermissionAllowanceType.hours;
+    }
+  }
+
+  String get apiValue {
+    switch (this) {
+      case WorkPermissionAllowanceType.hours:
+        return 'hours';
+      case WorkPermissionAllowanceType.days:
+        return 'days';
+      case WorkPermissionAllowanceType.both:
+        return 'both';
+    }
+  }
+
+  String get label {
+    switch (this) {
+      case WorkPermissionAllowanceType.hours:
+        return 'Ore';
+      case WorkPermissionAllowanceType.days:
+        return 'Giorni';
+      case WorkPermissionAllowanceType.both:
+        return 'Ore + giorni';
+    }
+  }
+
+  bool get includesHours =>
+      this == WorkPermissionAllowanceType.hours ||
+      this == WorkPermissionAllowanceType.both;
+
+  bool get includesDays =>
+      this == WorkPermissionAllowanceType.days ||
+      this == WorkPermissionAllowanceType.both;
 }
 
 extension WorkRulesPauseAdjustmentModeX on WorkRulesPauseAdjustmentMode {

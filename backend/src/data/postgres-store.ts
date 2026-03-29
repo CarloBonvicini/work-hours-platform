@@ -102,6 +102,7 @@ type CloudBackupRow = {
 
 type MobilePushTokenRow = {
   token: string;
+  user_id: string | null;
   platform: string | null;
   app_version: string | null;
   created_at: string;
@@ -391,6 +392,7 @@ export class PostgresStore implements AppStore {
 
       CREATE TABLE IF NOT EXISTS mobile_push_tokens (
         token TEXT PRIMARY KEY,
+        user_id TEXT REFERENCES auth_users(id) ON DELETE SET NULL,
         platform TEXT,
         app_version TEXT,
         created_at TIMESTAMPTZ NOT NULL,
@@ -398,7 +400,11 @@ export class PostgresStore implements AppStore {
         last_seen_at TIMESTAMPTZ NOT NULL
       );
 
+      ALTER TABLE mobile_push_tokens
+        ADD COLUMN IF NOT EXISTS user_id TEXT REFERENCES auth_users(id) ON DELETE SET NULL;
+
       CREATE INDEX IF NOT EXISTS idx_mobile_push_tokens_updated_at ON mobile_push_tokens(updated_at);
+      CREATE INDEX IF NOT EXISTS idx_mobile_push_tokens_user_id ON mobile_push_tokens(user_id);
     `);
   }
 
@@ -1059,21 +1065,24 @@ export class PostgresStore implements AppStore {
       `
         INSERT INTO mobile_push_tokens (
           token,
+          user_id,
           platform,
           app_version,
           created_at,
           updated_at,
           last_seen_at
         )
-        VALUES ($1, $2, $3, $4::timestamptz, $5::timestamptz, $6::timestamptz)
+        VALUES ($1, $2, $3, $4, $5::timestamptz, $6::timestamptz, $7::timestamptz)
         ON CONFLICT (token)
         DO UPDATE SET
+          user_id = EXCLUDED.user_id,
           platform = EXCLUDED.platform,
           app_version = EXCLUDED.app_version,
           updated_at = EXCLUDED.updated_at,
           last_seen_at = EXCLUDED.last_seen_at
         RETURNING
           token,
+          user_id,
           platform,
           app_version,
           TO_CHAR(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS created_at,
@@ -1082,6 +1091,7 @@ export class PostgresStore implements AppStore {
       `,
       [
         record.token,
+        record.userId ?? null,
         record.platform ?? null,
         record.appVersion ?? null,
         record.createdAt,
@@ -1092,6 +1102,7 @@ export class PostgresStore implements AppStore {
 
     return {
       token: result.rows[0].token,
+      userId: result.rows[0].user_id ?? undefined,
       platform: result.rows[0].platform ?? undefined,
       appVersion: result.rows[0].app_version ?? undefined,
       createdAt: result.rows[0].created_at,
@@ -1105,6 +1116,7 @@ export class PostgresStore implements AppStore {
       `
         SELECT
           token,
+          user_id,
           platform,
           app_version,
           TO_CHAR(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS created_at,
@@ -1116,6 +1128,7 @@ export class PostgresStore implements AppStore {
 
     return result.rows.map((row) => ({
       token: row.token,
+      userId: row.user_id ?? undefined,
       platform: row.platform ?? undefined,
       appVersion: row.app_version ?? undefined,
       createdAt: row.created_at,

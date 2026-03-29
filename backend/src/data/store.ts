@@ -25,6 +25,7 @@ export interface CloudBackupRecord {
 
 export interface MobilePushTokenRecord {
   token: string;
+  userId?: string;
   platform?: string;
   appVersion?: string;
   createdAt: string;

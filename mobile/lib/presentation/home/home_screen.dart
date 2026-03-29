@@ -3800,6 +3800,46 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     });
   }
 
+  Future<void> _editPermissionRule({
+    required bool leaveBank,
+    required String ruleId,
+  }) async {
+    final sourceRules = leaveBank
+        ? _rulesLeaveBanks
+        : _rulesAdditionalPermissions;
+    WorkPermissionRule? existingRule;
+    for (final rule in sourceRules) {
+      if (rule.id == ruleId) {
+        existingRule = rule;
+        break;
+      }
+    }
+    if (existingRule == null) {
+      return;
+    }
+
+    final updatedRule = await _showPermissionRuleDialog(
+      title: leaveBank
+          ? 'Modifica causale permesso'
+          : 'Modifica permesso extra',
+      initialRule: existingRule,
+    );
+    if (updatedRule == null || !mounted) {
+      return;
+    }
+
+    setState(() {
+      final nextRules = sourceRules
+          .map((rule) => rule.id == ruleId ? updatedRule : rule)
+          .toList(growable: false);
+      if (leaveBank) {
+        _rulesLeaveBanks = nextRules;
+      } else {
+        _rulesAdditionalPermissions = nextRules;
+      }
+    });
+  }
+
   void _removePermissionRule({
     required bool leaveBank,
     required String ruleId,
@@ -3819,18 +3859,32 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   Future<WorkPermissionRule?> _showPermissionRuleDialog({
     required String title,
+    WorkPermissionRule? initialRule,
   }) async {
-    final nameController = TextEditingController();
+    final nameController = TextEditingController(text: initialRule?.name ?? '');
     final allowanceController = TextEditingController(
-      text: _formatHoursInput(0),
+      text: _formatHoursInput(initialRule?.allowanceMinutes ?? 0),
     );
-    final usedController = TextEditingController(text: _formatHoursInput(0));
-    var selectedPeriod = WorkAllowancePeriod.monthly;
+    final usedController = TextEditingController(
+      text: _formatHoursInput(initialRule?.usedMinutes ?? 0),
+    );
+    final allowanceDaysController = TextEditingController(
+      text: (initialRule?.allowanceDays ?? 0).toString(),
+    );
+    final usedDaysController = TextEditingController(
+      text: (initialRule?.usedDays ?? 0).toString(),
+    );
+    var selectedPeriod = initialRule?.period ?? WorkAllowancePeriod.monthly;
+    var selectedAllowanceType =
+        initialRule?.allowanceType ?? WorkPermissionAllowanceType.hours;
     final selectedMovements = <WorkPermissionMovement>{
-      WorkPermissionMovement.entryLate,
-      WorkPermissionMovement.exitEarly,
+      ...(initialRule?.movements ??
+          const [
+            WorkPermissionMovement.entryLate,
+            WorkPermissionMovement.exitEarly,
+          ]),
     };
-    var enabled = true;
+    var enabled = initialRule?.enabled ?? true;
 
     final createdRule = await showDialog<WorkPermissionRule>(
       context: context,
@@ -3872,19 +3926,67 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       },
                     ),
                     const SizedBox(height: 12),
-                    TextField(
-                      controller: allowanceController,
-                      decoration: const InputDecoration(
-                        labelText: 'Monte ore previsto (hh:mm)',
+                    Text(
+                      'Tipologia causale',
+                      style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: usedController,
-                      decoration: const InputDecoration(
-                        labelText: 'Ore gia usate (hh:mm)',
-                      ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: WorkPermissionAllowanceType.values
+                          .map(
+                            (allowanceType) => ChoiceChip(
+                              label: Text(allowanceType.label),
+                              selected: selectedAllowanceType == allowanceType,
+                              onSelected: (selected) {
+                                if (!selected) {
+                                  return;
+                                }
+                                setDialogState(() {
+                                  selectedAllowanceType = allowanceType;
+                                });
+                              },
+                            ),
+                          )
+                          .toList(growable: false),
                     ),
+                    if (selectedAllowanceType.includesHours) ...[
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: allowanceController,
+                        decoration: const InputDecoration(
+                          labelText: 'Monte ore previsto (hh:mm)',
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: usedController,
+                        decoration: const InputDecoration(
+                          labelText: 'Ore gia usate (hh:mm)',
+                        ),
+                      ),
+                    ],
+                    if (selectedAllowanceType.includesDays) ...[
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: allowanceDaysController,
+                        keyboardType: TextInputType.number,
+                        decoration: const InputDecoration(
+                          labelText: 'Monte giorni previsto',
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: usedDaysController,
+                        keyboardType: TextInputType.number,
+                        decoration: const InputDecoration(
+                          labelText: 'Giorni gia usati',
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 12),
                     SwitchListTile.adaptive(
                       contentPadding: EdgeInsets.zero,
@@ -3936,25 +4038,52 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 FilledButton(
                   onPressed: () {
                     final name = nameController.text.trim();
-                    final allowanceMinutes = parseHoursInput(
-                      allowanceController.text,
-                    );
-                    final usedMinutes = parseHoursInput(usedController.text);
+                    int? parseDays(String value) {
+                      final normalizedValue = value.trim();
+                      if (normalizedValue.isEmpty) {
+                        return 0;
+                      }
+                      final parsedValue = int.tryParse(normalizedValue);
+                      if (parsedValue == null || parsedValue < 0) {
+                        return null;
+                      }
+                      return parsedValue;
+                    }
+
+                    final allowanceMinutes = selectedAllowanceType.includesHours
+                        ? parseHoursInput(allowanceController.text)
+                        : 0;
+                    final usedMinutes = selectedAllowanceType.includesHours
+                        ? parseHoursInput(usedController.text)
+                        : 0;
+                    final allowanceDays = selectedAllowanceType.includesDays
+                        ? parseDays(allowanceDaysController.text)
+                        : 0;
+                    final usedDays = selectedAllowanceType.includesDays
+                        ? parseDays(usedDaysController.text)
+                        : 0;
                     if (name.isEmpty ||
                         allowanceMinutes == null ||
                         usedMinutes == null ||
+                        allowanceDays == null ||
+                        usedDays == null ||
                         selectedMovements.isEmpty) {
                       return;
                     }
 
                     Navigator.of(context).pop(
                       WorkPermissionRule(
-                        id: DateTime.now().microsecondsSinceEpoch.toString(),
+                        id:
+                            initialRule?.id ??
+                            DateTime.now().microsecondsSinceEpoch.toString(),
                         name: name,
                         enabled: enabled,
                         period: selectedPeriod,
+                        allowanceType: selectedAllowanceType,
                         allowanceMinutes: allowanceMinutes,
                         usedMinutes: usedMinutes,
+                        allowanceDays: allowanceDays,
+                        usedDays: usedDays,
                         movements: selectedMovements.toList(growable: false),
                       ),
                     );
@@ -3968,9 +4097,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       },
     );
 
-    nameController.dispose();
-    allowanceController.dispose();
-    usedController.dispose();
     return createdRule;
   }
 
@@ -7108,6 +7234,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               _pickRulesImplicitCreditDailyCapMinutes,
           onAddAdditionalPermission: () => _addPermissionRule(leaveBank: false),
           onAddLeaveBank: () => _addPermissionRule(leaveBank: true),
+          onEditAdditionalPermission: (ruleId) =>
+              _editPermissionRule(leaveBank: false, ruleId: ruleId),
+          onEditLeaveBank: (ruleId) =>
+              _editPermissionRule(leaveBank: true, ruleId: ruleId),
           onRemoveAdditionalPermission: (ruleId) =>
               _removePermissionRule(leaveBank: false, ruleId: ruleId),
           onRemoveLeaveBank: (ruleId) =>
@@ -12513,6 +12643,18 @@ class _WeekPlanRow extends StatelessWidget {
             ),
           ],
         ),
+        const SizedBox(height: 10),
+        Text(
+          'Spunta "Ore lavorate fisse" se vuoi che, quando aumenti la pausa in Oggi, '
+          'l orario di uscita venga posticipato e le ore lavorative restino quelle impostate.',
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+        const SizedBox(height: 6),
+        Text(
+          'Spunta "Uscita fissa" se vuoi che, quando aumenti la pausa in Oggi, '
+          'l orario di uscita resti invariato e si riducano le ore lavorative.',
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
       ],
     );
   }
@@ -12768,6 +12910,8 @@ class _WorkSettingsCard extends StatelessWidget {
     required this.onPickRulesImplicitCreditDailyCapMinutes,
     required this.onAddAdditionalPermission,
     required this.onAddLeaveBank,
+    required this.onEditAdditionalPermission,
+    required this.onEditLeaveBank,
     required this.onRemoveAdditionalPermission,
     required this.onRemoveLeaveBank,
     required this.onPickWeekdayTargetMinutes,
@@ -12842,6 +12986,8 @@ class _WorkSettingsCard extends StatelessWidget {
   final Future<void> Function() onPickRulesImplicitCreditDailyCapMinutes;
   final Future<void> Function() onAddAdditionalPermission;
   final Future<void> Function() onAddLeaveBank;
+  final ValueChanged<String> onEditAdditionalPermission;
+  final ValueChanged<String> onEditLeaveBank;
   final ValueChanged<String> onRemoveAdditionalPermission;
   final ValueChanged<String> onRemoveLeaveBank;
   final Future<void> Function(WeekdayKey weekday) onPickWeekdayTargetMinutes;
@@ -13193,7 +13339,7 @@ class _WorkSettingsCard extends StatelessWidget {
               icon: Icons.rule_folder_outlined,
               title: 'Regole permessi',
               subtitle:
-                  'Crea permessi con nome personalizzato (es. P36), movimenti consentiti e monte ore.',
+                  'Crea causali personalizzate (es. P36), scegli se gestirle a ore, giorni o entrambi e imposta i movimenti consentiti.',
               isExpanded: appearanceSettings.expandWorkSettingsPermissions,
               toggleButtonKey: const ValueKey(
                 'work-settings-permissions-toggle-button',
@@ -13211,6 +13357,7 @@ class _WorkSettingsCard extends StatelessWidget {
                     'Nessun permesso aggiuntivo configurato. Usa Aggiungi permesso.',
                 addButtonLabel: 'Aggiungi permesso',
                 onAddRule: onAddAdditionalPermission,
+                onEditRule: onEditAdditionalPermission,
                 onRemoveRule: onRemoveAdditionalPermission,
               ),
             ),
@@ -13219,7 +13366,7 @@ class _WorkSettingsCard extends StatelessWidget {
               icon: Icons.event_available_outlined,
               title: 'Ferie e assenze',
               subtitle:
-                  'Gestisci ferie, permessi, malattia e altre causali di assenza.',
+                  'Gestisci ferie, permessi, malattia e altre causali scegliendo per ciascuna ore, giorni o entrambe.',
               isExpanded: appearanceSettings.expandWorkSettingsLeaveBanks,
               toggleButtonKey: const ValueKey(
                 'work-settings-leave-banks-toggle-button',
@@ -13273,6 +13420,7 @@ class _WorkSettingsCard extends StatelessWidget {
                     'Nessuna causale configurata. Usa Aggiungi causale.',
                 addButtonLabel: 'Aggiungi causale',
                 onAddRule: onAddLeaveBank,
+                onEditRule: onEditLeaveBank,
                 onRemoveRule: onRemoveLeaveBank,
               ),
             ),
@@ -14194,6 +14342,63 @@ class _WorkRulesWalletEditor extends StatelessWidget {
   }
 }
 
+int _ruleSafeUsedMinutes(WorkPermissionRule rule) {
+  return math.min(rule.usedMinutes, rule.allowanceMinutes);
+}
+
+int _ruleRemainingMinutes(WorkPermissionRule rule) {
+  return math.max(rule.allowanceMinutes - _ruleSafeUsedMinutes(rule), 0);
+}
+
+int _ruleSafeUsedDays(WorkPermissionRule rule) {
+  return math.min(rule.usedDays, rule.allowanceDays);
+}
+
+int _ruleRemainingDays(WorkPermissionRule rule) {
+  return math.max(rule.allowanceDays - _ruleSafeUsedDays(rule), 0);
+}
+
+String _formatRuleDaysValue(int days) {
+  return days == 1 ? '1 g' : '$days gg';
+}
+
+String _formatRuleAllowanceValue(WorkPermissionRule rule) {
+  switch (rule.allowanceType) {
+    case WorkPermissionAllowanceType.hours:
+      return _formatHoursInput(rule.allowanceMinutes);
+    case WorkPermissionAllowanceType.days:
+      return _formatRuleDaysValue(rule.allowanceDays);
+    case WorkPermissionAllowanceType.both:
+      return '${_formatRuleDaysValue(rule.allowanceDays)} + ${_formatHoursInput(rule.allowanceMinutes)}';
+  }
+}
+
+String _formatRuleUsedValue(WorkPermissionRule rule) {
+  switch (rule.allowanceType) {
+    case WorkPermissionAllowanceType.hours:
+      return _formatHoursInput(_ruleSafeUsedMinutes(rule));
+    case WorkPermissionAllowanceType.days:
+      return _formatRuleDaysValue(_ruleSafeUsedDays(rule));
+    case WorkPermissionAllowanceType.both:
+      return '${_formatRuleDaysValue(_ruleSafeUsedDays(rule))} + ${_formatHoursInput(_ruleSafeUsedMinutes(rule))}';
+  }
+}
+
+String _formatRuleRemainingValue(WorkPermissionRule rule) {
+  switch (rule.allowanceType) {
+    case WorkPermissionAllowanceType.hours:
+      return _formatHoursInput(_ruleRemainingMinutes(rule));
+    case WorkPermissionAllowanceType.days:
+      return _formatRuleDaysValue(_ruleRemainingDays(rule));
+    case WorkPermissionAllowanceType.both:
+      return '${_formatRuleDaysValue(_ruleRemainingDays(rule))} + ${_formatHoursInput(_ruleRemainingMinutes(rule))}';
+  }
+}
+
+String _formatRuleAvailabilitySummary(WorkPermissionRule rule) {
+  return 'Disponibili ${_formatRuleRemainingValue(rule)} su ${_formatRuleAllowanceValue(rule)}';
+}
+
 class _LeaveBanksEditor extends StatelessWidget {
   const _LeaveBanksEditor({
     required this.rules,
@@ -14201,6 +14406,7 @@ class _LeaveBanksEditor extends StatelessWidget {
     required this.emptyMessage,
     required this.addButtonLabel,
     required this.onAddRule,
+    required this.onEditRule,
     required this.onRemoveRule,
   });
 
@@ -14209,6 +14415,7 @@ class _LeaveBanksEditor extends StatelessWidget {
   final String emptyMessage;
   final String addButtonLabel;
   final Future<void> Function() onAddRule;
+  final ValueChanged<String> onEditRule;
   final ValueChanged<String> onRemoveRule;
 
   bool _matchesCategory(WorkPermissionRule rule, List<String> keywords) {
@@ -14225,14 +14432,19 @@ class _LeaveBanksEditor extends StatelessWidget {
     return null;
   }
 
-  int _remainingMinutes(WorkPermissionRule rule) {
-    final usedMinutes = math.min(rule.usedMinutes, rule.allowanceMinutes);
-    return math.max(rule.allowanceMinutes - usedMinutes, 0);
-  }
+  int _remainingMinutes(WorkPermissionRule rule) => _ruleRemainingMinutes(rule);
 
   String _formatVacationSummary(WorkPermissionRule? rule) {
     if (rule == null) {
       return 'Non configurate';
+    }
+
+    if (rule.allowanceType.includesDays) {
+      final remainingDays = _ruleRemainingDays(rule);
+      if (rule.allowanceType == WorkPermissionAllowanceType.both) {
+        return '${_formatRuleDaysValue(remainingDays)} + ${_formatHoursInput(_remainingMinutes(rule))} disponibili';
+      }
+      return '${_formatRuleDaysValue(remainingDays)} disponibili';
     }
 
     final remainingMinutes = _remainingMinutes(rule);
@@ -14249,14 +14461,24 @@ class _LeaveBanksEditor extends StatelessWidget {
     if (rule == null) {
       return 'Non configurati';
     }
-    return '${_formatHoursInput(_remainingMinutes(rule))} disponibili';
+
+    return '${_formatRuleRemainingValue(rule)} disponibili';
   }
 
   String _formatSicknessSummary(WorkPermissionRule? rule) {
     if (rule == null) {
       return 'Non configurata';
     }
-    return rule.enabled ? 'Senza monte ore' : 'Disattivata';
+    if (!rule.enabled) {
+      return 'Disattivata';
+    }
+
+    if ((rule.allowanceType.includesHours && rule.allowanceMinutes > 0) ||
+        (rule.allowanceType.includesDays && rule.allowanceDays > 0)) {
+      return '${_formatRuleRemainingValue(rule)} disponibili';
+    }
+
+    return 'Senza monte';
   }
 
   @override
@@ -14320,6 +14542,7 @@ class _LeaveBanksEditor extends StatelessWidget {
                         padding: const EdgeInsets.only(bottom: 10),
                         child: _PermissionRuleTile(
                           rule: rule,
+                          onEdit: () => onEditRule(rule.id),
                           onRemove: () => onRemoveRule(rule.id),
                         ),
                       ),
@@ -14387,6 +14610,7 @@ class _PermissionRulesEditor extends StatelessWidget {
     required this.emptyMessage,
     required this.addButtonLabel,
     required this.onAddRule,
+    required this.onEditRule,
     required this.onRemoveRule,
   });
 
@@ -14394,13 +14618,131 @@ class _PermissionRulesEditor extends StatelessWidget {
   final String emptyMessage;
   final String addButtonLabel;
   final Future<void> Function() onAddRule;
+  final ValueChanged<String> onEditRule;
   final ValueChanged<String> onRemoveRule;
 
   @override
   Widget build(BuildContext context) {
+    final activeRules = rules.where((rule) => rule.enabled).length;
+    final hourRules = rules.where((rule) => rule.allowanceType.includesHours);
+    final dayRules = rules.where((rule) => rule.allowanceType.includesDays);
+    final totalAllowanceMinutes = rules.fold<int>(
+      0,
+      (sum, rule) =>
+          sum + (rule.allowanceType.includesHours ? rule.allowanceMinutes : 0),
+    );
+    final totalUsedMinutes = rules.fold<int>(
+      0,
+      (sum, rule) =>
+          sum +
+          (rule.allowanceType.includesHours ? _ruleSafeUsedMinutes(rule) : 0),
+    );
+    final remainingMinutes = math.max(
+      totalAllowanceMinutes - totalUsedMinutes,
+      0,
+    );
+    final totalAllowanceDays = rules.fold<int>(
+      0,
+      (sum, rule) =>
+          sum + (rule.allowanceType.includesDays ? rule.allowanceDays : 0),
+    );
+    final totalUsedDays = rules.fold<int>(
+      0,
+      (sum, rule) =>
+          sum + (rule.allowanceType.includesDays ? _ruleSafeUsedDays(rule) : 0),
+    );
+    final remainingDays = math.max(totalAllowanceDays - totalUsedDays, 0);
+    final configuredMovements = {
+      for (final rule in rules)
+        ...rule.movements.map((movement) => movement.label),
+    };
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        if (rules.isNotEmpty) ...[
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surface,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: Theme.of(context).colorScheme.outlineVariant,
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Monitoraggio impostazioni',
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800),
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    _PermissionRuleMonitorChip(
+                      label: 'Configurati',
+                      value: rules.length.toString(),
+                    ),
+                    _PermissionRuleMonitorChip(
+                      label: 'Attivi',
+                      value: activeRules.toString(),
+                    ),
+                    if (hourRules.isNotEmpty) ...[
+                      _PermissionRuleMonitorChip(
+                        label: 'Regole ore',
+                        value: hourRules.length.toString(),
+                      ),
+                      _PermissionRuleMonitorChip(
+                        label: 'Monte ore',
+                        value: _formatHoursInput(totalAllowanceMinutes),
+                      ),
+                      _PermissionRuleMonitorChip(
+                        label: 'Usate ore',
+                        value: _formatHoursInput(totalUsedMinutes),
+                      ),
+                      _PermissionRuleMonitorChip(
+                        label: 'Residuo ore',
+                        value: _formatHoursInput(remainingMinutes),
+                      ),
+                    ],
+                    if (dayRules.isNotEmpty) ...[
+                      _PermissionRuleMonitorChip(
+                        label: 'Regole giorni',
+                        value: dayRules.length.toString(),
+                      ),
+                      _PermissionRuleMonitorChip(
+                        label: 'Monte giorni',
+                        value: _formatRuleDaysValue(totalAllowanceDays),
+                      ),
+                      _PermissionRuleMonitorChip(
+                        label: 'Usati giorni',
+                        value: _formatRuleDaysValue(totalUsedDays),
+                      ),
+                      _PermissionRuleMonitorChip(
+                        label: 'Residuo giorni',
+                        value: _formatRuleDaysValue(remainingDays),
+                      ),
+                    ],
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  configuredMovements.isEmpty
+                      ? 'Movimenti configurati: nessuno'
+                      : 'Movimenti configurati: ${configuredMovements.join(', ')}',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
         FilledButton.tonalIcon(
           onPressed: () => onAddRule(),
           icon: const Icon(Icons.add_rounded),
@@ -14417,6 +14759,7 @@ class _PermissionRulesEditor extends StatelessWidget {
                     padding: const EdgeInsets.only(bottom: 10),
                     child: _PermissionRuleTile(
                       rule: rule,
+                      onEdit: () => onEditRule(rule.id),
                       onRemove: () => onRemoveRule(rule.id),
                     ),
                   ),
@@ -14429,19 +14772,19 @@ class _PermissionRulesEditor extends StatelessWidget {
 }
 
 class _PermissionRuleTile extends StatelessWidget {
-  const _PermissionRuleTile({required this.rule, required this.onRemove});
+  const _PermissionRuleTile({
+    required this.rule,
+    required this.onEdit,
+    required this.onRemove,
+  });
 
   final WorkPermissionRule rule;
+  final VoidCallback onEdit;
   final VoidCallback onRemove;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final safeUsedMinutes = math.min(rule.usedMinutes, rule.allowanceMinutes);
-    final remainingMinutes = math.max(
-      rule.allowanceMinutes - safeUsedMinutes,
-      0,
-    );
     final movementLabels = rule.movements
         .map((movement) => movement.label)
         .join(', ');
@@ -14472,6 +14815,11 @@ class _PermissionRuleTile extends StatelessWidget {
                 visualDensity: VisualDensity.compact,
               ),
               IconButton(
+                onPressed: onEdit,
+                tooltip: 'Modifica ${rule.name}',
+                icon: const Icon(Icons.edit_outlined),
+              ),
+              IconButton(
                 onPressed: onRemove,
                 tooltip: 'Rimuovi ${rule.name}',
                 icon: const Icon(Icons.delete_outline_rounded),
@@ -14480,17 +14828,41 @@ class _PermissionRuleTile extends StatelessWidget {
           ),
           const SizedBox(height: 6),
           Text(
-            '${rule.period.label} - Disponibili ${_formatHoursInput(remainingMinutes)} su ${_formatHoursInput(rule.allowanceMinutes)}',
+            '${rule.period.label} - ${_formatRuleAvailabilitySummary(rule)}',
             style: theme.textTheme.bodyMedium?.copyWith(
               fontWeight: FontWeight.w700,
             ),
           ),
           const SizedBox(height: 4),
           Text(
-            'Usate ${_formatHoursInput(safeUsedMinutes)} - $movementLabels',
+            'Utilizzate ${_formatRuleUsedValue(rule)} - $movementLabels',
             style: theme.textTheme.bodySmall,
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _PermissionRuleMonitorChip extends StatelessWidget {
+  const _PermissionRuleMonitorChip({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface.withValues(alpha: 0.75),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+      ),
+      child: Text(
+        '$label: $value',
+        style: theme.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w700),
       ),
     );
   }

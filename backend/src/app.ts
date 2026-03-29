@@ -68,6 +68,7 @@ import type {
   WeekdaySchedule,
   WeekdayTargetMinutes,
   WorkAllowancePeriod,
+  WorkPermissionAllowanceType,
   WorkPermissionMovement,
   WorkPermissionRule,
   WorkEntry
@@ -97,7 +98,6 @@ interface MobileReleaseStatus {
 type SupportTicketCategory = "bug" | "feature" | "support";
 type SupportTicketStatus = "new" | "in_progress" | "answered" | "closed";
 type SupportTicketReplyAuthor = "admin" | "user";
-const MOBILE_PUSH_UPDATE_CHANNEL_ID = "work_hours_updates";
 const MOBILE_PUSH_TICKET_CHANNEL_ID = "work_hours_ticket_replies";
 const SUPPORT_TICKET_MAX_ATTACHMENTS = 3;
 const SUPPORT_TICKET_MAX_ATTACHMENT_BYTES = 4 * 1024 * 1024;
@@ -132,6 +132,7 @@ interface SupportTicketInput {
 
 interface SupportTicket extends SupportTicketInput {
   id: string;
+  ownerUserId?: string;
   status: SupportTicketStatus;
   createdAt: string;
   updatedAt: string;
@@ -563,6 +564,22 @@ function buildUpdateNotificationBody(releaseNotes?: string) {
   return "Nuova versione disponibile. Apri l app per vedere le novita.";
 }
 
+function buildUpdatePushPayload(metadata: MobileReleaseMetadata) {
+  return {
+    title: `Nuovo aggiornamento ${metadata.version}`,
+    body: buildUpdateNotificationBody(metadata.releaseNotes),
+    // Use the same delivery channel used by support ticket pushes.
+    // This keeps user-visible behavior consistent and avoids channel drift.
+    androidChannelId: MOBILE_PUSH_TICKET_CHANNEL_ID,
+    data: {
+      type: "app_update",
+      version: metadata.version,
+      tag: metadata.tag,
+      buildNumber: metadata.buildNumber
+    }
+  };
+}
+
 function parseMobilePushTokenPayload(payload: unknown): {
   value: {
     token: string;
@@ -895,6 +912,8 @@ function parseWorkRulesPayload(payload: unknown): Profile["workRules"] | null {
   const parseOptionalFlag = (value: unknown) => value === true;
   const parseOptionalMinutes = (value: unknown) =>
     isNonNegativeInteger(value) ? value : 0;
+  const parseOptionalDays = (value: unknown) =>
+    isNonNegativeInteger(value) ? value : 0;
   const parsePauseAdjustmentMode = (value: unknown) =>
     value === "keep_end_time" ? "keep_end_time" : "keep_worked_minutes";
   const permissionMovements = new Set<WorkPermissionMovement>([
@@ -908,6 +927,11 @@ function parseWorkRulesPayload(payload: unknown): Profile["workRules"] | null {
     "weekly",
     "monthly",
     "yearly"
+  ]);
+  const permissionAllowanceTypes = new Set<WorkPermissionAllowanceType>([
+    "hours",
+    "days",
+    "both"
   ]);
 
   const parsePermissionRules = (value: unknown): WorkPermissionRule[] => {
@@ -938,19 +962,37 @@ function parseWorkRulesPayload(payload: unknown): Profile["workRules"] | null {
             : []
         )
         : [];
+      const allowanceMinutes = parseOptionalMinutes(rule.allowanceMinutes);
+      const usedMinutes = parseOptionalMinutes(rule.usedMinutes);
+      const allowanceDays = parseOptionalDays(rule.allowanceDays);
+      const usedDays = parseOptionalDays(rule.usedDays);
+      const allowanceType: WorkPermissionAllowanceType =
+        typeof rule.allowanceType === "string" &&
+          permissionAllowanceTypes.has(
+            rule.allowanceType as WorkPermissionAllowanceType
+          )
+          ? (rule.allowanceType as WorkPermissionAllowanceType)
+          : allowanceDays > 0
+            ? allowanceMinutes > 0
+              ? "both"
+              : "days"
+            : "hours";
 
       return [
         {
           id: rule.id.trim(),
           name: rule.name.trim(),
           enabled: rule.enabled !== false,
+          allowanceType,
           period:
             typeof rule.period === "string" &&
               permissionPeriods.has(rule.period as WorkAllowancePeriod)
               ? (rule.period as WorkAllowancePeriod)
               : "monthly",
-          allowanceMinutes: parseOptionalMinutes(rule.allowanceMinutes),
-          usedMinutes: parseOptionalMinutes(rule.usedMinutes),
+          allowanceMinutes,
+          usedMinutes,
+          allowanceDays,
+          usedDays,
           movements:
             movements.length > 0 ? movements : ["entry_late", "exit_early"]
         }
@@ -1316,12 +1358,14 @@ function parseSupportTicketInput(
 
 async function saveSupportTicket(
   input: SupportTicketInput,
-  attachments: SupportTicketAttachmentUpload[] = []
+  attachments: SupportTicketAttachmentUpload[] = [],
+  options?: { ownerUserId?: string }
 ): Promise<SupportTicket> {
   const now = new Date().toISOString();
   const ticketId = randomUUID();
   const ticket: SupportTicket = {
     id: ticketId,
+    ownerUserId: options?.ownerUserId,
     status: "new",
     createdAt: now,
     updatedAt: now,
@@ -1409,8 +1453,9 @@ function getSupportTicketAttachmentPath(ticketId: string, storedFileName: string
 }
 
 function serializeSupportTicket(ticket: SupportTicket) {
+  const { ownerUserId: _ownerUserId, ...publicTicket } = ticket;
   return {
-    ...ticket,
+    ...publicTicket,
     attachments: ticket.attachments.map((attachment) => ({
       id: attachment.id,
       fileName: attachment.fileName,
@@ -1496,6 +1541,11 @@ function normalizeSupportTicketRecord(value: unknown): SupportTicket | null {
   return {
     id: rawValue.id,
     category: rawValue.category,
+    ownerUserId:
+      typeof rawValue.ownerUserId === "string" &&
+        rawValue.ownerUserId.trim().length > 0
+        ? rawValue.ownerUserId.trim()
+        : undefined,
     name: normalizeOptionalText(rawValue.name, 120),
     email: normalizeOptionalText(rawValue.email, 160),
     subject: rawValue.subject.trim(),
@@ -1595,9 +1645,26 @@ async function notifySupportTicketReplyPush(options: {
   ticket: SupportTicket;
   logger: FastifyRequest["log"];
 }): Promise<TicketReplyPushNotificationResult> {
+  const ownerUserId = options.ticket.ownerUserId
+    ? options.ticket.ownerUserId
+    : options.ticket.email
+      ? (await options.store.findAuthUserByEmail(options.ticket.email))?.id
+      : undefined;
+  if (!ownerUserId) {
+    return {
+      targeted: 0,
+      delivered: 0,
+      failed: 0,
+      invalidRemoved: 0,
+      skipped: true,
+      reason: "Ticket owner is not linked to an account"
+    };
+  }
+
   const uniqueTokens = [
     ...new Set(
       (await options.store.listMobilePushTokens())
+        .filter((item) => item.userId === ownerUserId)
         .map((item) => item.token.trim())
         .filter((token) => token.length > 0)
     )
@@ -1609,7 +1676,7 @@ async function notifySupportTicketReplyPush(options: {
       failed: 0,
       invalidRemoved: 0,
       skipped: true,
-      reason: "No mobile tokens registered"
+      reason: "No mobile tokens registered for ticket owner"
     };
   }
 
@@ -3823,7 +3890,10 @@ export function buildApp(options: BuildAppOptions = {}) {
       return reply.code(400).send({ error: error ?? "Invalid ticket payload" });
     }
 
-    const savedTicket = await saveSupportTicket(value, attachments);
+    const { user } = await readAuthenticatedUser(request, store);
+    const savedTicket = await saveSupportTicket(value, attachments, {
+      ownerUserId: user?.id
+    });
     return reply.code(201).send(serializeSupportTicket(savedTicket));
   });
 
@@ -4740,8 +4810,10 @@ export function buildApp(options: BuildAppOptions = {}) {
     }
 
     const now = new Date().toISOString();
+    const { user } = await readAuthenticatedUser(request, store);
     await store.saveMobilePushToken({
       token: parsedPayload.value.token,
+      userId: user?.id,
       platform: parsedPayload.value.platform,
       appVersion: parsedPayload.value.appVersion,
       createdAt: now,
@@ -4800,14 +4872,7 @@ export function buildApp(options: BuildAppOptions = {}) {
     ];
     const pushResult = await broadcastMobilePush({
       tokens: uniqueTokens,
-      payload: {
-        title: `Nuovo aggiornamento ${metadata.version}`,
-        body: buildUpdateNotificationBody(metadata.releaseNotes),
-        androidChannelId: MOBILE_PUSH_UPDATE_CHANNEL_ID,
-        data: {
-          version: metadata.version
-        }
-      }
+      payload: buildUpdatePushPayload(metadata)
     });
 
     const removedInvalidTokens = pushResult.invalidTokens.length > 0
