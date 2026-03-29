@@ -17,6 +17,7 @@ export interface MobilePushBroadcastPayload {
   title: string;
   body: string;
   data?: Record<string, string>;
+  androidChannelId?: string;
 }
 
 export interface MobilePushBroadcastResult {
@@ -222,6 +223,16 @@ function buildFcmRequestBody(options: {
   token: string;
   payload: MobilePushBroadcastPayload;
 }) {
+  const androidNotification: Record<string, string> = {
+    sound: "default"
+  };
+  if (
+    typeof options.payload.androidChannelId === "string" &&
+    options.payload.androidChannelId.trim().length > 0
+  ) {
+    androidNotification.channel_id = options.payload.androidChannelId.trim();
+  }
+
   return JSON.stringify({
     message: {
       token: options.token,
@@ -232,9 +243,7 @@ function buildFcmRequestBody(options: {
       data: options.payload.data ?? {},
       android: {
         priority: "high",
-        notification: {
-          sound: "default"
-        }
+        notification: androidNotification
       },
       apns: {
         headers: {
