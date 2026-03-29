@@ -275,6 +275,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   DateTime? _lastCloudBackupAttemptAt;
   bool? _lastCloudBackupSucceeded;
   String? _lastCloudBackupFeedback;
+  bool _hasCloudBackupAvailable = false;
   _AccountAuthMode _accountAuthMode = _AccountAuthMode.login;
   Timer? _ticketNotificationTimer;
   Timer? _liveWorkedMinutesTimer;
@@ -664,6 +665,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       'sezioneAttiva=${_selectedSection.name}',
       'apiBase=${_snapshot?.apiBaseUrl ?? "n/d"}',
       'accountCloud=${accountEmail == null ? "non loggato" : _maskEmailForDiagnostic(accountEmail)}',
+      'backupCloudDisponibile=$_hasCloudBackupAvailable',
       'ultimoBackupAt=${_lastCloudBackupAt?.toIso8601String() ?? "n/d"}',
       'ultimoTentativoBackupAt=${_lastCloudBackupAttemptAt?.toIso8601String() ?? "n/d"}',
       'ultimoBackupOk=${_lastCloudBackupSucceeded?.toString() ?? "n/d"}',
@@ -733,6 +735,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     setState(() {
       _accountSession = null;
       _accountAuthMode = _AccountAuthMode.login;
+      _hasCloudBackupAvailable = false;
+      _lastCloudBackupAt = null;
+      _lastCloudBackupAttemptAt = null;
       _isLoadingCloudBackupStatus = false;
       _isRestoringCloudBackup = false;
       _isSyncingCloudBackup = false;
@@ -793,6 +798,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
       setState(() {
         _isLoadingCloudBackupStatus = false;
+        _hasCloudBackupAvailable = status.hasBackup;
         _lastCloudBackupAt = status.hasBackup ? status.updatedAt : null;
       });
       _logDiagnostic(
@@ -873,6 +879,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           ? '$baseSuccessMessage Ho ignorato $droppedItemsCount voce${droppedItemsCount == 1 ? '' : 'i'} non valida${droppedItemsCount == 1 ? '' : 'e'} per evitare il blocco del backup.'
           : baseSuccessMessage;
       setState(() {
+        _hasCloudBackupAvailable = true;
         _lastCloudBackupAt = savedAt;
         _lastCloudBackupSucceeded = true;
         _lastCloudBackupFeedback = successMessage;
@@ -1522,11 +1529,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         'account.login.start',
         details: <String, Object?>{'email': email},
       );
-      final restoreResult = await widget.accountService!.login(
+      final session = await widget.accountService!.login(
         email: email,
         password: password,
       );
-      final session = await widget.accountService!.loadSession();
+      final backupStatus = await widget.accountService!.loadCloudBackupStatus(
+        session: session,
+      );
       if (!mounted) {
         return;
       }
@@ -1535,23 +1544,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _accountSession = session;
         _isAuthenticatingAccount = false;
         _accountAuthMode = _AccountAuthMode.login;
-        _lastCloudBackupAt = restoreResult.bundle?.updatedAt;
-        _lastCloudBackupSucceeded = restoreResult.hasBackup;
-        _lastCloudBackupFeedback = restoreResult.hasBackup
-            ? 'Backup cloud disponibile e ripristinato su questo dispositivo.'
-            : 'Account attivo, ma non ci sono backup cloud salvati.';
+        _hasCloudBackupAvailable = backupStatus.hasBackup;
+        _lastCloudBackupAt = backupStatus.hasBackup
+            ? backupStatus.updatedAt
+            : null;
+        _lastCloudBackupAttemptAt = null;
+        _lastCloudBackupSucceeded = null;
+        _lastCloudBackupFeedback = backupStatus.hasBackup
+            ? 'Account attivo. Backup cloud trovato: puoi ripristinarlo quando vuoi.'
+            : 'Account attivo. Nessun backup cloud trovato: usa "Backup ora" per salvarne uno.';
       });
       _accountPasswordController.clear();
-      if (restoreResult.bundle == null) {
-        unawaited(_refreshCloudBackupStatus(silent: true));
-      }
-
-      if (restoreResult.bundle != null) {
-        await widget.onAppearanceSettingsChanged(
-          restoreResult.bundle!.appearanceSettings,
-        );
-        await _loadSnapshot(month: _selectedMonth, selectedDate: _selectedDate);
-      }
 
       if (!mounted) {
         return;
@@ -1560,17 +1563,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _logDiagnostic(
         'account.login.ok',
         details: <String, Object?>{
-          'email': session?.user.email ?? email,
-          'hasBackup': restoreResult.hasBackup,
+          'email': session.user.email,
+          'hasBackup': backupStatus.hasBackup,
+          'updatedAt': backupStatus.updatedAt?.toIso8601String(),
         },
       );
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            restoreResult.hasBackup
-                ? 'Accesso completato. Backup cloud ripristinato su questo dispositivo.'
-                : 'Accesso completato. Nessun backup cloud trovato per questo account.',
+            backupStatus.hasBackup
+                ? 'Accesso completato. Backup cloud disponibile: tocca "Ripristina dal cloud" se vuoi recuperarlo.'
+                : 'Accesso completato. Nessun backup cloud trovato: puoi iniziare e fare "Backup ora".',
           ),
         ),
       );
@@ -1594,6 +1598,20 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   Future<void> _restoreCloudBackup() async {
     if (widget.accountService == null || _accountSession == null) {
+      return;
+    }
+    if (!_hasCloudBackupAvailable) {
+      _logDiagnostic(
+        'cloud.restore.skipped',
+        details: const <String, Object?>{'reason': 'no_backup_available'},
+      );
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Nessun backup cloud disponibile per questo account. Usa "Backup ora".',
+          ),
+        ),
+      );
       return;
     }
 
@@ -1623,8 +1641,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
       setState(() {
         _isRestoringCloudBackup = false;
-        _lastCloudBackupAt =
-            restoreResult.bundle?.updatedAt ?? _lastCloudBackupAt;
+        _hasCloudBackupAvailable = restoreResult.hasBackup;
+        _lastCloudBackupAt = restoreResult.hasBackup
+            ? (restoreResult.bundle?.updatedAt ?? _lastCloudBackupAt)
+            : null;
         _lastCloudBackupSucceeded = restoreResult.hasBackup;
         _lastCloudBackupFeedback = restoreResult.hasBackup
             ? 'Ripristino completato dal backup cloud.'
@@ -1693,6 +1713,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _accountSession = null;
         _isAuthenticatingAccount = false;
         _accountAuthMode = _AccountAuthMode.login;
+        _hasCloudBackupAvailable = false;
         _lastCloudBackupAt = null;
         _lastCloudBackupAttemptAt = null;
         _lastCloudBackupSucceeded = null;
@@ -7125,6 +7146,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           isConfiguringRecoveryQuestions: _isConfiguringRecoveryQuestions,
           isRestoringCloudBackup: _isRestoringCloudBackup,
           isSyncingCloudBackup: _isSyncingCloudBackup,
+          hasCloudBackupAvailable: _hasCloudBackupAvailable,
           onDarkThemeChanged: _toggleThemeMode,
           onOpenUpdateFromSettings: _openUpdateFromSettings,
           onAppearanceSettingsChanged: _updateAppearanceSettings,
@@ -12520,6 +12542,7 @@ class _ProfileCard extends StatelessWidget {
     required this.isConfiguringRecoveryQuestions,
     required this.isRestoringCloudBackup,
     required this.isSyncingCloudBackup,
+    required this.hasCloudBackupAvailable,
     required this.isLoadingCloudBackupStatus,
     required this.lastCloudBackupAt,
     required this.lastCloudBackupAttemptAt,
@@ -12562,6 +12585,7 @@ class _ProfileCard extends StatelessWidget {
   final bool isConfiguringRecoveryQuestions;
   final bool isRestoringCloudBackup;
   final bool isSyncingCloudBackup;
+  final bool hasCloudBackupAvailable;
   final bool isLoadingCloudBackupStatus;
   final DateTime? lastCloudBackupAt;
   final DateTime? lastCloudBackupAttemptAt;
@@ -12633,6 +12657,7 @@ class _ProfileCard extends StatelessWidget {
               isConfiguringRecoveryQuestions: isConfiguringRecoveryQuestions,
               isRestoring: isRestoringCloudBackup,
               isSyncing: isSyncingCloudBackup,
+              hasCloudBackupAvailable: hasCloudBackupAvailable,
               isLoadingStatus: isLoadingCloudBackupStatus,
               lastCloudBackupAt: lastCloudBackupAt,
               lastCloudBackupAttemptAt: lastCloudBackupAttemptAt,
@@ -14657,6 +14682,7 @@ class _CloudBackupAccountCard extends StatelessWidget {
     required this.isConfiguringRecoveryQuestions,
     required this.isRestoring,
     required this.isSyncing,
+    required this.hasCloudBackupAvailable,
     required this.isLoadingStatus,
     required this.lastCloudBackupAt,
     required this.lastCloudBackupAttemptAt,
@@ -14681,6 +14707,7 @@ class _CloudBackupAccountCard extends StatelessWidget {
   final bool isConfiguringRecoveryQuestions;
   final bool isRestoring;
   final bool isSyncing;
+  final bool hasCloudBackupAvailable;
   final bool isLoadingStatus;
   final DateTime? lastCloudBackupAt;
   final DateTime? lastCloudBackupAttemptAt;
@@ -14700,6 +14727,7 @@ class _CloudBackupAccountCard extends StatelessWidget {
     final theme = Theme.of(context);
     final isLoggedIn = accountSession != null;
     final isBusy = isAuthenticating || isRecoveringPassword;
+    final canRestoreFromCloud = hasCloudBackupAvailable && !isLoadingStatus;
 
     return Container(
       padding: const EdgeInsets.all(18),
@@ -14786,9 +14814,7 @@ class _CloudBackupAccountCard extends StatelessWidget {
                   FilledButton.icon(
                     onPressed: isBusy ? null : () => onLogin(),
                     icon: const Icon(Icons.login_rounded),
-                    label: Text(
-                      isAuthenticating ? 'Attendi...' : 'Accedi e ripristina',
-                    ),
+                    label: Text(isAuthenticating ? 'Attendi...' : 'Accedi'),
                   ),
                 if (selectedAuthMode == _AccountAuthMode.login)
                   TextButton(
@@ -14828,7 +14854,8 @@ class _CloudBackupAccountCard extends StatelessWidget {
                   label: Text(isSyncing ? 'Sincronizzo...' : 'Backup ora'),
                 ),
                 OutlinedButton.icon(
-                  onPressed: (isRestoring || isAuthenticating)
+                  onPressed:
+                      (isRestoring || isAuthenticating || !canRestoreFromCloud)
                       ? null
                       : () => onRestoreFromCloud(),
                   icon: const Icon(Icons.cloud_download_outlined),
@@ -14853,6 +14880,17 @@ class _CloudBackupAccountCard extends StatelessWidget {
                   label: const Text('Esci'),
                 ),
               ],
+            ),
+            const SizedBox(height: 10),
+            Text(
+              hasCloudBackupAvailable
+                  ? 'Backup cloud disponibile: puoi ripristinarlo quando vuoi.'
+                  : isLoadingStatus
+                  ? 'Controllo disponibilita backup cloud...'
+                  : 'Nessun backup cloud disponibile: fai prima "Backup ora".',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
             ),
             const SizedBox(height: 12),
             _CloudBackupStatusInfo(

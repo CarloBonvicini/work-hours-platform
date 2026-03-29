@@ -2719,7 +2719,14 @@ function renderAdminPage(options: {
         return String(apiRoot || "").replace(/\\/+$/, "") + normalizedPath;
       }
       async function api(path, options = {}) {
-        const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
+        const headers = { ...(options.headers || {}) };
+        const hasBody = options.body !== undefined && options.body !== null;
+        const hasContentTypeHeader = Object.keys(headers).some(
+          (key) => key.toLowerCase() === "content-type"
+        );
+        if (hasBody && !hasContentTypeHeader && !(options.body instanceof FormData)) {
+          headers["Content-Type"] = "application/json";
+        }
         if (state.token) headers.Authorization = "Bearer " + state.token;
 
         let lastError = null;
@@ -2754,6 +2761,10 @@ function renderAdminPage(options: {
                 continue;
               }
               throw new Error(errorMessage);
+            }
+
+            if (response.status === 204) {
+              return {};
             }
 
             if (!payload || typeof payload !== "object") {
@@ -4799,13 +4810,25 @@ export function buildApp(options: BuildAppOptions = {}) {
       ? await store.deleteMobilePushTokens(pushResult.invalidTokens)
       : 0;
 
+    if (pushResult.failedCount > 0) {
+      request.log.warn(
+        {
+          targeted: uniqueTokens.length,
+          failed: pushResult.failedCount,
+          failureBreakdown: pushResult.failureBreakdown
+        },
+        "Mobile update push broadcast returned failed deliveries"
+      );
+    }
+
     return {
       targeted: uniqueTokens.length,
       delivered: pushResult.sentCount,
       failed: pushResult.failedCount,
       invalidRemoved: removedInvalidTokens,
       skipped: pushResult.skipped,
-      reason: pushResult.reason ?? null
+      reason: pushResult.reason ?? null,
+      failureBreakdown: pushResult.failureBreakdown
     };
   });
 
