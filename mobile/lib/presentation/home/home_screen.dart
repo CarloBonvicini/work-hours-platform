@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -45,6 +46,14 @@ const int _maxTicketAttachmentBytes = 4 * 1024 * 1024;
 const int _maxTicketDiagnosticLogChars = 12000;
 const Duration _ticketNotificationPollingInterval = Duration(minutes: 1);
 final ImagePicker _ticketImagePicker = ImagePicker();
+const List<String> _ticketAudioAttachmentExtensions = [
+  'm4a',
+  'mp3',
+  'wav',
+  'ogg',
+  'aac',
+  'webm',
+];
 const List<String> _recoveryQuestionSuggestions = [
   'Come si chiamava il tuo primo animale domestico?',
   'Qual e il nome della tua scuola elementare?',
@@ -5521,7 +5530,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (remainingSlots <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Puoi allegare al massimo 3 screenshot per ticket.'),
+          content: Text('Puoi allegare al massimo 3 file per ticket.'),
         ),
       );
       return;
@@ -5550,6 +5559,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         final contentType = _ticketAttachmentContentTypeForFileName(fileName);
         final bytes = await selectedImage.readAsBytes();
         if (contentType == null ||
+            !contentType.startsWith('image/') ||
             bytes.isEmpty ||
             bytes.lengthInBytes > _maxTicketAttachmentBytes) {
           skippedCount += 1;
@@ -5604,6 +5614,103 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
+  Future<void> _pickTicketVoiceAttachments() async {
+    if (_isSubmittingTicket) {
+      return;
+    }
+
+    final remainingSlots = _maxTicketAttachments - _ticketAttachments.length;
+    if (remainingSlots <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Puoi allegare al massimo 3 file per ticket.'),
+        ),
+      );
+      return;
+    }
+
+    try {
+      final selectedAudio = await FilePicker.platform.pickFiles(
+        allowMultiple: true,
+        withData: true,
+        type: FileType.custom,
+        allowedExtensions: _ticketAudioAttachmentExtensions,
+      );
+      if (selectedAudio == null || selectedAudio.files.isEmpty || !mounted) {
+        return;
+      }
+
+      final nextAttachments = List<SupportTicketUploadAttachment>.from(
+        _ticketAttachments,
+      );
+      var addedCount = 0;
+      var skippedCount = 0;
+      for (final selectedFile in selectedAudio.files) {
+        if (nextAttachments.length >= _maxTicketAttachments) {
+          skippedCount += 1;
+          continue;
+        }
+
+        final fileName = selectedFile.name;
+        final contentType = _ticketAttachmentContentTypeForFileName(fileName);
+        final bytes = selectedFile.bytes;
+        if (contentType == null ||
+            !_isAudioTicketAttachmentContentType(contentType) ||
+            bytes == null ||
+            bytes.isEmpty ||
+            bytes.lengthInBytes > _maxTicketAttachmentBytes) {
+          skippedCount += 1;
+          continue;
+        }
+
+        nextAttachments.add(
+          SupportTicketUploadAttachment(
+            fileName: fileName,
+            contentType: contentType,
+            bytes: bytes,
+          ),
+        );
+        addedCount += 1;
+      }
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _ticketAttachments = nextAttachments;
+      });
+
+      if (addedCount == 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Nessun vocale valido selezionato. Usa M4A, MP3, WAV, OGG, AAC o WEBM fino a 4 MB.',
+            ),
+          ),
+        );
+      } else if (skippedCount > 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Aggiunti $addedCount vocali. Alcuni file sono stati ignorati per formato, peso o limite massimo.',
+            ),
+          ),
+        );
+      }
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Impossibile aprire il selettore file vocali.'),
+        ),
+      );
+    }
+  }
+
   void _removeTicketAttachmentAt(int index) {
     if (index < 0 || index >= _ticketAttachments.length) {
       return;
@@ -5628,7 +5735,29 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (lowerFileName.endsWith('.webp')) {
       return 'image/webp';
     }
+    if (lowerFileName.endsWith('.m4a')) {
+      return 'audio/mp4';
+    }
+    if (lowerFileName.endsWith('.mp3')) {
+      return 'audio/mpeg';
+    }
+    if (lowerFileName.endsWith('.wav')) {
+      return 'audio/wav';
+    }
+    if (lowerFileName.endsWith('.ogg')) {
+      return 'audio/ogg';
+    }
+    if (lowerFileName.endsWith('.aac')) {
+      return 'audio/aac';
+    }
+    if (lowerFileName.endsWith('.webm')) {
+      return 'audio/webm';
+    }
     return null;
+  }
+
+  bool _isAudioTicketAttachmentContentType(String contentType) {
+    return contentType.startsWith('audio/');
   }
 
   void _applyPresetMinutes(int minutes) {
@@ -7055,6 +7184,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           onRefreshThreads: _refreshTrackedSupportTickets,
           onRecoverTicketById: _recoverTrackedSupportTicketById,
           onPickAttachments: _pickTicketAttachments,
+          onPickVoiceAttachments: _pickTicketVoiceAttachments,
           onRemoveAttachment: _removeTicketAttachmentAt,
           onSubmit: _submitSupportTicket,
           onSubmitReply: _submitSupportTicketReply,
@@ -15573,6 +15703,7 @@ class _SupportTicketCard extends StatelessWidget {
     required this.onRefreshThreads,
     required this.onRecoverTicketById,
     required this.onPickAttachments,
+    required this.onPickVoiceAttachments,
     required this.onRemoveAttachment,
     required this.onSubmit,
     required this.onSubmitReply,
@@ -15604,6 +15735,7 @@ class _SupportTicketCard extends StatelessWidget {
   final Future<void> Function({bool notifyAboutNewReplies}) onRefreshThreads;
   final Future<void> Function() onRecoverTicketById;
   final Future<void> Function() onPickAttachments;
+  final Future<void> Function() onPickVoiceAttachments;
   final void Function(int index) onRemoveAttachment;
   final Future<void> Function() onSubmit;
   final Future<void> Function() onSubmitReply;
@@ -15782,7 +15914,7 @@ class _SupportTicketCard extends StatelessWidget {
                       if (selectedThread.attachments.isNotEmpty) ...[
                         const SizedBox(height: 12),
                         Text(
-                          'Screenshot allegati',
+                          'Allegati ticket',
                           style: Theme.of(context).textTheme.labelLarge
                               ?.copyWith(fontWeight: FontWeight.w700),
                         ),
@@ -15794,6 +15926,7 @@ class _SupportTicketCard extends StatelessWidget {
                               .map(
                                 (attachment) => _TicketAttachmentChip(
                                   fileName: attachment.fileName,
+                                  contentType: attachment.contentType,
                                   sizeLabel: _formatTicketAttachmentSize(
                                     attachment.sizeBytes,
                                   ),
@@ -16027,14 +16160,14 @@ class _SupportTicketCard extends StatelessWidget {
             ),
             const SizedBox(height: 14),
             Text(
-              'Screenshot',
+              'Allegati',
               style: Theme.of(
                 context,
               ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 8),
             Text(
-              'Puoi scegliere fino a 3 screenshot dalla galleria in PNG, JPG o WEBP da massimo 4 MB ciascuno.',
+              'Puoi allegare fino a 3 file: screenshot (PNG, JPG, WEBP) o vocali (M4A, MP3, WAV, OGG, AAC, WEBM), massimo 4 MB ciascuno.',
               style: Theme.of(context).textTheme.bodySmall,
             ),
             const SizedBox(height: 10),
@@ -16047,11 +16180,15 @@ class _SupportTicketCard extends StatelessWidget {
                   key: const ValueKey('ticket-attachments-button'),
                   onPressed: isSubmitting ? null : () => onPickAttachments(),
                   icon: const Icon(Icons.add_photo_alternate_outlined),
-                  label: Text(
-                    attachments.isEmpty
-                        ? 'Scegli dalla galleria'
-                        : 'Aggiungi altri screenshot',
-                  ),
+                  label: const Text('Scegli screenshot'),
+                ),
+                OutlinedButton.icon(
+                  key: const ValueKey('ticket-voice-attachments-button'),
+                  onPressed: isSubmitting
+                      ? null
+                      : () => onPickVoiceAttachments(),
+                  icon: const Icon(Icons.mic_none_rounded),
+                  label: const Text('Aggiungi vocale'),
                 ),
                 if (attachments.isNotEmpty)
                   _TicketPill(
@@ -16072,6 +16209,7 @@ class _SupportTicketCard extends StatelessWidget {
                     .map(
                       (entry) => _TicketAttachmentChip(
                         fileName: entry.value.fileName,
+                        contentType: entry.value.contentType,
                         sizeLabel: _formatTicketAttachmentSize(
                           entry.value.sizeBytes,
                         ),
@@ -16144,16 +16282,22 @@ class _TicketPill extends StatelessWidget {
 class _TicketAttachmentChip extends StatelessWidget {
   const _TicketAttachmentChip({
     required this.fileName,
+    required this.contentType,
     required this.sizeLabel,
     this.onDeleted,
   });
 
   final String fileName;
+  final String contentType;
   final String sizeLabel;
   final VoidCallback? onDeleted;
 
   @override
   Widget build(BuildContext context) {
+    final isAudio = contentType.startsWith('audio/');
+    final icon = isAudio ? Icons.mic_rounded : Icons.image_outlined;
+    final removeTooltip = isAudio ? 'Rimuovi vocale' : 'Rimuovi screenshot';
+
     return Container(
       constraints: const BoxConstraints(maxWidth: 260),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -16165,11 +16309,7 @@ class _TicketAttachmentChip extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-            Icons.image_outlined,
-            size: 18,
-            color: Theme.of(context).colorScheme.primary,
-          ),
+          Icon(icon, size: 18, color: Theme.of(context).colorScheme.primary),
           const SizedBox(width: 8),
           ConstrainedBox(
             constraints: BoxConstraints(
@@ -16197,7 +16337,7 @@ class _TicketAttachmentChip extends StatelessWidget {
             IconButton(
               onPressed: onDeleted,
               visualDensity: VisualDensity.compact,
-              tooltip: 'Rimuovi screenshot',
+              tooltip: removeTooltip,
               icon: const Icon(Icons.close_rounded, size: 18),
             ),
           ],
