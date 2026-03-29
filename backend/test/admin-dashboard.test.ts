@@ -291,7 +291,118 @@ describe("Admin dashboard", () => {
         failed: 0,
         invalidRemoved: 0,
         skipped: true,
-        reason: "No mobile tokens registered"
+        reason: "Ticket owner is not linked to an account"
+      }
+    });
+  });
+
+  it("targets only the ticket owner when sending admin reply push notifications", async () => {
+    tempDirectory = await mkdtemp(path.join(os.tmpdir(), "work-hours-admin-"));
+    process.env.TICKETS_DIR = tempDirectory;
+    process.env.ADMIN_DASHBOARD_TOKEN = "secret-token";
+    app = buildApp();
+
+    const ownerRegisterResponse = await app.inject({
+      method: "POST",
+      url: "/auth/register",
+      headers: {
+        "content-type": "application/json"
+      },
+      payload: {
+        email: "owner.ticket@example.com",
+        password: "owner-password"
+      }
+    });
+    expect(ownerRegisterResponse.statusCode).toBe(201);
+    const ownerToken = ownerRegisterResponse.json().token as string;
+
+    const otherRegisterResponse = await app.inject({
+      method: "POST",
+      url: "/auth/register",
+      headers: {
+        "content-type": "application/json"
+      },
+      payload: {
+        email: "other.user@example.com",
+        password: "other-password"
+      }
+    });
+    expect(otherRegisterResponse.statusCode).toBe(201);
+    const otherToken = otherRegisterResponse.json().token as string;
+
+    const ownerPushToken = "owner-token-123456789012345678901234567890";
+    const otherPushToken = "other-token-123456789012345678901234567890";
+
+    const ownerPushRegistration = await app.inject({
+      method: "POST",
+      url: "/mobile-push/tokens",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${ownerToken}`
+      },
+      payload: {
+        token: ownerPushToken,
+        platform: "android",
+        appVersion: "0.1.0"
+      }
+    });
+    expect(ownerPushRegistration.statusCode).toBe(204);
+
+    const otherPushRegistration = await app.inject({
+      method: "POST",
+      url: "/mobile-push/tokens",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${otherToken}`
+      },
+      payload: {
+        token: otherPushToken,
+        platform: "android",
+        appVersion: "0.1.0"
+      }
+    });
+    expect(otherPushRegistration.statusCode).toBe(204);
+
+    const createTicketResponse = await app.inject({
+      method: "POST",
+      url: "/tickets",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${ownerToken}`
+      },
+      payload: {
+        category: "support",
+        subject: "Push solo owner",
+        message: "Chiudo ticket solo per verificare il target push."
+      }
+    });
+    expect(createTicketResponse.statusCode).toBe(201);
+    const ticketId = createTicketResponse.json().id as string;
+
+    const replyResponse = await app.inject({
+      method: "POST",
+      url: `/admin/api/tickets/${ticketId}/replies`,
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer secret-token"
+      },
+      payload: {
+        message: "Risposta inviata dal supporto.",
+        status: "closed"
+      }
+    });
+
+    expect(replyResponse.statusCode).toBe(200);
+    expect(replyResponse.json()).toMatchObject({
+      id: ticketId,
+      status: "closed",
+      pushNotification: {
+        targeted: 1,
+        delivered: 0,
+        failed: 1,
+        invalidRemoved: 0,
+        skipped: true,
+        reason: "FCM is not configured"
       }
     });
   });

@@ -138,6 +138,156 @@ describe("Profile API", () => {
       }
     });
   });
+
+  it("supports leave and permission rules with hours, days and mixed allowances", async () => {
+    const updateResponse = await app.inject({
+      method: "PUT",
+      url: "/profile",
+      payload: {
+        fullName: "Regole causali",
+        dailyTargetMinutes: 480,
+        workRules: {
+          expectedDailyMinutes: 480,
+          minimumBreakMinutes: 30,
+          maximumDailyCreditMinutes: 120,
+          maximumDailyDebitMinutes: 120,
+          maximumMonthlyCreditMinutes: 480,
+          maximumMonthlyDebitMinutes: 480,
+          additionalPermissions: [
+            {
+              id: "perm-hours",
+              name: "P36 ore",
+              period: "yearly",
+              allowanceType: "hours",
+              allowanceMinutes: 180,
+              usedMinutes: 60,
+              movements: ["entry_late", "exit_early"]
+            },
+            {
+              id: "perm-days",
+              name: "Ferie 2026",
+              period: "yearly",
+              allowanceType: "days",
+              allowanceDays: 13,
+              usedDays: 4,
+              movements: ["entry_late"]
+            },
+            {
+              id: "perm-both",
+              name: "Particolari motivi",
+              period: "yearly",
+              allowanceType: "both",
+              allowanceMinutes: 180,
+              usedMinutes: 30,
+              allowanceDays: 1,
+              usedDays: 0,
+              movements: ["entry_late", "exit_early"]
+            }
+          ],
+          leaveBanks: [
+            {
+              id: "leave-days",
+              name: "Festivita soppresse",
+              period: "yearly",
+              allowanceType: "days",
+              allowanceDays: 2,
+              usedDays: 0,
+              movements: ["entry_late"]
+            }
+          ]
+        }
+      }
+    });
+
+    expect(updateResponse.statusCode).toBe(200);
+    expect(updateResponse.json()).toMatchObject({
+      workRules: {
+        additionalPermissions: [
+          {
+            id: "perm-hours",
+            allowanceType: "hours",
+            allowanceMinutes: 180,
+            usedMinutes: 60,
+            allowanceDays: 0,
+            usedDays: 0
+          },
+          {
+            id: "perm-days",
+            allowanceType: "days",
+            allowanceMinutes: 0,
+            usedMinutes: 0,
+            allowanceDays: 13,
+            usedDays: 4
+          },
+          {
+            id: "perm-both",
+            allowanceType: "both",
+            allowanceMinutes: 180,
+            usedMinutes: 30,
+            allowanceDays: 1,
+            usedDays: 0
+          }
+        ],
+        leaveBanks: [
+          {
+            id: "leave-days",
+            allowanceType: "days",
+            allowanceMinutes: 0,
+            usedMinutes: 0,
+            allowanceDays: 2,
+            usedDays: 0
+          }
+        ]
+      }
+    });
+
+    const profileResponse = await app.inject({
+      method: "GET",
+      url: "/profile"
+    });
+
+    expect(profileResponse.statusCode).toBe(200);
+    expect(profileResponse.json()).toMatchObject({
+      workRules: {
+        additionalPermissions: [
+          {
+            id: "perm-hours",
+            allowanceType: "hours",
+            allowanceMinutes: 180,
+            usedMinutes: 60,
+            allowanceDays: 0,
+            usedDays: 0
+          },
+          {
+            id: "perm-days",
+            allowanceType: "days",
+            allowanceMinutes: 0,
+            usedMinutes: 0,
+            allowanceDays: 13,
+            usedDays: 4
+          },
+          {
+            id: "perm-both",
+            allowanceType: "both",
+            allowanceMinutes: 180,
+            usedMinutes: 30,
+            allowanceDays: 1,
+            usedDays: 0
+          }
+        ],
+        leaveBanks: [
+          {
+            id: "leave-days",
+            allowanceType: "days",
+            allowanceMinutes: 0,
+            usedMinutes: 0,
+            allowanceDays: 2,
+            usedDays: 0
+          }
+        ]
+      }
+    });
+  });
 });
 
 describe("Auth and cloud backup API", () => {

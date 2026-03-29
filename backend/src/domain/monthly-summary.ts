@@ -25,6 +25,7 @@ export const WEEKDAY_KEYS: Weekday[] = [
 const DEFAULT_UNBOUNDED_DAILY_LIMIT_MINUTES = 24 * 60;
 const DEFAULT_UNBOUNDED_MONTHLY_LIMIT_MINUTES = 31 * 24 * 60;
 const WORK_PERMISSION_PERIODS = ["daily", "weekly", "monthly", "yearly"] as const;
+const WORK_PERMISSION_ALLOWANCE_TYPES = ["hours", "days", "both"] as const;
 const WORK_PERMISSION_MOVEMENTS = [
   "entry_late",
   "exit_early",
@@ -250,6 +251,25 @@ function sanitizeWorkPermissionRule(value: unknown): WorkPermissionRule | null {
     Number.isInteger(rule.usedMinutes) && (rule.usedMinutes as number) >= 0
       ? (rule.usedMinutes as number)
       : 0;
+  const allowanceDays =
+    Number.isInteger(rule.allowanceDays) && (rule.allowanceDays as number) >= 0
+      ? (rule.allowanceDays as number)
+      : 0;
+  const usedDays =
+    Number.isInteger(rule.usedDays) && (rule.usedDays as number) >= 0
+      ? (rule.usedDays as number)
+      : 0;
+  const allowanceType: WorkPermissionRule["allowanceType"] =
+    typeof rule.allowanceType === "string" &&
+      (WORK_PERMISSION_ALLOWANCE_TYPES as readonly string[]).includes(
+        rule.allowanceType
+      )
+      ? (rule.allowanceType as WorkPermissionRule["allowanceType"])
+      : allowanceDays > 0
+        ? allowanceMinutes > 0
+          ? "both"
+          : "days"
+        : "hours";
   const movements = sanitizePermissionMovements(rule.movements);
   if (movements.length === 0) {
     movements.push("entry_late", "exit_early");
@@ -260,8 +280,11 @@ function sanitizeWorkPermissionRule(value: unknown): WorkPermissionRule | null {
     name: rule.name.trim(),
     enabled: rule.enabled !== false,
     period,
+    allowanceType,
     allowanceMinutes,
     usedMinutes,
+    allowanceDays,
+    usedDays,
     movements
   };
 }

@@ -6,6 +6,7 @@ import {
   type MobilePushFailureBreakdownItem,
   parsePushFailurePayload
 } from "./mobile-push-failure.js";
+import { buildFcmRequestBody } from "./mobile-push-message.js";
 
 interface FirebaseServiceAccountConfig {
   projectId: string;
@@ -18,6 +19,8 @@ export interface MobilePushBroadcastPayload {
   body: string;
   data?: Record<string, string>;
   androidChannelId?: string;
+  androidNotificationTag?: string;
+  androidCollapseKey?: string;
 }
 
 export interface MobilePushBroadcastResult {
@@ -217,46 +220,6 @@ async function requestFirebaseAccessToken(config: FirebaseServiceAccountConfig) 
 
 function buildFcmSendUrl(projectId: string) {
   return `https://fcm.googleapis.com/v1/projects/${encodeURIComponent(projectId)}/messages:send`;
-}
-
-function buildFcmRequestBody(options: {
-  token: string;
-  payload: MobilePushBroadcastPayload;
-}) {
-  const androidNotification: Record<string, string> = {
-    sound: "default"
-  };
-  if (
-    typeof options.payload.androidChannelId === "string" &&
-    options.payload.androidChannelId.trim().length > 0
-  ) {
-    androidNotification.channel_id = options.payload.androidChannelId.trim();
-  }
-
-  return JSON.stringify({
-    message: {
-      token: options.token,
-      notification: {
-        title: options.payload.title,
-        body: options.payload.body
-      },
-      data: options.payload.data ?? {},
-      android: {
-        priority: "high",
-        notification: androidNotification
-      },
-      apns: {
-        headers: {
-          "apns-priority": "10"
-        },
-        payload: {
-          aps: {
-            sound: "default"
-          }
-        }
-      }
-    }
-  });
 }
 
 async function parseFailedPushResponse(response: Response): Promise<TokenPushResult> {

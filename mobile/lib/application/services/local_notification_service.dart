@@ -159,6 +159,66 @@ class LocalNotificationService {
     }
   }
 
+  Future<void> notifyUpdateMessage({
+    required String message,
+    String? title,
+    String? version,
+  }) async {
+    if (kIsWeb || !_isAvailable || message.trim().isEmpty) {
+      return;
+    }
+    await initialize();
+    if (!_isAvailable) {
+      return;
+    }
+
+    final normalizedVersion = version?.trim();
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      if (normalizedVersion != null && normalizedVersion.isNotEmpty) {
+        final lastNotifiedVersion = preferences.getString(
+          _lastNotifiedUpdateVersionKey,
+        );
+        if (lastNotifiedVersion == normalizedVersion) {
+          return;
+        }
+      }
+
+      const details = NotificationDetails(
+        android: AndroidNotificationDetails(
+          _ticketChannelId,
+          _ticketChannelName,
+          channelDescription: _ticketChannelDescription,
+          importance: Importance.high,
+          priority: Priority.high,
+        ),
+        iOS: DarwinNotificationDetails(),
+        macOS: DarwinNotificationDetails(),
+      );
+
+      await _plugin.show(
+        DateTime.now().millisecondsSinceEpoch.remainder(1 << 20),
+        title?.trim().isNotEmpty == true
+            ? title!.trim()
+            : 'Nuovo aggiornamento disponibile',
+        message.trim(),
+        details,
+        payload: normalizedVersion == null || normalizedVersion.isEmpty
+            ? 'update'
+            : 'update:$normalizedVersion',
+      );
+
+      if (normalizedVersion != null && normalizedVersion.isNotEmpty) {
+        await preferences.setString(
+          _lastNotifiedUpdateVersionKey,
+          normalizedVersion,
+        );
+      }
+    } catch (_) {
+      _isAvailable = false;
+    }
+  }
+
   Future<void> notifyUpdateReadyToInstall({
     required String latestVersion,
   }) async {

@@ -206,6 +206,14 @@ export class InMemoryStore implements AppStore {
         this.sessionsByTokenHash.delete(tokenHash);
       }
     }
+    for (const [token, record] of this.mobilePushTokensByToken.entries()) {
+      if (record.userId === userId) {
+        this.mobilePushTokensByToken.set(token, {
+          ...record,
+          userId: undefined
+        });
+      }
+    }
     this.cloudBackupsByUserId.delete(userId);
     return true;
   }
@@ -258,6 +266,7 @@ export class InMemoryStore implements AppStore {
     const existingRecord = this.mobilePushTokensByToken.get(record.token);
     const savedRecord: MobilePushTokenRecord = {
       token: record.token,
+      userId: record.userId,
       platform: record.platform,
       appVersion: record.appVersion,
       createdAt: existingRecord?.createdAt ?? record.createdAt,

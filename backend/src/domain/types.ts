@@ -25,6 +25,7 @@ export type WorkPermissionMovement =
   | "exit_late";
 
 export type WorkAllowancePeriod = "daily" | "weekly" | "monthly" | "yearly";
+export type WorkPermissionAllowanceType = "hours" | "days" | "both";
 export type PauseAdjustmentMode = "keep_worked_minutes" | "keep_end_time";
 
 export interface WorkPermissionRule {
@@ -32,8 +33,11 @@ export interface WorkPermissionRule {
   name: string;
   enabled: boolean;
   period: WorkAllowancePeriod;
+  allowanceType: WorkPermissionAllowanceType;
   allowanceMinutes: number;
   usedMinutes: number;
+  allowanceDays: number;
+  usedDays: number;
   movements: WorkPermissionMovement[];
 }
 
