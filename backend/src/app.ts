@@ -4799,13 +4799,25 @@ export function buildApp(options: BuildAppOptions = {}) {
       ? await store.deleteMobilePushTokens(pushResult.invalidTokens)
       : 0;
 
+    if (pushResult.failedCount > 0) {
+      request.log.warn(
+        {
+          targeted: uniqueTokens.length,
+          failed: pushResult.failedCount,
+          failureBreakdown: pushResult.failureBreakdown
+        },
+        "Mobile update push broadcast returned failed deliveries"
+      );
+    }
+
     return {
       targeted: uniqueTokens.length,
       delivered: pushResult.sentCount,
       failed: pushResult.failedCount,
       invalidRemoved: removedInvalidTokens,
       skipped: pushResult.skipped,
-      reason: pushResult.reason ?? null
+      reason: pushResult.reason ?? null,
+      failureBreakdown: pushResult.failureBreakdown
     };
   });
 

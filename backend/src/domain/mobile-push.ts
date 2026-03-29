@@ -1,5 +1,11 @@
 import { createSign } from "node:crypto";
 import { normalizeRuntimeEnvValue } from "./env-value.js";
+import {
+  increaseFailureBreakdown,
+  isInvalidRegistrationToken,
+  type MobilePushFailureBreakdownItem,
+  parsePushFailurePayload
+} from "./mobile-push-failure.js";
 
 interface FirebaseServiceAccountConfig {
   projectId: string;
@@ -17,8 +23,26 @@ export interface MobilePushBroadcastResult {
   sentCount: number;
   failedCount: number;
   invalidTokens: string[];
+  failureBreakdown: Array<{
+    statusCode: number;
+    errorStatus?: string;
+    errorCode?: string;
+    message?: string;
+    count: number;
+  }>;
   skipped: boolean;
   reason?: string;
+}
+
+interface TokenPushResult {
+  sent: boolean;
+  invalidToken: boolean;
+  failure?: {
+    statusCode: number;
+    errorStatus?: string;
+    errorCode?: string;
+    message?: string;
+  };
 }
 
 let cachedAccessToken:
@@ -190,31 +214,6 @@ async function requestFirebaseAccessToken(config: FirebaseServiceAccountConfig) 
   return cachedAccessToken.token;
 }
 
-function isInvalidRegistrationToken(responsePayload: unknown) {
-  if (!responsePayload || typeof responsePayload !== "object") {
-    return false;
-  }
-
-  const error = (responsePayload as { error?: unknown }).error;
-  if (!error || typeof error !== "object") {
-    return false;
-  }
-
-  const details = (error as { details?: unknown }).details;
-  if (!Array.isArray(details)) {
-    return false;
-  }
-
-  return details.some((detail) => {
-    if (!detail || typeof detail !== "object") {
-      return false;
-    }
-
-    const code = (detail as { errorCode?: unknown }).errorCode;
-    return code === "UNREGISTERED" || code === "INVALID_ARGUMENT";
-  });
-}
-
 function buildFcmSendUrl(projectId: string) {
   return `https://fcm.googleapis.com/v1/projects/${encodeURIComponent(projectId)}/messages:send`;
 }
@@ -251,13 +250,18 @@ function buildFcmRequestBody(options: {
   });
 }
 
-async function parseFailedPushResponse(response: Response) {
+async function parseFailedPushResponse(response: Response): Promise<TokenPushResult> {
   const responseBody = await response
     .json()
     .catch(() => null as unknown);
+  const parsedFailure = parsePushFailurePayload(responseBody);
   return {
     sent: false,
-    invalidToken: isInvalidRegistrationToken(responseBody)
+    invalidToken: isInvalidRegistrationToken(responseBody),
+    failure: {
+      statusCode: response.status,
+      ...parsedFailure
+    }
   };
 }
 
@@ -266,7 +270,7 @@ async function sendPushToToken(options: {
   accessToken: string;
   token: string;
   payload: MobilePushBroadcastPayload;
-}) {
+}): Promise<TokenPushResult> {
   const response = await fetch(buildFcmSendUrl(options.config.projectId), {
     method: "POST",
     headers: {
@@ -297,8 +301,44 @@ function buildSkippedBroadcastResult(
     sentCount: 0,
     failedCount,
     invalidTokens: [],
+    failureBreakdown: [],
     skipped: true,
     reason
+  };
+}
+
+function collectFailedPushResult(options: {
+  token: string;
+  result: TokenPushResult;
+  invalidTokens: string[];
+  failureBreakdownByKey: Map<string, MobilePushFailureBreakdownItem>;
+}) {
+  if (options.result.invalidToken) {
+    options.invalidTokens.push(options.token);
+  }
+
+  if (options.result.failure) {
+    increaseFailureBreakdown(
+      options.failureBreakdownByKey,
+      options.result.failure
+    );
+  }
+}
+
+function buildDeliveryResult(options: {
+  sentCount: number;
+  failedCount: number;
+  invalidTokens: string[];
+  failureBreakdownByKey: Map<string, MobilePushFailureBreakdownItem>;
+}) {
+  const failureBreakdown = Array.from(options.failureBreakdownByKey.values()).sort(
+    (left, right) => right.count - left.count
+  );
+  return {
+    sentCount: options.sentCount,
+    failedCount: options.failedCount,
+    invalidTokens: options.invalidTokens,
+    failureBreakdown
   };
 }
 
@@ -311,6 +351,7 @@ async function sendPushToTokens(options: {
   let sentCount = 0;
   let failedCount = 0;
   const invalidTokens: string[] = [];
+  const failureBreakdownByKey = new Map<string, MobilePushFailureBreakdownItem>();
 
   for (const token of options.tokens) {
     const result = await sendPushToToken({
@@ -325,16 +366,20 @@ async function sendPushToTokens(options: {
     }
 
     failedCount += 1;
-    if (result.invalidToken) {
-      invalidTokens.push(token);
-    }
+    collectFailedPushResult({
+      token,
+      result,
+      invalidTokens,
+      failureBreakdownByKey
+    });
   }
 
-  return {
+  return buildDeliveryResult({
     sentCount,
     failedCount,
-    invalidTokens
-  };
+    invalidTokens,
+    failureBreakdownByKey
+  });
 }
 
 export async function broadcastMobilePush(options: {
