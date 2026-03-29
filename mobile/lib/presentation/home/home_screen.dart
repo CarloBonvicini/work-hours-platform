@@ -1850,17 +1850,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
 
     if (type == 'app_update') {
-      final version = _normalizePushDataValue(data['version']);
-      final body = notification?.body?.trim().isNotEmpty == true
-          ? notification!.body!.trim()
-          : (version == null
-                ? 'Nuovo aggiornamento disponibile.'
-                : 'Versione $version pronta da installare.');
-      await _localNotificationService.notifyUpdateMessage(
-        title: notification?.title?.trim(),
-        message: body,
-        version: version,
-      );
+      // Avoid duplicate in-app banners: update notifications are delivered
+      // externally when the app is not in foreground.
       return;
     }
   }
