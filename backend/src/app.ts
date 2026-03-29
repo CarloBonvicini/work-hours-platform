@@ -148,6 +148,15 @@ interface SupportTicketAttachment {
   storedFileName: string;
 }
 
+interface TicketReplyPushNotificationResult {
+  targeted: number;
+  delivered: number;
+  failed: number;
+  invalidRemoved: number;
+  skipped: boolean;
+  reason: string | null;
+}
+
 interface AuthResponse {
   token: string;
   user: AuthUser & { isAdmin: boolean; isSuperAdmin: boolean };
@@ -1562,6 +1571,85 @@ async function appendSupportTicketReply(options: {
   await writeSupportTicket(ticket);
 
   return ticket;
+}
+
+async function notifySupportTicketReplyPush(options: {
+  store: AppStore;
+  ticket: SupportTicket;
+  logger: FastifyRequest["log"];
+}): Promise<TicketReplyPushNotificationResult> {
+  const uniqueTokens = [
+    ...new Set(
+      (await options.store.listMobilePushTokens())
+        .map((item) => item.token.trim())
+        .filter((token) => token.length > 0)
+    )
+  ];
+  if (uniqueTokens.length === 0) {
+    return {
+      targeted: 0,
+      delivered: 0,
+      failed: 0,
+      invalidRemoved: 0,
+      skipped: true,
+      reason: "No mobile tokens registered"
+    };
+  }
+
+  if (!isMobilePushConfigured()) {
+    return {
+      targeted: uniqueTokens.length,
+      delivered: 0,
+      failed: uniqueTokens.length,
+      invalidRemoved: 0,
+      skipped: true,
+      reason: "FCM is not configured"
+    };
+  }
+
+  try {
+    const pushResult = await broadcastMobilePush({
+      tokens: uniqueTokens,
+      payload: {
+        title: "Nuova risposta dal supporto",
+        body: "Apri l app per leggere l aggiornamento del ticket.",
+        data: {
+          type: "ticket_reply",
+          ticketId: options.ticket.id,
+          status: options.ticket.status
+        }
+      }
+    });
+
+    const removedInvalidTokens = pushResult.invalidTokens.length > 0
+      ? await options.store.deleteMobilePushTokens(pushResult.invalidTokens)
+      : 0;
+
+    return {
+      targeted: uniqueTokens.length,
+      delivered: pushResult.sentCount,
+      failed: pushResult.failedCount,
+      invalidRemoved: removedInvalidTokens,
+      skipped: pushResult.skipped,
+      reason: pushResult.reason ?? null
+    };
+  } catch (error) {
+    options.logger.error(
+      {
+        ticketId: options.ticket.id,
+        err: error
+      },
+      "Unable to broadcast ticket reply push notification"
+    );
+    return {
+      targeted: uniqueTokens.length,
+      delivered: 0,
+      failed: uniqueTokens.length,
+      invalidRemoved: 0,
+      skipped: true,
+      reason: "Push broadcast failed"
+    };
+  }
 }
 
 function getAdminDashboardToken() {
@@ -4222,7 +4310,16 @@ export function buildApp(options: BuildAppOptions = {}) {
       return reply.code(404).send({ error: "Ticket not found" });
     }
 
-    return serializeSupportTicket(updatedTicket);
+    const pushNotification = await notifySupportTicketReplyPush({
+      store,
+      ticket: updatedTicket,
+      logger: request.log
+    });
+
+    return {
+      ...serializeSupportTicket(updatedTicket),
+      pushNotification
+    };
   });
 
   app.post("/auth/register", async (request, reply) => {

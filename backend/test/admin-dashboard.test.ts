@@ -247,6 +247,55 @@ describe("Admin dashboard", () => {
     });
   });
 
+  it("reports push notification status when an admin replies to a ticket", async () => {
+    tempDirectory = await mkdtemp(path.join(os.tmpdir(), "work-hours-admin-"));
+    process.env.TICKETS_DIR = tempDirectory;
+    process.env.ADMIN_DASHBOARD_TOKEN = "secret-token";
+    app = buildApp();
+
+    const createTicketResponse = await app.inject({
+      method: "POST",
+      url: "/tickets",
+      headers: {
+        "content-type": "application/json"
+      },
+      payload: {
+        category: "support",
+        subject: "Push stato reply",
+        message: "Verifico il risultato push della risposta admin."
+      }
+    });
+    expect(createTicketResponse.statusCode).toBe(201);
+
+    const ticketId = createTicketResponse.json().id as string;
+    const replyResponse = await app.inject({
+      method: "POST",
+      url: `/admin/api/tickets/${ticketId}/replies`,
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer secret-token"
+      },
+      payload: {
+        message: "Risposta inviata dal supporto.",
+        status: "answered"
+      }
+    });
+
+    expect(replyResponse.statusCode).toBe(200);
+    expect(replyResponse.json()).toMatchObject({
+      id: ticketId,
+      status: "answered",
+      pushNotification: {
+        targeted: 0,
+        delivered: 0,
+        failed: 0,
+        invalidRemoved: 0,
+        skipped: true,
+        reason: "No mobile tokens registered"
+      }
+    });
+  });
+
   it("keeps inline screenshot previews available in the admin dashboard", async () => {
     tempDirectory = await mkdtemp(path.join(os.tmpdir(), "work-hours-admin-"));
     process.env.TICKETS_DIR = tempDirectory;
