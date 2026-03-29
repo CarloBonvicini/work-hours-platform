@@ -89,6 +89,10 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('navigation-option-day')), findsOneWidget);
     expect(
+      find.byKey(const ValueKey('navigation-option-consuntivo')),
+      findsOneWidget,
+    );
+    expect(
       find.byKey(const ValueKey('navigation-option-calendar')),
       findsOneWidget,
     );
@@ -297,6 +301,20 @@ void main() {
   testWidgets('uses a compact week layout on narrow screens', (tester) async {
     await tester.binding.setSurfaceSize(const Size(390, 1800));
     addTearDown(() => tester.binding.setSurfaceSize(null));
+    String isoDateOf(DateTime date) {
+      final year = date.year.toString().padLeft(4, '0');
+      final month = date.month.toString().padLeft(2, '0');
+      final day = date.day.toString().padLeft(2, '0');
+      return '$year-$month-$day';
+    }
+
+    final today = DateTime.now();
+    final firstDayOfWeek = DateTime(
+      today.year,
+      today.month,
+      today.day - (today.weekday - 1),
+    );
+    final lastDayOfWeek = firstDayOfWeek.add(const Duration(days: 6));
 
     await tester.pumpWidget(
       WorkHoursApp(
@@ -328,11 +346,11 @@ void main() {
     expect(find.text('Tocca un giorno per vederlo in grande.'), findsNothing);
     expect(find.text('Giorno selezionato'), findsNothing);
     expect(
-      find.byKey(const ValueKey('calendar-week-row-2026-03-23')),
+      find.byKey(ValueKey('calendar-week-row-${isoDateOf(firstDayOfWeek)}')),
       findsOneWidget,
     );
     expect(
-      find.byKey(const ValueKey('calendar-week-row-2026-03-29')),
+      find.byKey(ValueKey('calendar-week-row-${isoDateOf(lastDayOfWeek)}')),
       findsOneWidget,
     );
     expect(find.text('Pausa 0:30'), findsNothing);
