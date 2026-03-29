@@ -106,6 +106,7 @@ class ApiDashboardRepository implements DashboardRepository {
     required String subject,
     required String message,
     String? appVersion,
+    String? clientLogs,
     List<SupportTicketUploadAttachment> attachments = const [],
   }) {
     return _apiClient.createSupportTicket(
@@ -115,6 +116,7 @@ class ApiDashboardRepository implements DashboardRepository {
       subject: subject,
       message: message,
       appVersion: appVersion,
+      clientLogs: clientLogs,
       attachments: attachments,
     );
   }

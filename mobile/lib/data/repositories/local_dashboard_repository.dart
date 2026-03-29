@@ -200,6 +200,7 @@ class SharedPreferencesLocalDashboardRepository implements DashboardRepository {
     required String subject,
     required String message,
     String? appVersion,
+    String? clientLogs,
     List<SupportTicketUploadAttachment> attachments = const [],
   }) async {
     final apiClient = _ticketApiClient;
@@ -213,6 +214,7 @@ class SharedPreferencesLocalDashboardRepository implements DashboardRepository {
       subject: subject,
       message: message,
       appVersion: appVersion,
+      clientLogs: clientLogs,
       attachments: attachments,
     );
   }

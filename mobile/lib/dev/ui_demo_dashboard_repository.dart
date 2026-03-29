@@ -273,6 +273,7 @@ class UiDemoDashboardRepository implements DashboardRepository {
     required String subject,
     required String message,
     String? appVersion,
+    String? clientLogs,
     List<SupportTicketUploadAttachment> attachments = const [],
   }) async {
     final now = DateTime.now();
@@ -310,6 +311,7 @@ class UiDemoDashboardRepository implements DashboardRepository {
       'subject': subject,
       'message': message,
       'appVersion': appVersion,
+      'clientLogs': clientLogs,
       'attachmentCount': attachments.length,
     });
     return thread;

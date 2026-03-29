@@ -62,6 +62,7 @@ describe("Support tickets", () => {
         email: "carlo@example.com",
         subject: "Calendario migliorato",
         message: "Vorrei una vista piu leggibile per i giorni del mese.",
+        clientLogs: "[2026-03-29T15:00:00Z] cloud.backup.unauthorized",
         appVersion: "0.1.13"
       }
     });
@@ -85,6 +86,7 @@ describe("Support tickets", () => {
     expect(ticket.email).toBe("carlo@example.com");
     expect(ticket.subject).toBe("Calendario migliorato");
     expect(ticket.message).toContain("vista piu leggibile");
+    expect(ticket.clientLogs).toContain("cloud.backup.unauthorized");
     expect(ticket.appVersion).toBe("0.1.13");
     expect(ticket.userAgent).toBe("Vitest");
   });

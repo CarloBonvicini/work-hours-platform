@@ -97,6 +97,7 @@ class DashboardService {
     required String subject,
     required String message,
     String? appVersion,
+    String? clientLogs,
     List<SupportTicketUploadAttachment> attachments = const [],
   }) {
     return _repository.submitSupportTicket(
@@ -106,6 +107,7 @@ class DashboardService {
       subject: subject,
       message: message,
       appVersion: appVersion,
+      clientLogs: clientLogs,
       attachments: attachments,
     );
   }

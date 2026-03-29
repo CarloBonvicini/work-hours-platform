@@ -113,6 +113,7 @@ interface SupportTicketInput {
   email?: string;
   subject: string;
   message: string;
+  clientLogs?: string;
   appVersion?: string;
   userAgent?: string;
 }
@@ -697,6 +698,19 @@ function normalizeOptionalText(value: unknown, maxLength: number) {
   return normalizedValue.slice(0, maxLength);
 }
 
+function normalizeOptionalLogText(value: unknown, maxLength: number) {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const normalizedValue = value.replace(/\r\n/g, "\n").trim();
+  if (normalizedValue.length === 0) {
+    return undefined;
+  }
+
+  return normalizedValue.slice(0, maxLength);
+}
+
 function normalizeRequiredText(value: unknown, maxLength: number) {
   if (typeof value !== "string") {
     return null;
@@ -1196,6 +1210,24 @@ async function readAuthenticatedUser(
   return { user, tokenHash };
 }
 
+function logCloudAuthRejection(request: FastifyRequest, endpoint: string) {
+  const authorization =
+    typeof request.headers.authorization === "string"
+      ? request.headers.authorization
+      : "";
+  const bearerMatch = authorization.match(/^Bearer\s+(.+)$/i);
+
+  request.log.warn(
+    {
+      endpoint,
+      hasAuthorizationHeader: authorization.length > 0,
+      hasBearerToken: bearerMatch !== null,
+      bearerTokenLength: bearerMatch?.[1]?.trim().length ?? 0
+    },
+    "Cloud request rejected due to missing or invalid auth session"
+  );
+}
+
 function parseSupportTicketInput(
   payload: unknown,
   userAgent: string | undefined
@@ -1248,6 +1280,7 @@ function parseSupportTicketInput(
       email,
       subject,
       message,
+      clientLogs: normalizeOptionalLogText(body.clientLogs, 12000),
       appVersion: normalizeOptionalText(body.appVersion, 40),
       userAgent
     },
@@ -1441,6 +1474,7 @@ function normalizeSupportTicketRecord(value: unknown): SupportTicket | null {
     email: normalizeOptionalText(rawValue.email, 160),
     subject: rawValue.subject.trim(),
     message: rawValue.message.trim(),
+    clientLogs: normalizeOptionalLogText(rawValue.clientLogs, 12000),
     appVersion: normalizeOptionalText(rawValue.appVersion, 40),
     userAgent: normalizeOptionalText(rawValue.userAgent, 400),
     createdAt: rawValue.createdAt,
@@ -2782,7 +2816,11 @@ function renderAdminPage(options: {
         const attachmentsSection = attachments.length
           ? '<article class="message-card"><div class="field-label">Screenshot allegati</div><div class="attachment-gallery">' + attachments.map((attachment) => '<a class="attachment-card" target="_blank" rel="noreferrer" href="' + escapeHtml(resolveTicketAssetUrl(attachment.downloadPath || "#")) + '"><img class="attachment-preview" loading="lazy" src="' + escapeHtml(resolveTicketAssetUrl(attachment.downloadPath || "#")) + '" alt="' + escapeHtml(attachment.fileName || "Screenshot ticket") + '" /><div class="attachment-name">' + escapeHtml(attachment.fileName) + '</div><div class="attachment-meta">' + escapeHtml(attachment.contentType || "immagine") + ' - ' + escapeHtml(formatBytes(attachment.sizeBytes)) + '</div></a>').join("") + '</div></article>'
           : '';
-        ticketDetail.innerHTML = '<div class="detail-shell"><div class="toolbar"><div><div class="reply-meta">' + categoryBadge(ticket.category) + statusBadge(ticket.status) + '</div><h3 class="detail-title">' + escapeHtml(ticket.subject) + '</h3><p class="lede">' + escapeHtml(ticket.name || ticket.email || "Ticket anonimo") + '</p></div></div><div class="detail-grid"><div class="field"><div class="field-label">Creato</div><div>' + formatDateTime(ticket.createdAt) + '</div></div><div class="field"><div class="field-label">Aggiornato</div><div>' + formatDateTime(ticket.updatedAt) + '</div></div><div class="field"><div class="field-label">Contatto</div><div>' + escapeHtml(ticket.name || "-") + (ticket.email ? " (" + escapeHtml(ticket.email) + ")" : "") + '</div></div><div class="field"><div class="field-label">Versione app</div><div>' + escapeHtml(ticket.appVersion || "-") + '</div></div></div><section class="thread"><article class="message-card"><div class="field-label">Messaggio utente</div><div style="margin-top:8px; white-space:pre-wrap;">' + escapeHtml(ticket.message) + '</div></article>' + attachmentsSection + (replies.map((reply) => '<article class="message-card reply"><div class="field-label">' + (reply.author === "admin" ? "Risposta admin" : "Replica utente") + ' - ' + formatDateTime(reply.createdAt) + '</div><div style="margin-top:8px; white-space:pre-wrap;">' + escapeHtml(reply.message) + '</div></article>').join("") || '<div class="empty-state">Ancora nessuna risposta nel thread.</div>') + '</section><form id="admin-reply-form" class="reply-form"><label class="field"><span class="field-label">Nuova risposta</span><textarea name="message" required placeholder="Scrivi la risposta che vuoi salvare nel thread del ticket"></textarea></label><label class="field"><span class="field-label">Nuovo stato</span><select name="status"><option value="answered">Risposto</option><option value="in_progress">In lavorazione</option><option value="closed">Chiuso</option></select></label><div class="reply-actions"><button type="submit" class="primary">Salva risposta</button></div></form></div>';
+        const hasClientLogs = typeof ticket.clientLogs === "string" && ticket.clientLogs.trim().length > 0;
+        const clientLogsSection = hasClientLogs
+          ? '<article class="message-card"><div class="field-label">Log condivisi dal dispositivo</div><div style="margin-top:8px; white-space:pre-wrap; max-height:280px; overflow:auto;">' + escapeHtml(ticket.clientLogs) + '</div></article>'
+          : '';
+        ticketDetail.innerHTML = '<div class="detail-shell"><div class="toolbar"><div><div class="reply-meta">' + categoryBadge(ticket.category) + statusBadge(ticket.status) + '</div><h3 class="detail-title">' + escapeHtml(ticket.subject) + '</h3><p class="lede">' + escapeHtml(ticket.name || ticket.email || "Ticket anonimo") + '</p></div></div><div class="detail-grid"><div class="field"><div class="field-label">Creato</div><div>' + formatDateTime(ticket.createdAt) + '</div></div><div class="field"><div class="field-label">Aggiornato</div><div>' + formatDateTime(ticket.updatedAt) + '</div></div><div class="field"><div class="field-label">Contatto</div><div>' + escapeHtml(ticket.name || "-") + (ticket.email ? " (" + escapeHtml(ticket.email) + ")" : "") + '</div></div><div class="field"><div class="field-label">Versione app</div><div>' + escapeHtml(ticket.appVersion || "-") + '</div></div></div><section class="thread"><article class="message-card"><div class="field-label">Messaggio utente</div><div style="margin-top:8px; white-space:pre-wrap;">' + escapeHtml(ticket.message) + '</div></article>' + attachmentsSection + clientLogsSection + (replies.map((reply) => '<article class="message-card reply"><div class="field-label">' + (reply.author === "admin" ? "Risposta admin" : "Replica utente") + ' - ' + formatDateTime(reply.createdAt) + '</div><div style="margin-top:8px; white-space:pre-wrap;">' + escapeHtml(reply.message) + '</div></article>').join("") || '<div class="empty-state">Ancora nessuna risposta nel thread.</div>') + '</section><form id="admin-reply-form" class="reply-form"><label class="field"><span class="field-label">Nuova risposta</span><textarea name="message" required placeholder="Scrivi la risposta che vuoi salvare nel thread del ticket"></textarea></label><label class="field"><span class="field-label">Nuovo stato</span><select name="status"><option value="answered">Risposto</option><option value="in_progress">In lavorazione</option><option value="closed">Chiuso</option></select></label><div class="reply-actions"><button type="submit" class="primary">Salva risposta</button></div></form></div>';
         const form = document.getElementById("admin-reply-form");
         form?.addEventListener("submit", async (event) => {
           event.preventDefault();
@@ -3002,17 +3040,35 @@ function renderAdminPage(options: {
 
               try {
                 setStatus("Eliminazione utente in corso...", "info", "dashboard");
-                await api(
+                const deleteResponse = await api(
                   "/admin/api/users/" + encodeURIComponent(userId),
                   {
                     method: "DELETE"
                   }
                 );
-                await loadDashboard();
+
+                if (!deleteResponse || deleteResponse.deleted !== true) {
+                  throw new Error("Il server non ha confermato l eliminazione.");
+                }
+
+                state.users = state.users.filter((user) => user.id !== userId);
+                renderUserList();
+
+                try {
+                  await loadDashboard();
+                } catch (_) {}
+
                 setStatus("Utente eliminato.", "success", "dashboard");
               } catch (error) {
+                const errorMessage =
+                  error && typeof error === "object" && "message" in error
+                    ? String(error.message || "")
+                    : "";
+                if (errorMessage) {
+                  window.alert(errorMessage);
+                }
                 setStatus(
-                  error.message || "Impossibile eliminare l utente.",
+                  errorMessage || "Impossibile eliminare l utente.",
                   "error",
                   "dashboard"
                 );
@@ -4230,6 +4286,12 @@ export function buildApp(options: BuildAppOptions = {}) {
 
     const user = await store.findAuthUserByEmail(parsedCredentials.value.email);
     if (!user || !verifyPasswordDigest(parsedCredentials.value.password, user)) {
+      request.log.warn(
+        {
+          email: parsedCredentials.value.email
+        },
+        "Invalid login attempt"
+      );
       return reply.code(401).send({ error: "invalid email or password" });
     }
 
@@ -4464,6 +4526,7 @@ export function buildApp(options: BuildAppOptions = {}) {
   app.get("/me/backup", async (request, reply) => {
     const { user } = await readAuthenticatedUser(request, store);
     if (!user) {
+      logCloudAuthRejection(request, "/me/backup");
       return reply.code(401).send({ error: "Unauthorized" });
     }
 
@@ -4477,6 +4540,7 @@ export function buildApp(options: BuildAppOptions = {}) {
   app.get("/me/backup/meta", async (request, reply) => {
     const { user } = await readAuthenticatedUser(request, store);
     if (!user) {
+      logCloudAuthRejection(request, "/me/backup/meta");
       return reply.code(401).send({ error: "Unauthorized" });
     }
 
@@ -4490,6 +4554,7 @@ export function buildApp(options: BuildAppOptions = {}) {
   app.put("/me/backup", async (request, reply) => {
     const { user } = await readAuthenticatedUser(request, store);
     if (!user) {
+      logCloudAuthRejection(request, "/me/backup");
       return reply.code(401).send({ error: "Unauthorized" });
     }
 
