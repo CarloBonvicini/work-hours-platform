@@ -218,6 +218,7 @@ class WorkHoursApiClient {
     required String subject,
     required String message,
     String? appVersion,
+    String? clientLogs,
     List<SupportTicketUploadAttachment> attachments = const [],
   }) async {
     final response = await _httpClient.post(
@@ -231,6 +232,8 @@ class WorkHoursApiClient {
         'message': message,
         if (appVersion != null && appVersion.isNotEmpty)
           'appVersion': appVersion,
+        if (clientLogs != null && clientLogs.trim().isNotEmpty)
+          'clientLogs': clientLogs,
         if (attachments.isNotEmpty)
           'attachments': attachments
               .map(

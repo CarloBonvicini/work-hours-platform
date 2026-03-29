@@ -10,6 +10,7 @@ import 'package:work_hours_mobile/application/services/app_update_service.dart';
 import 'package:work_hours_mobile/domain/models/account_session.dart';
 import 'package:work_hours_mobile/application/services/dashboard_service.dart';
 import 'package:work_hours_mobile/application/services/dashboard_snapshot_store.dart';
+import 'package:work_hours_mobile/application/services/diagnostic_log_service.dart';
 import 'package:work_hours_mobile/application/services/hour_input_parser.dart';
 import 'package:work_hours_mobile/application/services/local_notification_service.dart';
 import 'package:work_hours_mobile/application/services/onboarding_preference_store.dart';
@@ -41,6 +42,7 @@ enum _AccountAuthMode { login, register }
 
 const int _maxTicketAttachments = 3;
 const int _maxTicketAttachmentBytes = 4 * 1024 * 1024;
+const int _maxTicketDiagnosticLogChars = 12000;
 const Duration _ticketNotificationPollingInterval = Duration(minutes: 1);
 final ImagePicker _ticketImagePicker = ImagePicker();
 const List<String> _recoveryQuestionSuggestions = [
@@ -241,6 +243,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   List<TrackedSupportTicket> _trackedTickets = const [];
   Map<String, SupportTicketThread> _ticketThreadsById = const {};
   List<SupportTicketUploadAttachment> _ticketAttachments = const [];
+  bool _includeDiagnosticLogsInTicket = true;
   String? _selectedTrackedTicketId;
   int _unreadTicketReplyCount = 0;
   WorkdaySession? _workdaySession;
@@ -268,6 +271,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Timer? _liveWorkedMinutesTimer;
   final LocalNotificationService _localNotificationService =
       LocalNotificationService();
+  final DiagnosticLogService _diagnosticLogService = DiagnosticLogService();
   final _accountEmailController = TextEditingController();
   final _accountPasswordController = TextEditingController();
 
@@ -279,6 +283,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _selectedDate = _resolveSelectedDateForMonth(_selectedMonth);
     _hasCompletedInitialSetup = widget.hasCompletedInitialSetup;
     _accountSession = widget.initialAccountSession;
+    _logDiagnostic(
+      'home.init',
+      details: <String, Object?>{
+        'hasInitialSession': _accountSession != null,
+        'selectedMonth': _selectedMonth,
+      },
+    );
     _entryDateController.text = DashboardService.defaultEntryDateOf(
       _selectedDate,
     );
@@ -629,6 +640,56 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     ]);
   }
 
+  void _logDiagnostic(
+    String event, {
+    Map<String, Object?> details = const <String, Object?>{},
+  }) {
+    _diagnosticLogService.add(event, details: details);
+  }
+
+  String _buildTicketDiagnosticLogs() {
+    final accountEmail = _accountSession?.user.email;
+    final lines = <String>[
+      'Contesto ticket app',
+      'timestamp=${DateTime.now().toIso8601String()}',
+      'sezioneAttiva=${_selectedSection.name}',
+      'apiBase=${_snapshot?.apiBaseUrl ?? "n/d"}',
+      'accountCloud=${accountEmail == null ? "non loggato" : _maskEmailForDiagnostic(accountEmail)}',
+      'ultimoBackupAt=${_lastCloudBackupAt?.toIso8601String() ?? "n/d"}',
+      'ultimoTentativoBackupAt=${_lastCloudBackupAttemptAt?.toIso8601String() ?? "n/d"}',
+      'ultimoBackupOk=${_lastCloudBackupSucceeded == null ? "n/d" : _lastCloudBackupSucceeded}',
+      '',
+      _diagnosticLogService.exportText(header: 'Log eventi'),
+    ];
+
+    final payload = lines.join('\n');
+    if (payload.length <= _maxTicketDiagnosticLogChars) {
+      return payload;
+    }
+
+    final cutIndex = payload.length - _maxTicketDiagnosticLogChars;
+    return '...log troncati (${cutIndex} caratteri rimossi)\n${payload.substring(cutIndex)}';
+  }
+
+  String _maskEmailForDiagnostic(String email) {
+    final normalized = email.trim();
+    final atIndex = normalized.indexOf('@');
+    if (atIndex <= 1 || atIndex >= normalized.length - 1) {
+      return normalized;
+    }
+
+    final localPart = normalized.substring(0, atIndex);
+    final domainPart = normalized.substring(atIndex + 1);
+    final hiddenCharacters = List.filled(
+      math.max(0, localPart.length - 2),
+      '*',
+    ).join();
+    final maskedLocal = localPart.length <= 2
+        ? '${localPart[0]}*'
+        : '${localPart[0]}$hiddenCharacters${localPart[localPart.length - 1]}';
+    return '$maskedLocal@$domainPart';
+  }
+
   bool get _isCloudBackupEnabled =>
       widget.accountService != null && _accountSession != null;
 
@@ -642,6 +703,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _handleInvalidCloudSession({required bool showFeedback}) async {
+    _logDiagnostic(
+      'cloud.session.invalid',
+      details: <String, Object?>{
+        'showFeedback': showFeedback,
+      },
+    );
     if (widget.accountService != null) {
       try {
         await widget.accountService!.logout();
@@ -706,6 +773,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
 
     try {
+      _logDiagnostic(
+        'cloud.backup.status.start',
+        details: <String, Object?>{
+          'silent': silent,
+        },
+      );
       final status = await widget.accountService!.loadCloudBackupStatus(
         session: _accountSession,
       );
@@ -717,12 +790,25 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _isLoadingCloudBackupStatus = false;
         _lastCloudBackupAt = status.hasBackup ? status.updatedAt : null;
       });
+      _logDiagnostic(
+        'cloud.backup.status.ok',
+        details: <String, Object?>{
+          'hasBackup': status.hasBackup,
+          'updatedAt': status.updatedAt?.toIso8601String(),
+        },
+      );
     } catch (error) {
       if (!mounted) {
         return;
       }
 
       if (_isUnauthorizedApiError(error)) {
+        _logDiagnostic(
+          'cloud.backup.status.unauthorized',
+          details: <String, Object?>{
+            'error': error.toString(),
+          },
+        );
         await _handleInvalidCloudSession(showFeedback: !silent);
         return;
       }
@@ -730,6 +816,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       setState(() {
         _isLoadingCloudBackupStatus = false;
       });
+      _logDiagnostic(
+        'cloud.backup.status.error',
+        details: <String, Object?>{
+          'error': error.toString(),
+        },
+      );
       if (!silent) {
         ScaffoldMessenger.of(
           context,
@@ -745,6 +837,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
     if (_isSyncingCloudBackup) {
       _cloudBackupQueued = true;
+      _logDiagnostic(
+        'cloud.backup.queued',
+        details: <String, Object?>{
+          'reason': 'already_running',
+        },
+      );
       return;
     }
 
@@ -756,6 +854,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
     var rerunQueuedBackup = false;
     try {
+      _logDiagnostic(
+        'cloud.backup.start',
+        details: <String, Object?>{
+          'showFeedback': showFeedback,
+          'attemptedAt': attemptedAt.toIso8601String(),
+        },
+      );
       final backupStatus = await widget.accountService!.backupToCloud();
       if (!mounted) {
         return;
@@ -773,6 +878,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _lastCloudBackupSucceeded = true;
         _lastCloudBackupFeedback = successMessage;
       });
+      _logDiagnostic(
+        'cloud.backup.ok',
+        details: <String, Object?>{
+          'savedAt': savedAt.toIso8601String(),
+          'droppedItems': droppedItemsCount,
+        },
+      );
 
       if (showFeedback) {
         ScaffoldMessenger.of(
@@ -785,6 +897,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       }
 
       if (_isUnauthorizedApiError(error)) {
+        _logDiagnostic(
+          'cloud.backup.unauthorized',
+          details: <String, Object?>{
+            'error': error.toString(),
+          },
+        );
         await _handleInvalidCloudSession(showFeedback: showFeedback);
       } else {
         final message = _humanizeError(error);
@@ -797,6 +915,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             context,
           ).showSnackBar(SnackBar(content: Text(message)));
         }
+        _logDiagnostic(
+          'cloud.backup.error',
+          details: <String, Object?>{
+            'message': message,
+            'error': error.toString(),
+          },
+        );
       }
     } finally {
       if (mounted) {
@@ -1325,6 +1450,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     });
 
     try {
+      _logDiagnostic(
+        'account.register.start',
+        details: <String, Object?>{
+          'email': email,
+        },
+      );
       final session = await widget.accountService!.register(
         email: email,
         password: password,
@@ -1342,6 +1473,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       });
       _accountPasswordController.clear();
       unawaited(_refreshCloudBackupStatus(silent: true));
+      _logDiagnostic(
+        'account.register.ok',
+        details: <String, Object?>{
+          'email': session.user.email,
+        },
+      );
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
@@ -1357,6 +1494,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       setState(() {
         _isAuthenticatingAccount = false;
       });
+      _logDiagnostic(
+        'account.register.error',
+        details: <String, Object?>{
+          'email': email,
+          'error': error.toString(),
+        },
+      );
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text(_humanizeError(error))));
@@ -1384,6 +1528,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     });
 
     try {
+      _logDiagnostic(
+        'account.login.start',
+        details: <String, Object?>{
+          'email': email,
+        },
+      );
       final restoreResult = await widget.accountService!.login(
         email: email,
         password: password,
@@ -1419,6 +1569,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         return;
       }
 
+      _logDiagnostic(
+        'account.login.ok',
+        details: <String, Object?>{
+          'email': session?.user.email ?? email,
+          'hasBackup': restoreResult.hasBackup,
+        },
+      );
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
@@ -1436,6 +1594,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       setState(() {
         _isAuthenticatingAccount = false;
       });
+      _logDiagnostic(
+        'account.login.error',
+        details: <String, Object?>{
+          'email': email,
+          'error': error.toString(),
+        },
+      );
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text(_humanizeError(error))));
@@ -1452,6 +1617,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     });
 
     try {
+      _logDiagnostic('cloud.restore.start');
       final restoreResult = await widget.accountService!.restoreFromCloud(
         session: _accountSession,
       );
@@ -1480,6 +1646,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             : 'Nessun backup cloud disponibile per questo account.';
       });
       unawaited(_refreshCloudBackupStatus(silent: true));
+      _logDiagnostic(
+        'cloud.restore.ok',
+        details: <String, Object?>{
+          'hasBackup': restoreResult.hasBackup,
+          'updatedAt': restoreResult.bundle?.updatedAt?.toIso8601String(),
+        },
+      );
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
@@ -1495,6 +1668,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       }
 
       if (_isUnauthorizedApiError(error)) {
+        _logDiagnostic(
+          'cloud.restore.unauthorized',
+          details: <String, Object?>{
+            'error': error.toString(),
+          },
+        );
         await _handleInvalidCloudSession(showFeedback: true);
         return;
       }
@@ -1502,6 +1681,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       setState(() {
         _isRestoringCloudBackup = false;
       });
+      _logDiagnostic(
+        'cloud.restore.error',
+        details: <String, Object?>{
+          'error': error.toString(),
+        },
+      );
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text(_humanizeError(error))));
@@ -1533,6 +1718,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _lastCloudBackupFeedback = null;
         _isLoadingCloudBackupStatus = false;
       });
+      _logDiagnostic('account.logout.ok');
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
@@ -1548,6 +1734,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       setState(() {
         _isAuthenticatingAccount = false;
       });
+      _logDiagnostic(
+        'account.logout.error',
+        details: <String, Object?>{
+          'error': error.toString(),
+        },
+      );
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text(_humanizeError(error))));
@@ -5249,6 +5441,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     });
 
     try {
+      _logDiagnostic(
+        'ticket.submit.start',
+        details: <String, Object?>{
+          'category': _selectedTicketCategory.apiValue,
+          'attachments': _ticketAttachments.length,
+          'includeDiagnosticLogs': _includeDiagnosticLogsInTicket,
+        },
+      );
+      final clientLogs = _includeDiagnosticLogsInTicket
+          ? _buildTicketDiagnosticLogs()
+          : null;
       final createdThread = await widget.dashboardService.submitSupportTicket(
         category: _selectedTicketCategory,
         name: _ticketNameController.text.trim().isEmpty
@@ -5262,6 +5465,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         appVersion: _ticketAppVersionController.text.trim().isEmpty
             ? null
             : _ticketAppVersionController.text.trim(),
+        clientLogs: clientLogs,
         attachments: List<SupportTicketUploadAttachment>.from(
           _ticketAttachments,
         ),
@@ -5314,6 +5518,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           content: Text('Ticket inviato. Codice ticket: ${createdThread.id}'),
         ),
       );
+      _logDiagnostic(
+        'ticket.submit.ok',
+        details: <String, Object?>{
+          'ticketId': createdThread.id,
+        },
+      );
     } catch (error) {
       if (!mounted) {
         return;
@@ -5327,6 +5537,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         );
         _isSubmittingTicket = false;
       });
+      _logDiagnostic(
+        'ticket.submit.error',
+        details: <String, Object?>{
+          'error': error.toString(),
+        },
+      );
     }
   }
 
@@ -6855,6 +7071,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           recoveryTicketIdController: _ticketRecoveryIdController,
           appVersionController: _ticketAppVersionController,
           attachments: _ticketAttachments,
+          includeDiagnosticLogs: _includeDiagnosticLogsInTicket,
+          onIncludeDiagnosticLogsChanged: (value) {
+            setState(() {
+              _includeDiagnosticLogsInTicket = value;
+            });
+          },
           trackedTickets: _trackedTickets,
           ticketThreadsById: _ticketThreadsById,
           selectedTicketId: _selectedTrackedTicketId,
@@ -15351,6 +15573,8 @@ class _SupportTicketCard extends StatelessWidget {
     required this.recoveryTicketIdController,
     required this.appVersionController,
     required this.attachments,
+    required this.includeDiagnosticLogs,
+    required this.onIncludeDiagnosticLogsChanged,
     required this.trackedTickets,
     required this.ticketThreadsById,
     required this.selectedTicketId,
@@ -15380,6 +15604,8 @@ class _SupportTicketCard extends StatelessWidget {
   final TextEditingController recoveryTicketIdController;
   final TextEditingController appVersionController;
   final List<SupportTicketUploadAttachment> attachments;
+  final bool includeDiagnosticLogs;
+  final ValueChanged<bool> onIncludeDiagnosticLogsChanged;
   final List<TrackedSupportTicket> trackedTickets;
   final Map<String, SupportTicketThread> ticketThreadsById;
   final String? selectedTicketId;
@@ -15876,6 +16102,18 @@ class _SupportTicketCard extends StatelessWidget {
                 labelText: 'Versione app',
                 hintText: 'Facoltativa',
               ),
+            ),
+            const SizedBox(height: 12),
+            SwitchListTile.adaptive(
+              value: includeDiagnosticLogs,
+              onChanged: isSubmitting
+                  ? null
+                  : (value) => onIncludeDiagnosticLogsChanged(value),
+              title: const Text('Condividi log diagnostici (consigliato)'),
+              subtitle: const Text(
+                'I log tecnici ci aiutano a ricostruire rapidamente cosa e successo nel codice e rendono l intervento piu veloce e preciso.',
+              ),
+              contentPadding: EdgeInsets.zero,
             ),
             const SizedBox(height: 18),
             FilledButton.icon(
