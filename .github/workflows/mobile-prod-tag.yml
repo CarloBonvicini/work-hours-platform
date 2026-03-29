@@ -1,0 +1,89 @@
+name: Mobile Prod Tag
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "mobile/**"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: mobile-prod-tag-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  create-mobile-prod-tag:
+    if: ${{ github.repository == 'CarloBonvicini/work-hours-platform' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          fetch-depth: 0
+
+      - name: Fetch tags
+        shell: bash
+        run: git fetch --force --tags origin
+
+      - name: Compute next production tag
+        id: next
+        shell: bash
+        run: |
+          set -eu
+
+          head_tag="$(git tag --points-at HEAD --list 'mobile-v*' | head -n1 || true)"
+          if [ -n "$head_tag" ]; then
+            echo "should_create=false" >> "$GITHUB_OUTPUT"
+            echo "next_tag=$head_tag" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          latest_tag="$(git tag --list 'mobile-v*' --sort=-v:refname | head -n1 || true)"
+          if [ -z "$latest_tag" ]; then
+            next_tag="mobile-v0.1.0"
+          else
+            if ! [[ "$latest_tag" =~ ^mobile-v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+              echo "Formato tag non supportato: $latest_tag"
+              exit 1
+            fi
+
+            major="${BASH_REMATCH[1]}"
+            minor="${BASH_REMATCH[2]}"
+            patch="${BASH_REMATCH[3]}"
+            next_tag="mobile-v${major}.${minor}.$((patch + 1))"
+          fi
+
+          if git rev-parse "$next_tag" >/dev/null 2>&1; then
+            echo "should_create=false" >> "$GITHUB_OUTPUT"
+            echo "next_tag=$next_tag" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "should_create=true" >> "$GITHUB_OUTPUT"
+          echo "next_tag=$next_tag" >> "$GITHUB_OUTPUT"
+
+      - name: Create and push production tag
+        if: ${{ steps.next.outputs.should_create == 'true' }}
+        shell: bash
+        run: |
+          set -eu
+          tag_name="${{ steps.next.outputs.next_tag }}"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$tag_name" -m "Mobile production release $tag_name"
+          git push origin "$tag_name"
+
+      - name: Report result
+        shell: bash
+        run: |
+          if [ "${{ steps.next.outputs.should_create }}" = "true" ]; then
+            echo "Creato nuovo tag prod: ${{ steps.next.outputs.next_tag }}"
+          else
+            echo "Nessun nuovo tag creato. Tag corrente: ${{ steps.next.outputs.next_tag }}"
+          fi
