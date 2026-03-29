@@ -705,9 +705,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Future<void> _handleInvalidCloudSession({required bool showFeedback}) async {
     _logDiagnostic(
       'cloud.session.invalid',
-      details: <String, Object?>{
-        'showFeedback': showFeedback,
-      },
+      details: <String, Object?>{'showFeedback': showFeedback},
     );
     if (widget.accountService != null) {
       try {
@@ -775,9 +773,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     try {
       _logDiagnostic(
         'cloud.backup.status.start',
-        details: <String, Object?>{
-          'silent': silent,
-        },
+        details: <String, Object?>{'silent': silent},
       );
       final status = await widget.accountService!.loadCloudBackupStatus(
         session: _accountSession,
@@ -805,9 +801,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       if (_isUnauthorizedApiError(error)) {
         _logDiagnostic(
           'cloud.backup.status.unauthorized',
-          details: <String, Object?>{
-            'error': error.toString(),
-          },
+          details: <String, Object?>{'error': error.toString()},
         );
         await _handleInvalidCloudSession(showFeedback: !silent);
         return;
@@ -818,9 +812,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       });
       _logDiagnostic(
         'cloud.backup.status.error',
-        details: <String, Object?>{
-          'error': error.toString(),
-        },
+        details: <String, Object?>{'error': error.toString()},
       );
       if (!silent) {
         ScaffoldMessenger.of(
@@ -839,9 +831,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _cloudBackupQueued = true;
       _logDiagnostic(
         'cloud.backup.queued',
-        details: <String, Object?>{
-          'reason': 'already_running',
-        },
+        details: <String, Object?>{'reason': 'already_running'},
       );
       return;
     }
@@ -899,9 +889,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       if (_isUnauthorizedApiError(error)) {
         _logDiagnostic(
           'cloud.backup.unauthorized',
-          details: <String, Object?>{
-            'error': error.toString(),
-          },
+          details: <String, Object?>{'error': error.toString()},
         );
         await _handleInvalidCloudSession(showFeedback: showFeedback);
       } else {
@@ -1452,9 +1440,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     try {
       _logDiagnostic(
         'account.register.start',
-        details: <String, Object?>{
-          'email': email,
-        },
+        details: <String, Object?>{'email': email},
       );
       final session = await widget.accountService!.register(
         email: email,
@@ -1475,9 +1461,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       unawaited(_refreshCloudBackupStatus(silent: true));
       _logDiagnostic(
         'account.register.ok',
-        details: <String, Object?>{
-          'email': session.user.email,
-        },
+        details: <String, Object?>{'email': session.user.email},
       );
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -1496,10 +1480,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       });
       _logDiagnostic(
         'account.register.error',
-        details: <String, Object?>{
-          'email': email,
-          'error': error.toString(),
-        },
+        details: <String, Object?>{'email': email, 'error': error.toString()},
       );
       ScaffoldMessenger.of(
         context,
@@ -1530,9 +1511,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     try {
       _logDiagnostic(
         'account.login.start',
-        details: <String, Object?>{
-          'email': email,
-        },
+        details: <String, Object?>{'email': email},
       );
       final restoreResult = await widget.accountService!.login(
         email: email,
@@ -1596,10 +1575,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       });
       _logDiagnostic(
         'account.login.error',
-        details: <String, Object?>{
-          'email': email,
-          'error': error.toString(),
-        },
+        details: <String, Object?>{'email': email, 'error': error.toString()},
       );
       ScaffoldMessenger.of(
         context,
@@ -1670,9 +1646,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       if (_isUnauthorizedApiError(error)) {
         _logDiagnostic(
           'cloud.restore.unauthorized',
-          details: <String, Object?>{
-            'error': error.toString(),
-          },
+          details: <String, Object?>{'error': error.toString()},
         );
         await _handleInvalidCloudSession(showFeedback: true);
         return;
@@ -1683,9 +1657,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       });
       _logDiagnostic(
         'cloud.restore.error',
-        details: <String, Object?>{
-          'error': error.toString(),
-        },
+        details: <String, Object?>{'error': error.toString()},
       );
       ScaffoldMessenger.of(
         context,
@@ -1736,9 +1708,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       });
       _logDiagnostic(
         'account.logout.error',
-        details: <String, Object?>{
-          'error': error.toString(),
-        },
+        details: <String, Object?>{'error': error.toString()},
       );
       ScaffoldMessenger.of(
         context,
@@ -5520,9 +5490,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       );
       _logDiagnostic(
         'ticket.submit.ok',
-        details: <String, Object?>{
-          'ticketId': createdThread.id,
-        },
+        details: <String, Object?>{'ticketId': createdThread.id},
       );
     } catch (error) {
       if (!mounted) {
@@ -5539,9 +5507,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       });
       _logDiagnostic(
         'ticket.submit.error',
-        details: <String, Object?>{
-          'error': error.toString(),
-        },
+        details: <String, Object?>{'error': error.toString()},
       );
     }
   }
@@ -7577,19 +7543,26 @@ class _CalendarCard extends StatelessWidget {
     final programmedExitMinutes = parseTimeInput(
       effectiveQuickEditorEndTime.trim(),
     );
-    final remainingToProgrammedExitLabel =
+    final remainingToProgrammedExitMinutes =
         !isQuickEditorDayOff &&
             isSelectedDateToday &&
             hasQuickResultContext &&
             programmedExitMinutes != null
-        ? (() {
-            final remainingMinutes = programmedExitMinutes - nowMinutes;
-            if (remainingMinutes > 0) {
-              return 'Mancano ${_formatHoursInput(remainingMinutes)} all\'uscita programmata';
-            }
-            return 'Uscita programmata raggiunta';
-          })()
+        ? programmedExitMinutes - nowMinutes
         : null;
+    final remainingToProgrammedExitLabel =
+        remainingToProgrammedExitMinutes == null
+        ? null
+        : remainingToProgrammedExitMinutes > 0
+        ? 'Mancano ${_formatHoursInput(remainingToProgrammedExitMinutes)} all\'uscita programmata'
+        : 'Uscita programmata raggiunta';
+    final workedMinutesAtProgrammedExit =
+        remainingToProgrammedExitMinutes == null
+        ? null
+        : displayedWorkedMinutes +
+              (remainingToProgrammedExitMinutes > 0
+                  ? remainingToProgrammedExitMinutes
+                  : 0);
     final hasPendingExitConfirmation = pendingExitConfirmationMinutes != null;
     final hasSuggestedTheoreticalExit =
         !isQuickEditorDayOff &&
@@ -7689,6 +7662,7 @@ class _CalendarCard extends StatelessWidget {
               ),
             ),
             remainingToProgrammedExitLabel: remainingToProgrammedExitLabel,
+            workedMinutesAtProgrammedExit: workedMinutesAtProgrammedExit,
             hasResultContext: hasQuickResultContext,
             hasTheoreticalExit: hasTheoreticalExit,
             hasPendingExitConfirmation: hasPendingExitConfirmation,
@@ -8057,6 +8031,7 @@ class _CalendarQuickScheduleEditor extends StatelessWidget {
     required this.onDayBalanceAggregationChanged,
     required this.onOpenWorkSettings,
     required this.remainingToProgrammedExitLabel,
+    required this.workedMinutesAtProgrammedExit,
     required this.hasResultContext,
     required this.hasTheoreticalExit,
     required this.hasPendingExitConfirmation,
@@ -8100,6 +8075,7 @@ class _CalendarQuickScheduleEditor extends StatelessWidget {
   final ValueChanged<DayBalanceAggregation> onDayBalanceAggregationChanged;
   final VoidCallback onOpenWorkSettings;
   final String? remainingToProgrammedExitLabel;
+  final int? workedMinutesAtProgrammedExit;
   final bool hasResultContext;
   final bool hasTheoreticalExit;
   final bool hasPendingExitConfirmation;
@@ -8336,6 +8312,8 @@ class _CalendarQuickScheduleEditor extends StatelessWidget {
                           onDayBalanceAggregationChanged,
                       remainingToProgrammedExitLabel:
                           remainingToProgrammedExitLabel,
+                      workedMinutesAtProgrammedExit:
+                          workedMinutesAtProgrammedExit,
                       onOpenWorkSettings: onOpenWorkSettings,
                       isDayOff: isDayOff,
                       hasResultContext: hasResultContext,
@@ -8756,6 +8734,7 @@ class _QuickDayComputedSummary extends StatelessWidget {
     required this.dayBalanceAggregation,
     required this.onDayBalanceAggregationChanged,
     required this.remainingToProgrammedExitLabel,
+    required this.workedMinutesAtProgrammedExit,
     required this.onOpenWorkSettings,
     required this.isDayOff,
     required this.hasResultContext,
@@ -8773,6 +8752,7 @@ class _QuickDayComputedSummary extends StatelessWidget {
   final DayBalanceAggregation dayBalanceAggregation;
   final ValueChanged<DayBalanceAggregation> onDayBalanceAggregationChanged;
   final String? remainingToProgrammedExitLabel;
+  final int? workedMinutesAtProgrammedExit;
   final VoidCallback onOpenWorkSettings;
   final bool isDayOff;
   final bool hasResultContext;
@@ -8845,6 +8825,7 @@ class _QuickDayComputedSummary extends StatelessWidget {
       dayBalanceAggregation: dayBalanceAggregation,
       onDayBalanceAggregationChanged: onDayBalanceAggregationChanged,
       remainingToProgrammedExitLabel: remainingToProgrammedExitLabel,
+      workedMinutesAtProgrammedExit: workedMinutesAtProgrammedExit,
     );
   }
 }
@@ -8870,6 +8851,7 @@ class _QuickDayHero extends StatelessWidget {
     required this.dayBalanceAggregation,
     required this.onDayBalanceAggregationChanged,
     required this.remainingToProgrammedExitLabel,
+    required this.workedMinutesAtProgrammedExit,
   });
 
   final int workedMinutes;
@@ -8891,6 +8873,7 @@ class _QuickDayHero extends StatelessWidget {
   final DayBalanceAggregation dayBalanceAggregation;
   final ValueChanged<DayBalanceAggregation> onDayBalanceAggregationChanged;
   final String? remainingToProgrammedExitLabel;
+  final int? workedMinutesAtProgrammedExit;
 
   @override
   Widget build(BuildContext context) {
@@ -8920,6 +8903,9 @@ class _QuickDayHero extends StatelessWidget {
     };
     final hasRemainingToProgrammedExit =
         remainingToProgrammedExitLabel != null && !isDayOff && hasResultContext;
+    final workedValue = workedMinutesAtProgrammedExit == null
+        ? _formatHoursInput(workedMinutes)
+        : '${_formatHoursInput(workedMinutes)}/${_formatHoursInput(workedMinutesAtProgrammedExit!)}';
     final neutralValueColor = colorScheme.onSurfaceVariant;
     Widget metricBlock({
       required String label,
@@ -8952,7 +8938,7 @@ class _QuickDayHero extends StatelessWidget {
         Text('Lavorate', style: labelStyle),
         const SizedBox(height: 4),
         Text(
-          _formatHoursInput(workedMinutes),
+          workedValue,
           key: const ValueKey('calendar-live-worked-value'),
           style: theme.textTheme.headlineLarge?.copyWith(
             fontSize: 30,
