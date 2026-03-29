@@ -97,6 +97,8 @@ interface MobileReleaseStatus {
 type SupportTicketCategory = "bug" | "feature" | "support";
 type SupportTicketStatus = "new" | "in_progress" | "answered" | "closed";
 type SupportTicketReplyAuthor = "admin" | "user";
+const MOBILE_PUSH_UPDATE_CHANNEL_ID = "work_hours_updates";
+const MOBILE_PUSH_TICKET_CHANNEL_ID = "work_hours_ticket_replies";
 const SUPPORT_TICKET_MAX_ATTACHMENTS = 3;
 const SUPPORT_TICKET_MAX_ATTACHMENT_BYTES = 4 * 1024 * 1024;
 const SUPPORT_TICKET_ATTACHMENT_EXTENSIONS = {
@@ -1628,6 +1630,7 @@ async function notifySupportTicketReplyPush(options: {
       payload: {
         title: "Nuova risposta dal supporto",
         body: "Apri l app per leggere l aggiornamento del ticket.",
+        androidChannelId: MOBILE_PUSH_TICKET_CHANNEL_ID,
         data: {
           type: "ticket_reply",
           ticketId: options.ticket.id,
@@ -4800,6 +4803,7 @@ export function buildApp(options: BuildAppOptions = {}) {
       payload: {
         title: `Nuovo aggiornamento ${metadata.version}`,
         body: buildUpdateNotificationBody(metadata.releaseNotes),
+        androidChannelId: MOBILE_PUSH_UPDATE_CHANNEL_ID,
         data: {
           version: metadata.version
         }
