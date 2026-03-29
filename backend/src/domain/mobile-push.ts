@@ -1,4 +1,5 @@
 import { createSign } from "node:crypto";
+import { normalizeRuntimeEnvValue } from "./env-value.js";
 
 interface FirebaseServiceAccountConfig {
   projectId: string;
@@ -72,7 +73,9 @@ function parseServiceAccountJson(rawValue: string) {
 function resolveFirebaseConfigFromServiceAccount():
   | FirebaseServiceAccountConfig
   | null {
-  const rawServiceAccount = process.env.FCM_SERVICE_ACCOUNT_JSON?.trim();
+  const rawServiceAccount = normalizeRuntimeEnvValue(
+    process.env.FCM_SERVICE_ACCOUNT_JSON
+  );
   if (!rawServiceAccount) {
     return null;
   }
@@ -88,9 +91,11 @@ function resolveFirebaseConfigFromServiceAccount():
 }
 
 function resolveFirebaseConfigFromFields(): FirebaseServiceAccountConfig | null {
-  const projectId = process.env.FCM_PROJECT_ID?.trim() ?? "";
-  const clientEmail = process.env.FCM_CLIENT_EMAIL?.trim() ?? "";
-  const privateKey = normalizePrivateKey(process.env.FCM_PRIVATE_KEY) ?? "";
+  const projectId = normalizeRuntimeEnvValue(process.env.FCM_PROJECT_ID) ?? "";
+  const clientEmail = normalizeRuntimeEnvValue(process.env.FCM_CLIENT_EMAIL) ?? "";
+  const privateKey = normalizePrivateKey(
+    normalizeRuntimeEnvValue(process.env.FCM_PRIVATE_KEY)
+  ) ?? "";
   if (!projectId || !clientEmail || !privateKey) {
     return null;
   }

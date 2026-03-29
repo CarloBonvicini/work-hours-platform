@@ -505,13 +505,27 @@ jobs:
           fi
 
           notify_url="${MOBILE_UPDATE_BASE_URL%/}/internal/mobile-updates/notify"
-          if ! curl -fsS \
+          response_file="$(mktemp)"
+          http_code="$(curl -sS \
+            -o "${response_file}" \
+            -w "%{http_code}" \
             -X POST \
             -H "x-release-token: ${MOBILE_PUSH_NOTIFY_TOKEN}" \
             -H "content-type: application/json" \
-            "${notify_url}"; then
-            echo "Notifica push update non inviata: release prosegue comunque."
+            --data '{}' \
+            "${notify_url}" || true)"
+
+          if [ "${http_code}" -ge 200 ] && [ "${http_code}" -lt 300 ]; then
+            echo "Notifica push update inviata."
+            cat "${response_file}"
+            echo
+          else
+            echo "Notifica push update non inviata (HTTP ${http_code}):"
+            cat "${response_file}"
+            echo
           fi
+
+          rm -f "${response_file}"
 
   clear-mobile-release-status:
     name: Clear Mobile Release Status

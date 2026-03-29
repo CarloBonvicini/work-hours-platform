@@ -48,6 +48,7 @@ import {
   syncConfiguredSuperAdmin,
   isValidEmail
 } from "./domain/auth.js";
+import { normalizeRuntimeEnvValue } from "./domain/env-value.js";
 import {
   parseAdminRolePayload,
   parseAdminPasswordPayload,
@@ -570,8 +571,8 @@ function parseMobilePushTokenPayload(payload: unknown): {
 }
 
 function getMobilePushNotifyToken() {
-  const value = process.env.MOBILE_PUSH_NOTIFY_TOKEN?.trim();
-  return value && value.length > 0 ? value : null;
+  const value = normalizeRuntimeEnvValue(process.env.MOBILE_PUSH_NOTIFY_TOKEN);
+  return value ?? null;
 }
 
 function isSupportTicketCategory(value: unknown): value is SupportTicketCategory {
