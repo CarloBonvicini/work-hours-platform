@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:file_picker/file_picker.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -279,6 +280,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   _AccountAuthMode _accountAuthMode = _AccountAuthMode.login;
   Timer? _ticketNotificationTimer;
   Timer? _liveWorkedMinutesTimer;
+  StreamSubscription<RemoteMessage>? _foregroundPushSubscription;
   final LocalNotificationService _localNotificationService =
       LocalNotificationService();
   final DiagnosticLogService _diagnosticLogService = DiagnosticLogService();
@@ -313,6 +315,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _startTicketNotificationPolling();
     _startLiveWorkedMinutesTicker();
     unawaited(_initializeUpdateExperience());
+    unawaited(_initializeRemotePushForegroundHandling());
   }
 
   @override
@@ -340,6 +343,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _ticketNotificationTimer = null;
     _liveWorkedMinutesTimer?.cancel();
     _liveWorkedMinutesTimer = null;
+    unawaited(_foregroundPushSubscription?.cancel());
+    _foregroundPushSubscription = null;
     _fullNameController.dispose();
     _uniformDailyTargetController.dispose();
     _uniformStartTimeController.dispose();
@@ -1814,6 +1819,63 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       }
       setState(() {});
     });
+  }
+
+  Future<void> _initializeRemotePushForegroundHandling() async {
+    try {
+      await _foregroundPushSubscription?.cancel();
+      _foregroundPushSubscription = FirebaseMessaging.onMessage.listen((
+        message,
+      ) {
+        unawaited(_handleForegroundRemotePush(message));
+      });
+    } catch (_) {
+      // Foreground push handling is best-effort.
+    }
+  }
+
+  Future<void> _handleForegroundRemotePush(RemoteMessage message) async {
+    final notification = message.notification;
+    final data = message.data;
+    final type = _normalizePushDataValue(data['type']);
+
+    if (type == 'ticket_reply') {
+      final fallbackTicketMessage = data['message'];
+      final ticketMessage = notification?.body?.trim().isNotEmpty == true
+          ? notification!.body!.trim()
+          : _normalizePushDataValue(fallbackTicketMessage) ??
+                'Nuova risposta dal supporto.';
+      await _localNotificationService.notifyTicketReplies(message: ticketMessage);
+      return;
+    }
+
+    if (type == 'app_update') {
+      final version = _normalizePushDataValue(data['version']);
+      final body = notification?.body?.trim().isNotEmpty == true
+          ? notification!.body!.trim()
+          : (version == null
+                ? 'Nuovo aggiornamento disponibile.'
+                : 'Versione $version pronta da installare.');
+      await _localNotificationService.notifyUpdateMessage(
+        title: notification?.title?.trim(),
+        message: body,
+        version: version,
+      );
+      return;
+    }
+  }
+
+  String? _normalizePushDataValue(Object? value) {
+    if (value == null) {
+      return null;
+    }
+
+    final normalized = value.toString().trim();
+    if (normalized.isEmpty) {
+      return null;
+    }
+
+    return normalized;
   }
 
   Future<void> _initializeLocalNotifications() async {
