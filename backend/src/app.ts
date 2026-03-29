@@ -3002,17 +3002,35 @@ function renderAdminPage(options: {
 
               try {
                 setStatus("Eliminazione utente in corso...", "info", "dashboard");
-                await api(
+                const deleteResponse = await api(
                   "/admin/api/users/" + encodeURIComponent(userId),
                   {
                     method: "DELETE"
                   }
                 );
-                await loadDashboard();
+
+                if (!deleteResponse || deleteResponse.deleted !== true) {
+                  throw new Error("Il server non ha confermato l eliminazione.");
+                }
+
+                state.users = state.users.filter((user) => user.id !== userId);
+                renderUserList();
+
+                try {
+                  await loadDashboard();
+                } catch (_) {}
+
                 setStatus("Utente eliminato.", "success", "dashboard");
               } catch (error) {
+                const errorMessage =
+                  error && typeof error === "object" && "message" in error
+                    ? String(error.message || "")
+                    : "";
+                if (errorMessage) {
+                  window.alert(errorMessage);
+                }
                 setStatus(
-                  error.message || "Impossibile eliminare l utente.",
+                  errorMessage || "Impossibile eliminare l utente.",
                   "error",
                   "dashboard"
                 );
