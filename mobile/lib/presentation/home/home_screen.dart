@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -45,6 +46,14 @@ const int _maxTicketAttachmentBytes = 4 * 1024 * 1024;
 const int _maxTicketDiagnosticLogChars = 12000;
 const Duration _ticketNotificationPollingInterval = Duration(minutes: 1);
 final ImagePicker _ticketImagePicker = ImagePicker();
+const List<String> _ticketAudioAttachmentExtensions = [
+  'm4a',
+  'mp3',
+  'wav',
+  'ogg',
+  'aac',
+  'webm',
+];
 const List<String> _recoveryQuestionSuggestions = [
   'Come si chiamava il tuo primo animale domestico?',
   'Qual e il nome della tua scuola elementare?',
@@ -705,9 +714,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Future<void> _handleInvalidCloudSession({required bool showFeedback}) async {
     _logDiagnostic(
       'cloud.session.invalid',
-      details: <String, Object?>{
-        'showFeedback': showFeedback,
-      },
+      details: <String, Object?>{'showFeedback': showFeedback},
     );
     if (widget.accountService != null) {
       try {
@@ -775,9 +782,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     try {
       _logDiagnostic(
         'cloud.backup.status.start',
-        details: <String, Object?>{
-          'silent': silent,
-        },
+        details: <String, Object?>{'silent': silent},
       );
       final status = await widget.accountService!.loadCloudBackupStatus(
         session: _accountSession,
@@ -805,9 +810,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       if (_isUnauthorizedApiError(error)) {
         _logDiagnostic(
           'cloud.backup.status.unauthorized',
-          details: <String, Object?>{
-            'error': error.toString(),
-          },
+          details: <String, Object?>{'error': error.toString()},
         );
         await _handleInvalidCloudSession(showFeedback: !silent);
         return;
@@ -818,9 +821,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       });
       _logDiagnostic(
         'cloud.backup.status.error',
-        details: <String, Object?>{
-          'error': error.toString(),
-        },
+        details: <String, Object?>{'error': error.toString()},
       );
       if (!silent) {
         ScaffoldMessenger.of(
@@ -839,9 +840,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _cloudBackupQueued = true;
       _logDiagnostic(
         'cloud.backup.queued',
-        details: <String, Object?>{
-          'reason': 'already_running',
-        },
+        details: <String, Object?>{'reason': 'already_running'},
       );
       return;
     }
@@ -899,9 +898,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       if (_isUnauthorizedApiError(error)) {
         _logDiagnostic(
           'cloud.backup.unauthorized',
-          details: <String, Object?>{
-            'error': error.toString(),
-          },
+          details: <String, Object?>{'error': error.toString()},
         );
         await _handleInvalidCloudSession(showFeedback: showFeedback);
       } else {
@@ -1452,9 +1449,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     try {
       _logDiagnostic(
         'account.register.start',
-        details: <String, Object?>{
-          'email': email,
-        },
+        details: <String, Object?>{'email': email},
       );
       final session = await widget.accountService!.register(
         email: email,
@@ -1475,9 +1470,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       unawaited(_refreshCloudBackupStatus(silent: true));
       _logDiagnostic(
         'account.register.ok',
-        details: <String, Object?>{
-          'email': session.user.email,
-        },
+        details: <String, Object?>{'email': session.user.email},
       );
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -1496,10 +1489,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       });
       _logDiagnostic(
         'account.register.error',
-        details: <String, Object?>{
-          'email': email,
-          'error': error.toString(),
-        },
+        details: <String, Object?>{'email': email, 'error': error.toString()},
       );
       ScaffoldMessenger.of(
         context,
@@ -1530,9 +1520,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     try {
       _logDiagnostic(
         'account.login.start',
-        details: <String, Object?>{
-          'email': email,
-        },
+        details: <String, Object?>{'email': email},
       );
       final restoreResult = await widget.accountService!.login(
         email: email,
@@ -1596,10 +1584,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       });
       _logDiagnostic(
         'account.login.error',
-        details: <String, Object?>{
-          'email': email,
-          'error': error.toString(),
-        },
+        details: <String, Object?>{'email': email, 'error': error.toString()},
       );
       ScaffoldMessenger.of(
         context,
@@ -1670,9 +1655,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       if (_isUnauthorizedApiError(error)) {
         _logDiagnostic(
           'cloud.restore.unauthorized',
-          details: <String, Object?>{
-            'error': error.toString(),
-          },
+          details: <String, Object?>{'error': error.toString()},
         );
         await _handleInvalidCloudSession(showFeedback: true);
         return;
@@ -1683,9 +1666,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       });
       _logDiagnostic(
         'cloud.restore.error',
-        details: <String, Object?>{
-          'error': error.toString(),
-        },
+        details: <String, Object?>{'error': error.toString()},
       );
       ScaffoldMessenger.of(
         context,
@@ -1736,9 +1717,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       });
       _logDiagnostic(
         'account.logout.error',
-        details: <String, Object?>{
-          'error': error.toString(),
-        },
+        details: <String, Object?>{'error': error.toString()},
       );
       ScaffoldMessenger.of(
         context,
@@ -5520,9 +5499,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       );
       _logDiagnostic(
         'ticket.submit.ok',
-        details: <String, Object?>{
-          'ticketId': createdThread.id,
-        },
+        details: <String, Object?>{'ticketId': createdThread.id},
       );
     } catch (error) {
       if (!mounted) {
@@ -5539,9 +5516,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       });
       _logDiagnostic(
         'ticket.submit.error',
-        details: <String, Object?>{
-          'error': error.toString(),
-        },
+        details: <String, Object?>{'error': error.toString()},
       );
     }
   }
@@ -5555,7 +5530,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (remainingSlots <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Puoi allegare al massimo 3 screenshot per ticket.'),
+          content: Text('Puoi allegare al massimo 3 file per ticket.'),
         ),
       );
       return;
@@ -5584,6 +5559,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         final contentType = _ticketAttachmentContentTypeForFileName(fileName);
         final bytes = await selectedImage.readAsBytes();
         if (contentType == null ||
+            !contentType.startsWith('image/') ||
             bytes.isEmpty ||
             bytes.lengthInBytes > _maxTicketAttachmentBytes) {
           skippedCount += 1;
@@ -5638,6 +5614,103 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
+  Future<void> _pickTicketVoiceAttachments() async {
+    if (_isSubmittingTicket) {
+      return;
+    }
+
+    final remainingSlots = _maxTicketAttachments - _ticketAttachments.length;
+    if (remainingSlots <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Puoi allegare al massimo 3 file per ticket.'),
+        ),
+      );
+      return;
+    }
+
+    try {
+      final selectedAudio = await FilePicker.platform.pickFiles(
+        allowMultiple: true,
+        withData: true,
+        type: FileType.custom,
+        allowedExtensions: _ticketAudioAttachmentExtensions,
+      );
+      if (selectedAudio == null || selectedAudio.files.isEmpty || !mounted) {
+        return;
+      }
+
+      final nextAttachments = List<SupportTicketUploadAttachment>.from(
+        _ticketAttachments,
+      );
+      var addedCount = 0;
+      var skippedCount = 0;
+      for (final selectedFile in selectedAudio.files) {
+        if (nextAttachments.length >= _maxTicketAttachments) {
+          skippedCount += 1;
+          continue;
+        }
+
+        final fileName = selectedFile.name;
+        final contentType = _ticketAttachmentContentTypeForFileName(fileName);
+        final bytes = selectedFile.bytes;
+        if (contentType == null ||
+            !_isAudioTicketAttachmentContentType(contentType) ||
+            bytes == null ||
+            bytes.isEmpty ||
+            bytes.lengthInBytes > _maxTicketAttachmentBytes) {
+          skippedCount += 1;
+          continue;
+        }
+
+        nextAttachments.add(
+          SupportTicketUploadAttachment(
+            fileName: fileName,
+            contentType: contentType,
+            bytes: bytes,
+          ),
+        );
+        addedCount += 1;
+      }
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _ticketAttachments = nextAttachments;
+      });
+
+      if (addedCount == 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Nessun vocale valido selezionato. Usa M4A, MP3, WAV, OGG, AAC o WEBM fino a 4 MB.',
+            ),
+          ),
+        );
+      } else if (skippedCount > 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Aggiunti $addedCount vocali. Alcuni file sono stati ignorati per formato, peso o limite massimo.',
+            ),
+          ),
+        );
+      }
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Impossibile aprire il selettore file vocali.'),
+        ),
+      );
+    }
+  }
+
   void _removeTicketAttachmentAt(int index) {
     if (index < 0 || index >= _ticketAttachments.length) {
       return;
@@ -5662,7 +5735,29 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (lowerFileName.endsWith('.webp')) {
       return 'image/webp';
     }
+    if (lowerFileName.endsWith('.m4a')) {
+      return 'audio/mp4';
+    }
+    if (lowerFileName.endsWith('.mp3')) {
+      return 'audio/mpeg';
+    }
+    if (lowerFileName.endsWith('.wav')) {
+      return 'audio/wav';
+    }
+    if (lowerFileName.endsWith('.ogg')) {
+      return 'audio/ogg';
+    }
+    if (lowerFileName.endsWith('.aac')) {
+      return 'audio/aac';
+    }
+    if (lowerFileName.endsWith('.webm')) {
+      return 'audio/webm';
+    }
     return null;
+  }
+
+  bool _isAudioTicketAttachmentContentType(String contentType) {
+    return contentType.startsWith('audio/');
   }
 
   void _applyPresetMinutes(int minutes) {
@@ -7089,6 +7184,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           onRefreshThreads: _refreshTrackedSupportTickets,
           onRecoverTicketById: _recoverTrackedSupportTicketById,
           onPickAttachments: _pickTicketAttachments,
+          onPickVoiceAttachments: _pickTicketVoiceAttachments,
           onRemoveAttachment: _removeTicketAttachmentAt,
           onSubmit: _submitSupportTicket,
           onSubmitReply: _submitSupportTicketReply,
@@ -7577,19 +7673,26 @@ class _CalendarCard extends StatelessWidget {
     final programmedExitMinutes = parseTimeInput(
       effectiveQuickEditorEndTime.trim(),
     );
-    final remainingToProgrammedExitLabel =
+    final remainingToProgrammedExitMinutes =
         !isQuickEditorDayOff &&
             isSelectedDateToday &&
             hasQuickResultContext &&
             programmedExitMinutes != null
-        ? (() {
-            final remainingMinutes = programmedExitMinutes - nowMinutes;
-            if (remainingMinutes > 0) {
-              return 'Mancano ${_formatHoursInput(remainingMinutes)} all\'uscita programmata';
-            }
-            return 'Uscita programmata raggiunta';
-          })()
+        ? programmedExitMinutes - nowMinutes
         : null;
+    final remainingToProgrammedExitLabel =
+        remainingToProgrammedExitMinutes == null
+        ? null
+        : remainingToProgrammedExitMinutes > 0
+        ? 'Mancano ${_formatHoursInput(remainingToProgrammedExitMinutes)} all\'uscita programmata'
+        : 'Uscita programmata raggiunta';
+    final workedMinutesAtProgrammedExit =
+        remainingToProgrammedExitMinutes == null
+        ? null
+        : displayedWorkedMinutes +
+              (remainingToProgrammedExitMinutes > 0
+                  ? remainingToProgrammedExitMinutes
+                  : 0);
     final hasPendingExitConfirmation = pendingExitConfirmationMinutes != null;
     final hasSuggestedTheoreticalExit =
         !isQuickEditorDayOff &&
@@ -7689,6 +7792,7 @@ class _CalendarCard extends StatelessWidget {
               ),
             ),
             remainingToProgrammedExitLabel: remainingToProgrammedExitLabel,
+            workedMinutesAtProgrammedExit: workedMinutesAtProgrammedExit,
             hasResultContext: hasQuickResultContext,
             hasTheoreticalExit: hasTheoreticalExit,
             hasPendingExitConfirmation: hasPendingExitConfirmation,
@@ -8057,6 +8161,7 @@ class _CalendarQuickScheduleEditor extends StatelessWidget {
     required this.onDayBalanceAggregationChanged,
     required this.onOpenWorkSettings,
     required this.remainingToProgrammedExitLabel,
+    required this.workedMinutesAtProgrammedExit,
     required this.hasResultContext,
     required this.hasTheoreticalExit,
     required this.hasPendingExitConfirmation,
@@ -8100,6 +8205,7 @@ class _CalendarQuickScheduleEditor extends StatelessWidget {
   final ValueChanged<DayBalanceAggregation> onDayBalanceAggregationChanged;
   final VoidCallback onOpenWorkSettings;
   final String? remainingToProgrammedExitLabel;
+  final int? workedMinutesAtProgrammedExit;
   final bool hasResultContext;
   final bool hasTheoreticalExit;
   final bool hasPendingExitConfirmation;
@@ -8336,6 +8442,8 @@ class _CalendarQuickScheduleEditor extends StatelessWidget {
                           onDayBalanceAggregationChanged,
                       remainingToProgrammedExitLabel:
                           remainingToProgrammedExitLabel,
+                      workedMinutesAtProgrammedExit:
+                          workedMinutesAtProgrammedExit,
                       onOpenWorkSettings: onOpenWorkSettings,
                       isDayOff: isDayOff,
                       hasResultContext: hasResultContext,
@@ -8756,6 +8864,7 @@ class _QuickDayComputedSummary extends StatelessWidget {
     required this.dayBalanceAggregation,
     required this.onDayBalanceAggregationChanged,
     required this.remainingToProgrammedExitLabel,
+    required this.workedMinutesAtProgrammedExit,
     required this.onOpenWorkSettings,
     required this.isDayOff,
     required this.hasResultContext,
@@ -8773,6 +8882,7 @@ class _QuickDayComputedSummary extends StatelessWidget {
   final DayBalanceAggregation dayBalanceAggregation;
   final ValueChanged<DayBalanceAggregation> onDayBalanceAggregationChanged;
   final String? remainingToProgrammedExitLabel;
+  final int? workedMinutesAtProgrammedExit;
   final VoidCallback onOpenWorkSettings;
   final bool isDayOff;
   final bool hasResultContext;
@@ -8845,6 +8955,7 @@ class _QuickDayComputedSummary extends StatelessWidget {
       dayBalanceAggregation: dayBalanceAggregation,
       onDayBalanceAggregationChanged: onDayBalanceAggregationChanged,
       remainingToProgrammedExitLabel: remainingToProgrammedExitLabel,
+      workedMinutesAtProgrammedExit: workedMinutesAtProgrammedExit,
     );
   }
 }
@@ -8870,6 +8981,7 @@ class _QuickDayHero extends StatelessWidget {
     required this.dayBalanceAggregation,
     required this.onDayBalanceAggregationChanged,
     required this.remainingToProgrammedExitLabel,
+    required this.workedMinutesAtProgrammedExit,
   });
 
   final int workedMinutes;
@@ -8891,6 +9003,7 @@ class _QuickDayHero extends StatelessWidget {
   final DayBalanceAggregation dayBalanceAggregation;
   final ValueChanged<DayBalanceAggregation> onDayBalanceAggregationChanged;
   final String? remainingToProgrammedExitLabel;
+  final int? workedMinutesAtProgrammedExit;
 
   @override
   Widget build(BuildContext context) {
@@ -8920,6 +9033,9 @@ class _QuickDayHero extends StatelessWidget {
     };
     final hasRemainingToProgrammedExit =
         remainingToProgrammedExitLabel != null && !isDayOff && hasResultContext;
+    final workedValue = workedMinutesAtProgrammedExit == null
+        ? _formatHoursInput(workedMinutes)
+        : '${_formatHoursInput(workedMinutes)}/${_formatHoursInput(workedMinutesAtProgrammedExit!)}';
     final neutralValueColor = colorScheme.onSurfaceVariant;
     Widget metricBlock({
       required String label,
@@ -8952,7 +9068,7 @@ class _QuickDayHero extends StatelessWidget {
         Text('Lavorate', style: labelStyle),
         const SizedBox(height: 4),
         Text(
-          _formatHoursInput(workedMinutes),
+          workedValue,
           key: const ValueKey('calendar-live-worked-value'),
           style: theme.textTheme.headlineLarge?.copyWith(
             fontSize: 30,
@@ -15587,6 +15703,7 @@ class _SupportTicketCard extends StatelessWidget {
     required this.onRefreshThreads,
     required this.onRecoverTicketById,
     required this.onPickAttachments,
+    required this.onPickVoiceAttachments,
     required this.onRemoveAttachment,
     required this.onSubmit,
     required this.onSubmitReply,
@@ -15618,6 +15735,7 @@ class _SupportTicketCard extends StatelessWidget {
   final Future<void> Function({bool notifyAboutNewReplies}) onRefreshThreads;
   final Future<void> Function() onRecoverTicketById;
   final Future<void> Function() onPickAttachments;
+  final Future<void> Function() onPickVoiceAttachments;
   final void Function(int index) onRemoveAttachment;
   final Future<void> Function() onSubmit;
   final Future<void> Function() onSubmitReply;
@@ -15796,7 +15914,7 @@ class _SupportTicketCard extends StatelessWidget {
                       if (selectedThread.attachments.isNotEmpty) ...[
                         const SizedBox(height: 12),
                         Text(
-                          'Screenshot allegati',
+                          'Allegati ticket',
                           style: Theme.of(context).textTheme.labelLarge
                               ?.copyWith(fontWeight: FontWeight.w700),
                         ),
@@ -15808,6 +15926,7 @@ class _SupportTicketCard extends StatelessWidget {
                               .map(
                                 (attachment) => _TicketAttachmentChip(
                                   fileName: attachment.fileName,
+                                  contentType: attachment.contentType,
                                   sizeLabel: _formatTicketAttachmentSize(
                                     attachment.sizeBytes,
                                   ),
@@ -16041,14 +16160,14 @@ class _SupportTicketCard extends StatelessWidget {
             ),
             const SizedBox(height: 14),
             Text(
-              'Screenshot',
+              'Allegati',
               style: Theme.of(
                 context,
               ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 8),
             Text(
-              'Puoi scegliere fino a 3 screenshot dalla galleria in PNG, JPG o WEBP da massimo 4 MB ciascuno.',
+              'Puoi allegare fino a 3 file: screenshot (PNG, JPG, WEBP) o vocali (M4A, MP3, WAV, OGG, AAC, WEBM), massimo 4 MB ciascuno.',
               style: Theme.of(context).textTheme.bodySmall,
             ),
             const SizedBox(height: 10),
@@ -16061,11 +16180,15 @@ class _SupportTicketCard extends StatelessWidget {
                   key: const ValueKey('ticket-attachments-button'),
                   onPressed: isSubmitting ? null : () => onPickAttachments(),
                   icon: const Icon(Icons.add_photo_alternate_outlined),
-                  label: Text(
-                    attachments.isEmpty
-                        ? 'Scegli dalla galleria'
-                        : 'Aggiungi altri screenshot',
-                  ),
+                  label: const Text('Scegli screenshot'),
+                ),
+                OutlinedButton.icon(
+                  key: const ValueKey('ticket-voice-attachments-button'),
+                  onPressed: isSubmitting
+                      ? null
+                      : () => onPickVoiceAttachments(),
+                  icon: const Icon(Icons.mic_none_rounded),
+                  label: const Text('Aggiungi vocale'),
                 ),
                 if (attachments.isNotEmpty)
                   _TicketPill(
@@ -16086,6 +16209,7 @@ class _SupportTicketCard extends StatelessWidget {
                     .map(
                       (entry) => _TicketAttachmentChip(
                         fileName: entry.value.fileName,
+                        contentType: entry.value.contentType,
                         sizeLabel: _formatTicketAttachmentSize(
                           entry.value.sizeBytes,
                         ),
@@ -16158,16 +16282,22 @@ class _TicketPill extends StatelessWidget {
 class _TicketAttachmentChip extends StatelessWidget {
   const _TicketAttachmentChip({
     required this.fileName,
+    required this.contentType,
     required this.sizeLabel,
     this.onDeleted,
   });
 
   final String fileName;
+  final String contentType;
   final String sizeLabel;
   final VoidCallback? onDeleted;
 
   @override
   Widget build(BuildContext context) {
+    final isAudio = contentType.startsWith('audio/');
+    final icon = isAudio ? Icons.mic_rounded : Icons.image_outlined;
+    final removeTooltip = isAudio ? 'Rimuovi vocale' : 'Rimuovi screenshot';
+
     return Container(
       constraints: const BoxConstraints(maxWidth: 260),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -16179,11 +16309,7 @@ class _TicketAttachmentChip extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-            Icons.image_outlined,
-            size: 18,
-            color: Theme.of(context).colorScheme.primary,
-          ),
+          Icon(icon, size: 18, color: Theme.of(context).colorScheme.primary),
           const SizedBox(width: 8),
           ConstrainedBox(
             constraints: BoxConstraints(
@@ -16211,7 +16337,7 @@ class _TicketAttachmentChip extends StatelessWidget {
             IconButton(
               onPressed: onDeleted,
               visualDensity: VisualDensity.compact,
-              tooltip: 'Rimuovi screenshot',
+              tooltip: removeTooltip,
               icon: const Icon(Icons.close_rounded, size: 18),
             ),
           ],

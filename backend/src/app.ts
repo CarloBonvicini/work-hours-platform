@@ -102,10 +102,20 @@ const SUPPORT_TICKET_MAX_ATTACHMENT_BYTES = 4 * 1024 * 1024;
 const SUPPORT_TICKET_ATTACHMENT_EXTENSIONS = {
   "image/png": ".png",
   "image/jpeg": ".jpg",
-  "image/webp": ".webp"
+  "image/webp": ".webp",
+  "audio/mpeg": ".mp3",
+  "audio/mp4": ".m4a",
+  "audio/x-m4a": ".m4a",
+  "audio/wav": ".wav",
+  "audio/ogg": ".ogg",
+  "audio/aac": ".aac",
+  "audio/webm": ".webm"
 } as const;
 type SupportTicketAttachmentContentType =
   keyof typeof SUPPORT_TICKET_ATTACHMENT_EXTENSIONS;
+const SUPPORT_TICKET_ATTACHMENT_ALLOWED_CONTENT_TYPES = Object.keys(
+  SUPPORT_TICKET_ATTACHMENT_EXTENSIONS
+).join(", ");
 
 interface SupportTicketInput {
   category: SupportTicketCategory;
@@ -623,7 +633,10 @@ function normalizeSupportTicketAttachmentFileName(
     .trim()
     .slice(0, 80);
 
-  return `${normalizedBaseName || "screenshot"}${extension}`;
+  const fallbackBaseName = contentType.startsWith("audio/")
+    ? "vocale"
+    : "screenshot";
+  return `${normalizedBaseName || fallbackBaseName}${extension}`;
 }
 
 function parseSupportTicketAttachments(
@@ -640,7 +653,8 @@ function parseSupportTicketAttachments(
   if (value.length > SUPPORT_TICKET_MAX_ATTACHMENTS) {
     return {
       value: [],
-      error: `attachments can contain at most ${SUPPORT_TICKET_MAX_ATTACHMENTS} images`
+      error:
+        `attachments can contain at most ${SUPPORT_TICKET_MAX_ATTACHMENTS} files`
     };
   }
 
@@ -654,7 +668,8 @@ function parseSupportTicketAttachments(
     if (!isSupportTicketAttachmentContentType(attachment.contentType)) {
       return {
         value: [],
-        error: "attachment contentType must be one of: image/png, image/jpeg, image/webp"
+        error:
+          `attachment contentType must be one of: ${SUPPORT_TICKET_ATTACHMENT_ALLOWED_CONTENT_TYPES}`
       };
     }
 
@@ -1373,7 +1388,7 @@ function getSupportTicketAttachmentPath(ticketId: string, storedFileName: string
     return null;
   }
 
-  if (!/^[a-zA-Z0-9-]+\.(png|jpg|webp)$/.test(storedFileName)) {
+  if (!/^[a-zA-Z0-9-]+\.(png|jpg|webp|mp3|m4a|wav|ogg|aac|webm)$/.test(storedFileName)) {
     return null;
   }
 
@@ -2317,8 +2332,11 @@ function renderAdminPage(options: {
       .attachment-gallery { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); margin-top: 12px; }
       .attachment-card { display: grid; gap: 10px; border-radius: 12px; border: 1px solid var(--line); background: rgba(255,255,255,0.03); padding: 12px; text-decoration: none; color: inherit; }
       .attachment-preview { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 10px; border: 1px solid rgba(255,255,255,0.08); background: rgba(0,0,0,0.16); }
+      .attachment-preview.placeholder { display: grid; place-items: center; color: var(--muted); font-size: 12px; }
+      .attachment-audio-player { width: 100%; }
       .attachment-name { font-size: 13px; font-weight: 700; color: #fff; word-break: break-word; }
       .attachment-meta { color: var(--muted); font-size: 12px; }
+      .attachment-link { color: var(--info); font-size: 12px; text-decoration: none; font-weight: 700; }
       .detail-grid { display: grid; gap: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .field { display: grid; gap: 6px; }
       .reply-form { display: grid; gap: 12px; }
@@ -2479,13 +2497,13 @@ function renderAdminPage(options: {
             <div class="admin-content-grid">
               <div class="ticket-workspace">
                 <section class="card" style="padding:16px;">
-                  <div class="toolbar">
-                    <div>
-                      <h3 style="margin-bottom:6px;">Ticket</h3>
-                      <p class="lede">Seleziona un ticket per aprire messaggi, screenshot e risposta admin.</p>
-                    </div>
-                    <button type="button" id="admin-refresh-tickets-btn">Aggiorna</button>
-                  </div>
+              <div class="toolbar">
+                <div>
+                  <h3 style="margin-bottom:6px;">Ticket</h3>
+                  <p class="lede">Seleziona un ticket per aprire messaggi, allegati (anche vocali) e risposta admin.</p>
+                </div>
+                <button type="button" id="admin-refresh-tickets-btn">Aggiorna</button>
+              </div>
                   <div class="ticket-list" id="admin-ticket-list" style="margin-top:14px;"></div>
                 </section>
                 <section class="card" style="padding:18px;" id="admin-ticket-detail"></section>
@@ -2774,6 +2792,28 @@ function renderAdminPage(options: {
         }
         return resolveApiUrl(path);
       }
+      function isImageAttachment(contentType) {
+        return typeof contentType === "string" && contentType.startsWith("image/");
+      }
+      function isAudioAttachment(contentType) {
+        return typeof contentType === "string" && contentType.startsWith("audio/");
+      }
+      function renderAttachmentCard(attachment) {
+        const rawUrl = resolveTicketAssetUrl(attachment.downloadPath || "#");
+        const downloadUrl = escapeHtml(rawUrl);
+        const fileName = escapeHtml(attachment.fileName || "Allegato");
+        const contentType = escapeHtml(attachment.contentType || "file");
+        const sizeLabel = escapeHtml(formatBytes(attachment.sizeBytes));
+
+        if (isAudioAttachment(attachment.contentType)) {
+          return '<article class="attachment-card"><audio class="attachment-audio-player" controls preload="none" src="' + downloadUrl + '"></audio><div class="attachment-name">' + fileName + '</div><div class="attachment-meta">' + contentType + ' - ' + sizeLabel + '</div><a class="attachment-link" target="_blank" rel="noreferrer" href="' + downloadUrl + '">Apri allegato</a></article>';
+        }
+
+        const preview = isImageAttachment(attachment.contentType)
+          ? '<img class="attachment-preview" loading="lazy" src="' + downloadUrl + '" alt="' + fileName + '" />'
+          : '<div class="attachment-preview placeholder">Anteprima non disponibile</div>';
+        return '<a class="attachment-card" target="_blank" rel="noreferrer" href="' + downloadUrl + '">' + preview + '<div class="attachment-name">' + fileName + '</div><div class="attachment-meta">' + contentType + ' - ' + sizeLabel + '</div></a>';
+      }
       function renderWorkspaceSummary() {
         const overview = state.overview;
         const user = state.adminUser;
@@ -2885,7 +2925,7 @@ function renderAdminPage(options: {
         ticketList.innerHTML = state.tickets.map((ticket) => {
           const attachments = Array.isArray(ticket.attachments) ? ticket.attachments.length : 0;
           const replies = Array.isArray(ticket.replies) ? ticket.replies.length : 0;
-          return '<article class="ticket-card ' + (ticket.id === state.selectedTicketId ? "is-active" : "") + '" data-ticket-id="' + escapeHtml(ticket.id) + '"><div class="ticket-card-head"><div class="ticket-badges">' + categoryBadge(ticket.category) + statusBadge(ticket.status) + '</div><span class="muted">' + formatDateTime(ticket.updatedAt) + '</span></div><div class="ticket-title">' + escapeHtml(ticket.subject) + '</div><div class="ticket-meta">' + escapeHtml(ticket.name || ticket.email || "Ticket anonimo") + '</div><div class="ticket-meta" style="margin-top:6px;">' + escapeHtml(ticket.message.slice(0, 120)) + (ticket.message.length > 120 ? "..." : "") + '</div><div class="ticket-card-summary"><span>' + replies + ' risposte</span><span>' + attachments + ' screenshot</span></div></article>';
+          return '<article class="ticket-card ' + (ticket.id === state.selectedTicketId ? "is-active" : "") + '" data-ticket-id="' + escapeHtml(ticket.id) + '"><div class="ticket-card-head"><div class="ticket-badges">' + categoryBadge(ticket.category) + statusBadge(ticket.status) + '</div><span class="muted">' + formatDateTime(ticket.updatedAt) + '</span></div><div class="ticket-title">' + escapeHtml(ticket.subject) + '</div><div class="ticket-meta">' + escapeHtml(ticket.name || ticket.email || "Ticket anonimo") + '</div><div class="ticket-meta" style="margin-top:6px;">' + escapeHtml(ticket.message.slice(0, 120)) + (ticket.message.length > 120 ? "..." : "") + '</div><div class="ticket-card-summary"><span>' + replies + ' risposte</span><span>' + attachments + ' allegati</span></div></article>';
         }).join("");
         ticketList.querySelectorAll("[data-ticket-id]").forEach((node) => node.addEventListener("click", () => selectTicket(node.getAttribute("data-ticket-id"))));
       }
@@ -2902,7 +2942,7 @@ function renderAdminPage(options: {
         const attachments = Array.isArray(ticket.attachments) ? ticket.attachments : [];
         const replies = Array.isArray(ticket.replies) ? ticket.replies : [];
         const attachmentsSection = attachments.length
-          ? '<article class="message-card"><div class="field-label">Screenshot allegati</div><div class="attachment-gallery">' + attachments.map((attachment) => '<a class="attachment-card" target="_blank" rel="noreferrer" href="' + escapeHtml(resolveTicketAssetUrl(attachment.downloadPath || "#")) + '"><img class="attachment-preview" loading="lazy" src="' + escapeHtml(resolveTicketAssetUrl(attachment.downloadPath || "#")) + '" alt="' + escapeHtml(attachment.fileName || "Screenshot ticket") + '" /><div class="attachment-name">' + escapeHtml(attachment.fileName) + '</div><div class="attachment-meta">' + escapeHtml(attachment.contentType || "immagine") + ' - ' + escapeHtml(formatBytes(attachment.sizeBytes)) + '</div></a>').join("") + '</div></article>'
+          ? '<article class="message-card"><div class="field-label">Allegati ticket</div><div class="attachment-gallery">' + attachments.map((attachment) => renderAttachmentCard(attachment)).join("") + '</div></article>'
           : '';
         const hasClientLogs = typeof ticket.clientLogs === "string" && ticket.clientLogs.trim().length > 0;
         const clientLogsSection = hasClientLogs

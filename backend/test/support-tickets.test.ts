@@ -155,6 +155,63 @@ describe("Support tickets", () => {
     expect(attachmentResponse.headers["content-type"]).toContain("image/png");
   });
 
+  it("stores voice attachments and serves them back", async () => {
+    tempDirectory = await mkdtemp(path.join(os.tmpdir(), "work-hours-tickets-"));
+    process.env.TICKETS_DIR = tempDirectory;
+    app = buildApp();
+
+    const voiceBytes = Buffer.from(
+      "UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQAAAAA=",
+      "base64"
+    );
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/tickets",
+      headers: {
+        "content-type": "application/json"
+      },
+      payload: {
+        category: "support",
+        subject: "Vocale allegato",
+        message: "Ti mando un vocale con i dettagli.",
+        attachments: [
+          {
+            fileName: "dettagli-vocale.wav",
+            contentType: "audio/wav",
+            base64Data: voiceBytes.toString("base64")
+          }
+        ]
+      }
+    });
+
+    expect(response.statusCode).toBe(201);
+    const ticket = response.json() as {
+      id: string;
+      attachments: Array<{
+        id: string;
+        fileName: string;
+        contentType: string;
+        sizeBytes: number;
+        downloadPath: string;
+      }>;
+    };
+    expect(ticket.attachments).toHaveLength(1);
+    expect(ticket.attachments[0]?.fileName).toBe("dettagli-vocale.wav");
+    expect(ticket.attachments[0]?.contentType).toBe("audio/wav");
+    expect(ticket.attachments[0]?.downloadPath).toContain(
+      `/tickets/${ticket.id}/attachments/`
+    );
+
+    const attachmentResponse = await app.inject({
+      method: "GET",
+      url: ticket.attachments[0]!.downloadPath
+    });
+
+    expect(attachmentResponse.statusCode).toBe(200);
+    expect(attachmentResponse.headers["content-type"]).toContain("audio/wav");
+  });
+
   it("returns a public ticket thread and persists user replies", async () => {
     tempDirectory = await mkdtemp(path.join(os.tmpdir(), "work-hours-tickets-"));
     process.env.TICKETS_DIR = tempDirectory;

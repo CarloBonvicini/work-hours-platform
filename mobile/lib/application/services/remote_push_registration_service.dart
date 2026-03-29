@@ -45,7 +45,7 @@ class RemotePushRegistrationService {
       );
       final token = await FirebaseMessaging.instance.getToken();
       if (token != null && token.trim().isNotEmpty) {
-        await _registerToken(token.trim());
+        await _registerTokenSafely(token.trim());
       }
 
       _tokenRefreshSubscription = FirebaseMessaging.instance.onTokenRefresh
@@ -54,12 +54,16 @@ class RemotePushRegistrationService {
             if (trimmed.isEmpty) {
               return;
             }
-            unawaited(_registerToken(trimmed));
+            unawaited(_registerTokenSafely(trimmed));
           });
 
       _initialized = true;
-    } catch (_) {
+    } on FirebaseException catch (error) {
+      debugPrint('Remote push Firebase init failed: $error');
       _available = false;
+    } catch (error) {
+      // Keep service available for future app restarts when transient failures occur.
+      debugPrint('Remote push initialization failed: $error');
     }
   }
 
@@ -75,6 +79,14 @@ class RemotePushRegistrationService {
       platform: _platformName,
       appVersion: appVersion,
     );
+  }
+
+  Future<void> _registerTokenSafely(String token) async {
+    try {
+      await _registerToken(token);
+    } catch (error) {
+      debugPrint('Unable to register mobile push token: $error');
+    }
   }
 
   String get _platformName {

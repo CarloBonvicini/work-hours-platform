@@ -66,7 +66,7 @@ describe("Admin dashboard", () => {
     expect(response.body).toContain("Non hai ancora un profilo?");
     expect(response.body).toContain("Torna al login");
     expect(response.body).toContain(
-      "Seleziona un ticket dall elenco per aprire messaggi, allegati e risposta admin."
+      "Seleziona un ticket per aprire messaggi, allegati (anche vocali) e risposta admin."
     );
     expect(response.body).not.toContain("SUPER_ADMIN_EMAIL");
     expect(response.body).not.toContain("ADMIN_SETUP_TOKEN");
@@ -296,7 +296,7 @@ describe("Admin dashboard", () => {
     });
   });
 
-  it("keeps inline screenshot previews available in the admin dashboard", async () => {
+  it("keeps inline attachment previews available in the admin dashboard", async () => {
     tempDirectory = await mkdtemp(path.join(os.tmpdir(), "work-hours-admin-"));
     process.env.TICKETS_DIR = tempDirectory;
     process.env.ADMIN_DASHBOARD_TOKEN = "secret-token";
@@ -334,7 +334,7 @@ describe("Admin dashboard", () => {
     });
     expect(dashboardResponse.statusCode).toBe(200);
     expect(dashboardResponse.body).toContain("attachment-preview");
-    expect(dashboardResponse.body).toContain("Screenshot allegati");
+    expect(dashboardResponse.body).toContain("Allegati ticket");
 
     const ticketsResponse = await app.inject({
       method: "GET",
@@ -373,6 +373,67 @@ describe("Admin dashboard", () => {
       attachments: [
         {
           fileName: "anteprima-admin.png",
+        }
+      ]
+    });
+  });
+
+  it("renders an audio player for voice attachments in the admin dashboard", async () => {
+    tempDirectory = await mkdtemp(path.join(os.tmpdir(), "work-hours-admin-"));
+    process.env.TICKETS_DIR = tempDirectory;
+    process.env.ADMIN_DASHBOARD_TOKEN = "secret-token";
+    app = buildApp();
+
+    const voiceBytes = Buffer.from(
+      "UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQAAAAA=",
+      "base64"
+    );
+
+    const createTicketResponse = await app.inject({
+      method: "POST",
+      url: "/tickets",
+      headers: {
+        "content-type": "application/json"
+      },
+      payload: {
+        category: "support",
+        subject: "Vocale admin",
+        message: "Controllo player vocale.",
+        attachments: [
+          {
+            fileName: "voce.wav",
+            contentType: "audio/wav",
+            base64Data: voiceBytes.toString("base64")
+          }
+        ]
+      }
+    });
+    expect(createTicketResponse.statusCode).toBe(201);
+
+    const dashboardResponse = await app.inject({
+      method: "GET",
+      url: "/admin"
+    });
+    expect(dashboardResponse.statusCode).toBe(200);
+    expect(dashboardResponse.body).toContain("attachment-audio-player");
+
+    const ticketsResponse = await app.inject({
+      method: "GET",
+      url: "/admin/api/tickets",
+      headers: {
+        authorization: "Bearer secret-token"
+      }
+    });
+    expect(ticketsResponse.statusCode).toBe(200);
+    expect(ticketsResponse.json()).toMatchObject({
+      items: [
+        {
+          attachments: [
+            {
+              fileName: "voce.wav",
+              contentType: "audio/wav"
+            }
+          ]
         }
       ]
     });
