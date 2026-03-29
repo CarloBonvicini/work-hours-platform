@@ -8,10 +8,7 @@ import 'package:work_hours_mobile/domain/models/cloud_backup_bundle.dart';
 import 'package:work_hours_mobile/domain/models/cloud_backup_status.dart';
 
 class RestoreFromCloudResult {
-  const RestoreFromCloudResult({
-    required this.hasBackup,
-    this.bundle,
-  });
+  const RestoreFromCloudResult({required this.hasBackup, this.bundle});
 
   final bool hasBackup;
   final CloudBackupBundle? bundle;
@@ -48,14 +45,14 @@ class AccountService {
     return session;
   }
 
-  Future<RestoreFromCloudResult> login({
+  Future<AccountSession> login({
     required String email,
     required String password,
   }) async {
     final client = WorkHoursApiClient(baseUrl: _baseUrl);
     final session = await client.login(email: email, password: password);
     await _sessionStore.saveSession(session);
-    return restoreFromCloud(session: session);
+    return session;
   }
 
   Future<void> logout() async {
@@ -128,7 +125,8 @@ class AccountService {
     }
 
     final localBundle = await _localRepository.exportBundle();
-    final appearanceSettings = await _themePreferenceStore.loadAppearanceSettings();
+    final appearanceSettings = await _themePreferenceStore
+        .loadAppearanceSettings();
     final cloudBundle = CloudBackupBundle.fromLocal(
       localBundle: localBundle,
       appearanceSettings: appearanceSettings,
@@ -173,7 +171,9 @@ class AccountService {
     }
 
     await _localRepository.importBundle(backup.toLocalBundle());
-    await _themePreferenceStore.saveAppearanceSettings(backup.appearanceSettings);
+    await _themePreferenceStore.saveAppearanceSettings(
+      backup.appearanceSettings,
+    );
     return RestoreFromCloudResult(hasBackup: true, bundle: backup);
   }
 }
