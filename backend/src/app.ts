@@ -564,17 +564,26 @@ function buildUpdateNotificationBody(releaseNotes?: string) {
   return "Nuova versione disponibile. Apri l app per vedere le novita.";
 }
 
+function buildUpdateNotificationKey(metadata: MobileReleaseMetadata) {
+  const rawKey = `app_update_${metadata.version}_${metadata.buildNumber}`;
+  const normalizedKey = rawKey
+    .replace(/[^a-zA-Z0-9_.-]/g, "_")
+    .slice(0, 64);
+  return normalizedKey.length > 0 ? normalizedKey : "app_update";
+}
+
 function buildUpdatePushPayload(metadata: MobileReleaseMetadata) {
+  const notificationKey = buildUpdateNotificationKey(metadata);
   return {
     title: `Nuovo aggiornamento ${metadata.version}`,
     body: buildUpdateNotificationBody(metadata.releaseNotes),
     // Use the same delivery channel used by support ticket pushes.
     // This keeps user-visible behavior consistent and avoids channel drift.
     androidChannelId: MOBILE_PUSH_TICKET_CHANNEL_ID,
-    // Prevent duplicate "same update" notifications when the notify endpoint
-    // is triggered more than once for the same release.
-    androidNotificationTag: "app_update",
-    androidCollapseKey: "app_update",
+    // Prevent duplicate notifications for the same release while still
+    // allowing a visible notification for each new version.
+    androidNotificationTag: notificationKey,
+    androidCollapseKey: notificationKey,
     data: {
       type: "app_update",
       version: metadata.version,
