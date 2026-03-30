@@ -4862,10 +4862,11 @@ export function buildApp(options: BuildAppOptions = {}) {
       });
     }
 
-    const headerToken =
+    const headerToken = normalizeRuntimeEnvValue(
       typeof request.headers["x-release-token"] === "string"
-        ? request.headers["x-release-token"].trim()
-        : "";
+        ? request.headers["x-release-token"]
+        : undefined
+    );
     if (!headerToken || headerToken !== expectedToken) {
       return reply.code(401).send({ error: "Unauthorized" });
     }
