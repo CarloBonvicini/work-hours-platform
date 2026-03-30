@@ -22,5 +22,10 @@ describe("normalizeRuntimeEnvValue", () => {
     expect(normalizeRuntimeEnvValue("\"value\"")).toBe("value");
     expect(normalizeRuntimeEnvValue(" \"value\" ")).toBe("value");
   });
-});
 
+  it("removes escaped surrounding quotes", () => {
+    expect(normalizeRuntimeEnvValue("\\\"value\\\"")).toBe("value");
+    expect(normalizeRuntimeEnvValue(" '\\\"value\\\"' ")).toBe("value");
+    expect(normalizeRuntimeEnvValue("\\'value\\'")).toBe("value");
+  });
+});

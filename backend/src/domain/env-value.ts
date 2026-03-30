@@ -1,3 +1,33 @@
+function unwrapQuotedValue(value: string) {
+  let normalizedValue = value;
+
+  // Keep unwrapping for common cases like "\"token\"" or "'\"token\"'".
+  for (let index = 0; index < 4; index += 1) {
+    const hasSingleQuotes =
+      normalizedValue.startsWith("'") && normalizedValue.endsWith("'");
+    const hasDoubleQuotes =
+      normalizedValue.startsWith("\"") && normalizedValue.endsWith("\"");
+    const hasEscapedSingleQuotes =
+      normalizedValue.startsWith("\\'") && normalizedValue.endsWith("\\'");
+    const hasEscapedDoubleQuotes =
+      normalizedValue.startsWith("\\\"") && normalizedValue.endsWith("\\\"");
+
+    if (hasEscapedSingleQuotes || hasEscapedDoubleQuotes) {
+      normalizedValue = normalizedValue.slice(2, -2).trim();
+      continue;
+    }
+
+    if (hasSingleQuotes || hasDoubleQuotes) {
+      normalizedValue = normalizedValue.slice(1, -1).trim();
+      continue;
+    }
+
+    break;
+  }
+
+  return normalizedValue;
+}
+
 export function normalizeRuntimeEnvValue(value: string | undefined | null) {
   if (typeof value !== "string") {
     return undefined;
@@ -8,19 +38,6 @@ export function normalizeRuntimeEnvValue(value: string | undefined | null) {
     return undefined;
   }
 
-  const startsWithSingleQuote = trimmedValue.startsWith("'");
-  const endsWithSingleQuote = trimmedValue.endsWith("'");
-  const startsWithDoubleQuote = trimmedValue.startsWith("\"");
-  const endsWithDoubleQuote = trimmedValue.endsWith("\"");
-
-  if (
-    (startsWithSingleQuote && endsWithSingleQuote) ||
-    (startsWithDoubleQuote && endsWithDoubleQuote)
-  ) {
-    const unquotedValue = trimmedValue.slice(1, -1).trim();
-    return unquotedValue.length > 0 ? unquotedValue : undefined;
-  }
-
-  return trimmedValue;
+  const normalizedValue = unwrapQuotedValue(trimmedValue);
+  return normalizedValue.length > 0 ? normalizedValue : undefined;
 }
-
