@@ -98,6 +98,7 @@ interface MobileReleaseStatus {
 type SupportTicketCategory = "bug" | "feature" | "support";
 type SupportTicketStatus = "new" | "in_progress" | "answered" | "closed";
 type SupportTicketReplyAuthor = "admin" | "user";
+const MOBILE_PUSH_UPDATE_CHANNEL_ID = "work_hours_updates";
 const MOBILE_PUSH_TICKET_CHANNEL_ID = "work_hours_ticket_replies";
 const SUPPORT_TICKET_MAX_ATTACHMENTS = 3;
 const SUPPORT_TICKET_MAX_ATTACHMENT_BYTES = 4 * 1024 * 1024;
@@ -574,18 +575,18 @@ function buildUpdateNotificationKey(metadata: MobileReleaseMetadata) {
 
 function buildUpdatePushPayload(metadata: MobileReleaseMetadata) {
   const notificationKey = buildUpdateNotificationKey(metadata);
+  const body = buildUpdateNotificationBody(metadata.releaseNotes);
   return {
     title: `Nuovo aggiornamento ${metadata.version}`,
-    body: buildUpdateNotificationBody(metadata.releaseNotes),
-    // Use the same delivery channel used by support ticket pushes.
-    // This keeps user-visible behavior consistent and avoids channel drift.
-    androidChannelId: MOBILE_PUSH_TICKET_CHANNEL_ID,
+    body,
+    androidChannelId: MOBILE_PUSH_UPDATE_CHANNEL_ID,
     // Prevent duplicate notifications for the same release while still
     // allowing a visible notification for each new version.
     androidNotificationTag: notificationKey,
     androidCollapseKey: notificationKey,
     data: {
       type: "app_update",
+      message: body,
       version: metadata.version,
       tag: metadata.tag,
       buildNumber: metadata.buildNumber

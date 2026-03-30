@@ -186,9 +186,9 @@ class LocalNotificationService {
 
       const details = NotificationDetails(
         android: AndroidNotificationDetails(
-          _ticketChannelId,
-          _ticketChannelName,
-          channelDescription: _ticketChannelDescription,
+          _updateChannelId,
+          _updateChannelName,
+          channelDescription: _updateChannelDescription,
           importance: Importance.high,
           priority: Priority.high,
         ),

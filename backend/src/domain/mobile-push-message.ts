@@ -11,6 +11,8 @@ function normalizeNonEmptyString(value: string | undefined) {
 
 function buildAndroidNotification(payload: MobilePushBroadcastPayload) {
   const androidNotification: Record<string, string> = {
+    title: payload.title,
+    body: payload.body,
     sound: "default"
   };
 

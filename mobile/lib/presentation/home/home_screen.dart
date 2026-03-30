@@ -1869,8 +1869,19 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
 
     if (type == 'app_update') {
-      // Avoid duplicate in-app banners: update notifications are delivered
-      // externally when the app is not in foreground.
+      final fallbackUpdateMessage = data['message'];
+      final updateMessage = notification?.body?.trim().isNotEmpty == true
+          ? notification!.body!.trim()
+          : _normalizePushDataValue(fallbackUpdateMessage) ??
+                'Nuova versione disponibile. Apri l app per vedere le novita.';
+      final updateTitle = notification?.title?.trim().isNotEmpty == true
+          ? notification!.title!.trim()
+          : 'Nuovo aggiornamento disponibile';
+      await _localNotificationService.notifyUpdateMessage(
+        title: updateTitle,
+        message: updateMessage,
+        version: _normalizePushDataValue(data['version']),
+      );
       return;
     }
   }
