@@ -98,6 +98,7 @@ interface MobileReleaseStatus {
 type SupportTicketCategory = "bug" | "feature" | "support";
 type SupportTicketStatus = "new" | "in_progress" | "answered" | "closed";
 type SupportTicketReplyAuthor = "admin" | "user";
+const MOBILE_PUSH_UPDATE_CHANNEL_ID = "work_hours_updates";
 const MOBILE_PUSH_TICKET_CHANNEL_ID = "work_hours_ticket_replies";
 const SUPPORT_TICKET_MAX_ATTACHMENTS = 3;
 const SUPPORT_TICKET_MAX_ATTACHMENT_BYTES = 4 * 1024 * 1024;
@@ -564,19 +565,28 @@ function buildUpdateNotificationBody(releaseNotes?: string) {
   return "Nuova versione disponibile. Apri l app per vedere le novita.";
 }
 
+function buildUpdateNotificationKey(metadata: MobileReleaseMetadata) {
+  const rawKey = `app_update_${metadata.version}_${metadata.buildNumber}`;
+  const normalizedKey = rawKey
+    .replace(/[^a-zA-Z0-9_.-]/g, "_")
+    .slice(0, 64);
+  return normalizedKey.length > 0 ? normalizedKey : "app_update";
+}
+
 function buildUpdatePushPayload(metadata: MobileReleaseMetadata) {
+  const notificationKey = buildUpdateNotificationKey(metadata);
+  const body = buildUpdateNotificationBody(metadata.releaseNotes);
   return {
     title: `Nuovo aggiornamento ${metadata.version}`,
-    body: buildUpdateNotificationBody(metadata.releaseNotes),
-    // Use the same delivery channel used by support ticket pushes.
-    // This keeps user-visible behavior consistent and avoids channel drift.
-    androidChannelId: MOBILE_PUSH_TICKET_CHANNEL_ID,
-    // Prevent duplicate "same update" notifications when the notify endpoint
-    // is triggered more than once for the same release.
-    androidNotificationTag: "app_update",
-    androidCollapseKey: "app_update",
+    body,
+    androidChannelId: MOBILE_PUSH_UPDATE_CHANNEL_ID,
+    // Prevent duplicate notifications for the same release while still
+    // allowing a visible notification for each new version.
+    androidNotificationTag: notificationKey,
+    androidCollapseKey: notificationKey,
     data: {
       type: "app_update",
+      message: body,
       version: metadata.version,
       tag: metadata.tag,
       buildNumber: metadata.buildNumber
@@ -4852,10 +4862,11 @@ export function buildApp(options: BuildAppOptions = {}) {
       });
     }
 
-    const headerToken =
+    const headerToken = normalizeRuntimeEnvValue(
       typeof request.headers["x-release-token"] === "string"
-        ? request.headers["x-release-token"].trim()
-        : "";
+        ? request.headers["x-release-token"]
+        : undefined
+    );
     if (!headerToken || headerToken !== expectedToken) {
       return reply.code(401).send({ error: "Unauthorized" });
     }

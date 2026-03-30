@@ -150,6 +150,26 @@ describe("Mobile push API", () => {
     });
   });
 
+  it("accepts quoted release token passed in request header", async () => {
+    process.env.MOBILE_PUSH_NOTIFY_TOKEN = "test-release-token";
+    tempDirectory = await mkdtemp(path.join(os.tmpdir(), "work-hours-push-"));
+    process.env.MOBILE_UPDATES_DIR = tempDirectory;
+    app = buildApp();
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/internal/mobile-updates/notify",
+      headers: {
+        "x-release-token": "\"test-release-token\""
+      }
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.json()).toEqual({
+      error: "No mobile release published"
+    });
+  });
+
   it("returns 404 when no mobile release metadata exists", async () => {
     process.env.MOBILE_PUSH_NOTIFY_TOKEN = "test-release-token";
     tempDirectory = await mkdtemp(path.join(os.tmpdir(), "work-hours-push-"));

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:file_picker/file_picker.dart';
@@ -7,6 +8,8 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:record/record.dart';
 import 'package:work_hours_mobile/application/services/account_service.dart';
 import 'package:work_hours_mobile/application/services/app_update_service.dart';
 import 'package:work_hours_mobile/domain/models/account_session.dart';
@@ -32,6 +35,8 @@ import 'package:work_hours_mobile/domain/models/support_ticket.dart';
 import 'package:work_hours_mobile/domain/models/user_work_rules.dart';
 import 'package:work_hours_mobile/domain/models/weekday_schedule.dart';
 import 'package:work_hours_mobile/domain/models/weekday_target_minutes.dart';
+import 'package:work_hours_mobile/domain/models/work_entry.dart';
+import 'package:work_hours_mobile/presentation/home/consuntivo_section.dart';
 import 'package:work_hours_mobile/presentation/home/update_release_notes_parser.dart';
 
 enum _QuickEntryMode { work, leave }
@@ -41,6 +46,8 @@ enum _CalendarView { day, week, month, year }
 enum _AppearanceTab { theme, colors, typography }
 
 enum _AccountAuthMode { login, register }
+
+enum _TicketVoiceRecordingAction { cancel, save }
 
 const int _maxTicketAttachments = 3;
 const int _maxTicketAttachmentBytes = 4 * 1024 * 1024;
@@ -65,6 +72,7 @@ const List<String> _recoveryQuestionSuggestions = [
 
 enum _HomeSection {
   day,
+  consuntivo,
   overview,
   quickEntry,
   calendar,
@@ -101,6 +109,7 @@ enum _WorkdaySessionStatus { notStarted, active, onBreak, completed }
 
 const _mainNavigationSections = [
   _HomeSection.day,
+  _HomeSection.consuntivo,
   _HomeSection.calendar,
   _HomeSection.workSettings,
   _HomeSection.profile,
@@ -232,7 +241,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _isSavingWorkdaySession = false;
   bool _isAgendaInteracting = false;
   bool _isLoadingTicketThreads = false;
+  bool _isLoadingConsuntivoData = false;
   bool _isSubmittingTicketReply = false;
+  bool _isRecordingTicketVoice = false;
   bool _isRecoveringTrackedTicket = false;
   bool _isAuthenticatingAccount = false;
   bool _isRecoveringAccountPassword = false;
@@ -249,6 +260,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       const UpdateDownloadProgress(receivedBytes: 0, totalBytes: null);
   late bool _hasCompletedInitialSetup;
   _HomeSection _selectedSection = _HomeSection.calendar;
+  ConsuntivoRangeOption _consuntivoRange = ConsuntivoRangeOption.oneMonth;
   SupportTicketCategory _selectedTicketCategory = SupportTicketCategory.bug;
   List<TrackedSupportTicket> _trackedTickets = const [];
   Map<String, SupportTicketThread> _ticketThreadsById = const {};
@@ -281,6 +293,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Timer? _ticketNotificationTimer;
   Timer? _liveWorkedMinutesTimer;
   StreamSubscription<RemoteMessage>? _foregroundPushSubscription;
+  final AudioRecorder _ticketAudioRecorder = AudioRecorder();
   final LocalNotificationService _localNotificationService =
       LocalNotificationService();
   final DiagnosticLogService _diagnosticLogService = DiagnosticLogService();
@@ -391,6 +404,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     for (final controller in _weekdayBreakControllers.values) {
       controller.dispose();
     }
+    unawaited(_ticketAudioRecorder.dispose());
     super.dispose();
   }
 
@@ -428,6 +442,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       unawaited(_loadWorkdaySessionForDate(resolvedSelectedDate));
       unawaited(_ensureCalendarDataForCurrentView());
       unawaited(_ensureUpcomingWeekData());
+      if (_selectedSection == _HomeSection.consuntivo) {
+        unawaited(_ensureConsuntivoDataLoaded());
+      }
       await _maybeShowInitialSetup(snapshot);
     } catch (error) {
       if (!mounted) {
@@ -1845,13 +1862,26 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           ? notification!.body!.trim()
           : _normalizePushDataValue(fallbackTicketMessage) ??
                 'Nuova risposta dal supporto.';
-      await _localNotificationService.notifyTicketReplies(message: ticketMessage);
+      await _localNotificationService.notifyTicketReplies(
+        message: ticketMessage,
+      );
       return;
     }
 
     if (type == 'app_update') {
-      // Avoid duplicate in-app banners: update notifications are delivered
-      // externally when the app is not in foreground.
+      final fallbackUpdateMessage = data['message'];
+      final updateMessage = notification?.body?.trim().isNotEmpty == true
+          ? notification!.body!.trim()
+          : _normalizePushDataValue(fallbackUpdateMessage) ??
+                'Nuova versione disponibile. Apri l app per vedere le novita.';
+      final updateTitle = notification?.title?.trim().isNotEmpty == true
+          ? notification!.title!.trim()
+          : 'Nuovo aggiornamento disponibile';
+      await _localNotificationService.notifyUpdateMessage(
+        title: updateTitle,
+        message: updateMessage,
+        version: _normalizePushDataValue(data['version']),
+      );
       return;
     }
   }
@@ -5609,6 +5639,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _submitSupportTicket() async {
+    if (_isRecordingTicketVoice) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Completa o annulla la registrazione vocale prima di inviare il ticket.',
+          ),
+        ),
+      );
+      return;
+    }
+
     final isValid = _ticketFormKey.currentState?.validate() ?? false;
     if (!isValid) {
       return;
@@ -5908,6 +5949,177 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           content: Text('Impossibile aprire il selettore file vocali.'),
         ),
       );
+    }
+  }
+
+  Future<void> _recordTicketVoiceAttachment() async {
+    if (_isSubmittingTicket || _isRecordingTicketVoice) {
+      return;
+    }
+
+    if (!Platform.isAndroid) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'La registrazione vocale diretta e disponibile solo su Android.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    final remainingSlots = _maxTicketAttachments - _ticketAttachments.length;
+    if (remainingSlots <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Puoi allegare al massimo 3 file per ticket.'),
+        ),
+      );
+      return;
+    }
+
+    String? outputPath;
+    try {
+      final hasPermission = await _ticketAudioRecorder.hasPermission();
+      if (!hasPermission) {
+        if (!mounted) {
+          return;
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Permesso microfono non concesso. Abilitalo per registrare un vocale.',
+            ),
+          ),
+        );
+        return;
+      }
+
+      final tempDirectory = await getTemporaryDirectory();
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      outputPath = '${tempDirectory.path}/ticket-voice-$timestamp.m4a';
+
+      await _ticketAudioRecorder.start(
+        const RecordConfig(
+          encoder: AudioEncoder.aacLc,
+          bitRate: 96000,
+          sampleRate: 44100,
+          numChannels: 1,
+        ),
+        path: outputPath,
+      );
+
+      if (!mounted) {
+        await _ticketAudioRecorder.cancel();
+        return;
+      }
+
+      setState(() {
+        _isRecordingTicketVoice = true;
+      });
+
+      final action = await showDialog<_TicketVoiceRecordingAction>(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) {
+          return AlertDialog(
+            title: const Text('Registra vocale'),
+            content: const Text(
+              'Registrazione in corso. Quando hai finito premi "Termina e allega".',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(
+                  dialogContext,
+                ).pop(_TicketVoiceRecordingAction.cancel),
+                child: const Text('Annulla'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(
+                  dialogContext,
+                ).pop(_TicketVoiceRecordingAction.save),
+                child: const Text('Termina e allega'),
+              ),
+            ],
+          );
+        },
+      );
+
+      if (action == _TicketVoiceRecordingAction.save) {
+        final recordedPath = await _ticketAudioRecorder.stop();
+        final normalizedPath = (recordedPath ?? '').trim();
+        if (normalizedPath.isEmpty) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text(
+                  'Registrazione non completata. Riprova a registrare il vocale.',
+                ),
+              ),
+            );
+          }
+          return;
+        }
+
+        final voiceBytes = await File(normalizedPath).readAsBytes();
+        if (!mounted) {
+          return;
+        }
+
+        if (voiceBytes.isEmpty ||
+            voiceBytes.lengthInBytes > _maxTicketAttachmentBytes) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Vocale non valido o troppo grande. Limite 4 MB per allegato.',
+              ),
+            ),
+          );
+          return;
+        }
+
+        if (_ticketAttachments.length >= _maxTicketAttachments) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Puoi allegare al massimo 3 file per ticket.'),
+            ),
+          );
+          return;
+        }
+
+        final attachment = SupportTicketUploadAttachment(
+          fileName: 'vocale-$timestamp.m4a',
+          contentType: 'audio/mp4',
+          bytes: voiceBytes,
+        );
+        setState(() {
+          _ticketAttachments = [..._ticketAttachments, attachment];
+        });
+      } else {
+        await _ticketAudioRecorder.cancel();
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Impossibile registrare il vocale in questo momento.',
+            ),
+          ),
+        );
+      }
+      await _ticketAudioRecorder.cancel().catchError((_) {});
+    } finally {
+      if (outputPath != null) {
+        unawaited(
+          File(outputPath).delete().then<void>((_) {}).catchError((_) {}),
+        );
+      }
+      if (mounted) {
+        setState(() {
+          _isRecordingTicketVoice = false;
+        });
+      }
     }
   }
 
@@ -6416,6 +6628,354 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               '${_selectedDate.year}-${(index + 1).toString().padLeft(2, '0')}',
         );
     }
+  }
+
+  List<String> _requiredMonthsForConsuntivoRange() {
+    final monthCount = _consuntivoRange.monthCount;
+    final anchorMonthDate = _monthToDate(_selectedMonth);
+
+    return List.generate(monthCount, (index) {
+      final offset = (monthCount - 1) - index;
+      final monthDate = DateTime(
+        anchorMonthDate.year,
+        anchorMonthDate.month - offset,
+        1,
+      );
+      return DashboardService.formatMonth(monthDate);
+    }, growable: false);
+  }
+
+  Future<void> _ensureConsuntivoDataLoaded() async {
+    if (!mounted || _isLoadingConsuntivoData) {
+      return;
+    }
+
+    final requiredMonths = _requiredMonthsForConsuntivoRange();
+    final missingMonths = requiredMonths
+        .where((month) => _snapshotForMonth(month) == null)
+        .toList(growable: false);
+    if (missingMonths.isEmpty) {
+      return;
+    }
+
+    setState(() {
+      _isLoadingConsuntivoData = true;
+    });
+
+    try {
+      for (final month in missingMonths) {
+        final snapshot = await _fetchSnapshotForMonth(month);
+        await _cacheSnapshot(snapshot);
+      }
+    } catch (error) {
+      if (mounted) {
+        setState(() {
+          _errorMessage = _humanizeError(error);
+        });
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoadingConsuntivoData = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _changeConsuntivoRange(ConsuntivoRangeOption nextRange) async {
+    if (nextRange == _consuntivoRange) {
+      return;
+    }
+
+    setState(() {
+      _consuntivoRange = nextRange;
+    });
+    await _ensureConsuntivoDataLoaded();
+  }
+
+  Future<void> _shiftConsuntivoAnchorMonth(int step) async {
+    if (step == 0 || _isLoading) {
+      return;
+    }
+
+    final currentMonthDate = _monthToDate(_selectedMonth);
+    final nextMonthDate = DateTime(
+      currentMonthDate.year,
+      currentMonthDate.month + step,
+      1,
+    );
+    final nextMonth = DashboardService.formatMonth(nextMonthDate);
+    if (nextMonth == _selectedMonth) {
+      return;
+    }
+
+    final daysInNextMonth = DateTime(
+      nextMonthDate.year,
+      nextMonthDate.month + 1,
+      0,
+    ).day;
+    final nextSelectedDate = DateTime(
+      nextMonthDate.year,
+      nextMonthDate.month,
+      math.min(_selectedDate.day, daysInNextMonth),
+    );
+
+    await _loadSnapshot(month: nextMonth, selectedDate: nextSelectedDate);
+    if (!mounted) {
+      return;
+    }
+    await _ensureConsuntivoDataLoaded();
+  }
+
+  ConsuntivoSectionData _buildConsuntivoSectionData(
+    DashboardSnapshot fallbackSnapshot,
+  ) {
+    final requiredMonths = _requiredMonthsForConsuntivoRange();
+    final snapshotsByMonth = <String, DashboardSnapshot>{
+      for (final month in requiredMonths)
+        if (_snapshotForMonth(month) != null) month: _snapshotForMonth(month)!,
+    };
+    final anchorSnapshot =
+        snapshotsByMonth[_selectedMonth] ??
+        _snapshotForMonth(_selectedMonth) ??
+        fallbackSnapshot;
+
+    final monthSummaries = requiredMonths
+        .map((month) {
+          final snapshot = snapshotsByMonth[month];
+          if (snapshot == null) {
+            return ConsuntivoMonthSummary(
+              monthLabel: _formatMonthLabel(month),
+              expectedMinutes: 0,
+              workedMinutes: 0,
+              leaveMinutes: 0,
+              balanceMinutes: 0,
+            );
+          }
+
+          return ConsuntivoMonthSummary(
+            monthLabel: _formatMonthLabel(snapshot.summary.month),
+            expectedMinutes: snapshot.summary.expectedMinutes,
+            workedMinutes: snapshot.summary.workedMinutes,
+            leaveMinutes: snapshot.summary.leaveMinutes,
+            balanceMinutes: snapshot.summary.balanceMinutes,
+          );
+        })
+        .toList(growable: false);
+
+    var totalExpectedMinutes = 0;
+    var totalWorkedMinutes = 0;
+    var totalLeaveMinutes = 0;
+    var totalRawBalanceMinutes = 0;
+    var totalClampedBalanceMinutes = 0;
+
+    for (final month in requiredMonths) {
+      final snapshot = snapshotsByMonth[month];
+      if (snapshot == null) {
+        continue;
+      }
+
+      totalExpectedMinutes += snapshot.summary.expectedMinutes;
+      totalWorkedMinutes += snapshot.summary.workedMinutes;
+      totalLeaveMinutes += snapshot.summary.leaveMinutes;
+      totalRawBalanceMinutes += snapshot.summary.rawBalanceMinutes;
+      totalClampedBalanceMinutes += snapshot.summary.balanceMinutes;
+    }
+
+    final allPermissionRules = [
+      ...anchorSnapshot.profile.workRules.additionalPermissions,
+      ...anchorSnapshot.profile.workRules.leaveBanks,
+    ];
+    final permissions =
+        allPermissionRules
+            .map(
+              (rule) => ConsuntivoPermissionSummary(
+                name: rule.name,
+                periodLabel: rule.period.label,
+                enabled: rule.enabled,
+                allowanceLabel: _formatRuleAllowanceValue(rule),
+                usedLabel: _formatRuleUsedValue(rule),
+                remainingLabel: _formatRuleRemainingValue(rule),
+                movementsLabel: rule.movements
+                    .map((item) => item.label)
+                    .join(', '),
+              ),
+            )
+            .toList(growable: false)
+          ..sort((left, right) => left.name.compareTo(right.name));
+
+    final daySummariesData = _buildConsuntivoDaySummaries(
+      requiredMonths: requiredMonths,
+      snapshotsByMonth: snapshotsByMonth,
+    );
+
+    final firstMonthLabel = _formatMonthLabel(requiredMonths.first);
+    final lastMonthLabel = _formatMonthLabel(requiredMonths.last);
+    final periodLabel = firstMonthLabel == lastMonthLabel
+        ? firstMonthLabel
+        : '$firstMonthLabel - $lastMonthLabel';
+
+    return ConsuntivoSectionData(
+      anchorMonthLabel: _formatMonthLabel(_selectedMonth),
+      periodLabel: periodLabel,
+      totals: ConsuntivoTotals(
+        expectedMinutes: totalExpectedMinutes,
+        workedMinutes: totalWorkedMinutes,
+        leaveMinutes: totalLeaveMinutes,
+        rawBalanceMinutes: totalRawBalanceMinutes,
+        clampedBalanceMinutes: totalClampedBalanceMinutes,
+        overtimeMaturedMinutes: math.max(totalRawBalanceMinutes, 0),
+        debitMaturedMinutes: math.max(-totalRawBalanceMinutes, 0),
+      ),
+      months: monthSummaries,
+      permissions: permissions,
+      days: daySummariesData.days,
+      hiddenDaysCount: daySummariesData.hiddenCount,
+    );
+  }
+
+  ({List<ConsuntivoDaySummary> days, int hiddenCount})
+  _buildConsuntivoDaySummaries({
+    required List<String> requiredMonths,
+    required Map<String, DashboardSnapshot> snapshotsByMonth,
+  }) {
+    if (requiredMonths.isEmpty) {
+      return (days: const <ConsuntivoDaySummary>[], hiddenCount: 0);
+    }
+
+    final workByMonthAndDate = <String, Map<String, List<WorkEntry>>>{};
+    final leaveByMonthAndDate = <String, Map<String, List<LeaveEntry>>>{};
+    final overridesByMonthAndDate = <String, Map<String, ScheduleOverride>>{};
+
+    for (final month in requiredMonths) {
+      final snapshot = snapshotsByMonth[month];
+      if (snapshot == null) {
+        continue;
+      }
+
+      final workByDate = <String, List<WorkEntry>>{};
+      for (final entry in snapshot.workEntries) {
+        workByDate.putIfAbsent(entry.date, () => <WorkEntry>[]).add(entry);
+      }
+
+      final leaveByDate = <String, List<LeaveEntry>>{};
+      for (final entry in snapshot.leaveEntries) {
+        leaveByDate.putIfAbsent(entry.date, () => <LeaveEntry>[]).add(entry);
+      }
+
+      final overrideByDate = <String, ScheduleOverride>{
+        for (final item in snapshot.scheduleOverrides) item.date: item,
+      };
+
+      workByMonthAndDate[month] = workByDate;
+      leaveByMonthAndDate[month] = leaveByDate;
+      overridesByMonthAndDate[month] = overrideByDate;
+    }
+
+    final startDate = _monthToDate(requiredMonths.first);
+    final selectedMonthDate = _monthToDate(_selectedMonth);
+    final selectedMonthLastDate = DateTime(
+      selectedMonthDate.year,
+      selectedMonthDate.month + 1,
+      0,
+    );
+    final today = DateUtils.dateOnly(DateTime.now());
+    final endDate = selectedMonthLastDate.isAfter(today)
+        ? today
+        : selectedMonthLastDate;
+    if (endDate.isBefore(startDate)) {
+      return (days: const <ConsuntivoDaySummary>[], hiddenCount: 0);
+    }
+
+    final allDays = <ConsuntivoDaySummary>[];
+    var cursor = endDate;
+    while (!cursor.isBefore(startDate)) {
+      final month = DashboardService.formatMonth(cursor);
+      final snapshot = snapshotsByMonth[month];
+      if (snapshot != null) {
+        final isoDate = DashboardService.defaultEntryDateOf(cursor);
+        final workEntries =
+            workByMonthAndDate[month]?[isoDate] ?? const <WorkEntry>[];
+        final leaveEntries =
+            leaveByMonthAndDate[month]?[isoDate] ?? const <LeaveEntry>[];
+        final override = overridesByMonthAndDate[month]?[isoDate];
+        final effectiveSchedule = _resolveEffectiveDayScheduleForDate(
+          snapshot,
+          cursor,
+        );
+
+        final workedMinutes = workEntries.fold<int>(
+          0,
+          (total, entry) => total + entry.minutes,
+        );
+        final leaveMinutes = leaveEntries.fold<int>(
+          0,
+          (total, entry) => total + entry.minutes,
+        );
+        final registeredMinutes = workedMinutes + leaveMinutes;
+        final balanceMinutes =
+            registeredMinutes - effectiveSchedule.targetMinutes;
+
+        final includeRow =
+            workedMinutes > 0 ||
+            leaveMinutes > 0 ||
+            override != null ||
+            balanceMinutes != 0;
+        if (includeRow) {
+          final startTime = effectiveSchedule.startTime?.trim() ?? '';
+          final endTime = effectiveSchedule.endTime?.trim() ?? '';
+          final hasTimeline = startTime.isNotEmpty && endTime.isNotEmpty;
+          final scheduleDetail = hasTimeline
+              ? 'Dettaglio: $startTime-$endTime, pausa ${_formatHoursInput(effectiveSchedule.breakMinutes)}'
+              : null;
+
+          final details = <String>[];
+          if (leaveEntries.isNotEmpty) {
+            final leaveLabel = leaveEntries
+                .map(
+                  (entry) =>
+                      '${entry.type.label} ${_formatHoursInput(entry.minutes)}',
+                )
+                .join(', ');
+            details.add('Causali: $leaveLabel');
+          }
+          if (override != null) {
+            details.add('Programma personalizzato');
+          }
+          final notedWorkEntries = workEntries
+              .map((entry) => entry.note?.trim() ?? '')
+              .where((note) => note.isNotEmpty)
+              .toList(growable: false);
+          if (notedWorkEntries.isNotEmpty) {
+            details.add('Note: ${notedWorkEntries.join(' | ')}');
+          }
+
+          allDays.add(
+            ConsuntivoDaySummary(
+              dateLabel:
+                  '${_formatWeekdayShortLabel(cursor)} ${_formatCompactDate(cursor)}',
+              plannedLabel: _formatHoursInput(effectiveSchedule.targetMinutes),
+              registeredLabel: _formatHoursInput(registeredMinutes),
+              balanceMinutes: balanceMinutes,
+              scheduleDetail: scheduleDetail,
+              causalDetail: details.isEmpty ? null : details.join(' | '),
+            ),
+          );
+        }
+      }
+
+      cursor = cursor.subtract(const Duration(days: 1));
+    }
+
+    const maxVisibleRows = 90;
+    if (allDays.length <= maxVisibleRows) {
+      return (days: allDays, hiddenCount: 0);
+    }
+
+    return (
+      days: allDays.take(maxVisibleRows).toList(growable: false),
+      hiddenCount: allDays.length - maxVisibleRows,
+    );
   }
 
   List<String> _monthsBetweenDates(DateTime start, DateTime end) {
@@ -7093,6 +7653,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             onNextPeriod: () => _shiftSelectedDay(1),
           ),
         );
+      case _HomeSection.consuntivo:
+        final consuntivoData = _buildConsuntivoSectionData(snapshot);
+        return ConsuntivoSection(
+          data: consuntivoData,
+          selectedRange: _consuntivoRange,
+          isLoading: _isLoadingConsuntivoData,
+          onRangeChanged: (range) {
+            unawaited(_changeConsuntivoRange(range));
+          },
+          onPreviousMonth: () => _shiftConsuntivoAnchorMonth(-1),
+          onNextMonth: () => _shiftConsuntivoAnchorMonth(1),
+        );
       case _HomeSection.overview:
         final today = _todayDate;
         final todaySnapshot =
@@ -7381,6 +7953,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           ticketThreadsById: _ticketThreadsById,
           selectedTicketId: _selectedTrackedTicketId,
           isSubmitting: _isSubmittingTicket,
+          isRecordingVoiceAttachment: _isRecordingTicketVoice,
           isLoadingThreads: _isLoadingTicketThreads,
           isSubmittingReply: _isSubmittingTicketReply,
           isRecoveringTicket: _isRecoveringTrackedTicket,
@@ -7389,6 +7962,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           onRefreshThreads: _refreshTrackedSupportTickets,
           onRecoverTicketById: _recoverTrackedSupportTicketById,
           onPickAttachments: _pickTicketAttachments,
+          onRecordVoiceAttachment: _recordTicketVoiceAttachment,
           onPickVoiceAttachments: _pickTicketVoiceAttachments,
           onRemoveAttachment: _removeTicketAttachmentAt,
           onSubmit: _submitSupportTicket,
@@ -7437,6 +8011,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                           _markTrackedTicketRepliesSeen(selectedTicketId),
                         );
                       }
+                    }
+                    if (section == _HomeSection.consuntivo) {
+                      unawaited(_ensureConsuntivoDataLoaded());
                     }
                   },
                   onOpenRegistration: _openAccountRegistrationFlow,
@@ -16158,6 +16735,7 @@ class _SupportTicketCard extends StatelessWidget {
     required this.ticketThreadsById,
     required this.selectedTicketId,
     required this.isSubmitting,
+    required this.isRecordingVoiceAttachment,
     required this.isLoadingThreads,
     required this.isSubmittingReply,
     required this.isRecoveringTicket,
@@ -16166,6 +16744,7 @@ class _SupportTicketCard extends StatelessWidget {
     required this.onRefreshThreads,
     required this.onRecoverTicketById,
     required this.onPickAttachments,
+    required this.onRecordVoiceAttachment,
     required this.onPickVoiceAttachments,
     required this.onRemoveAttachment,
     required this.onSubmit,
@@ -16190,6 +16769,7 @@ class _SupportTicketCard extends StatelessWidget {
   final Map<String, SupportTicketThread> ticketThreadsById;
   final String? selectedTicketId;
   final bool isSubmitting;
+  final bool isRecordingVoiceAttachment;
   final bool isLoadingThreads;
   final bool isSubmittingReply;
   final bool isRecoveringTicket;
@@ -16198,6 +16778,7 @@ class _SupportTicketCard extends StatelessWidget {
   final Future<void> Function({bool notifyAboutNewReplies}) onRefreshThreads;
   final Future<void> Function() onRecoverTicketById;
   final Future<void> Function() onPickAttachments;
+  final Future<void> Function() onRecordVoiceAttachment;
   final Future<void> Function() onPickVoiceAttachments;
   final void Function(int index) onRemoveAttachment;
   final Future<void> Function() onSubmit;
@@ -16630,7 +17211,7 @@ class _SupportTicketCard extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              'Puoi allegare fino a 3 file: screenshot (PNG, JPG, WEBP) o vocali (M4A, MP3, WAV, OGG, AAC, WEBM), massimo 4 MB ciascuno.',
+              'Puoi allegare fino a 3 file: screenshot (PNG, JPG, WEBP) o vocali (M4A, MP3, WAV, OGG, AAC, WEBM). Puoi registrarli al momento o sceglierli da file. Massimo 4 MB ciascuno.',
               style: Theme.of(context).textTheme.bodySmall,
             ),
             const SizedBox(height: 10),
@@ -16647,17 +17228,34 @@ class _SupportTicketCard extends StatelessWidget {
                 ),
                 OutlinedButton.icon(
                   key: const ValueKey('ticket-voice-attachments-button'),
-                  onPressed: isSubmitting
+                  onPressed: isSubmitting || isRecordingVoiceAttachment
+                      ? null
+                      : () => onRecordVoiceAttachment(),
+                  icon: const Icon(Icons.mic_rounded),
+                  label: Text(
+                    isRecordingVoiceAttachment
+                        ? 'Registrazione...'
+                        : 'Registra vocale',
+                  ),
+                ),
+                OutlinedButton.icon(
+                  key: const ValueKey('ticket-voice-files-button'),
+                  onPressed: isSubmitting || isRecordingVoiceAttachment
                       ? null
                       : () => onPickVoiceAttachments(),
-                  icon: const Icon(Icons.mic_none_rounded),
-                  label: const Text('Aggiungi vocale'),
+                  icon: const Icon(Icons.audio_file_outlined),
+                  label: const Text('Scegli vocale'),
                 ),
                 if (attachments.isNotEmpty)
                   _TicketPill(
                     label:
                         '${attachments.length}/$_maxTicketAttachments allegati',
                     color: Theme.of(context).colorScheme.primary,
+                  ),
+                if (isRecordingVoiceAttachment)
+                  _TicketPill(
+                    label: 'Mic attivo',
+                    color: Theme.of(context).colorScheme.secondary,
                   ),
               ],
             ),
@@ -19496,6 +20094,7 @@ class _HeaderSectionIconButton extends StatelessWidget {
 String _legacyNavigationOptionKey(_HomeSection section) {
   return switch (section) {
     _HomeSection.day => 'navigation-option-day',
+    _HomeSection.consuntivo => 'navigation-option-consuntivo',
     _HomeSection.calendar => 'navigation-option-calendar',
     _HomeSection.workSettings => 'navigation-option-workSettings',
     _HomeSection.profile => 'navigation-option-profile',
@@ -19911,6 +20510,8 @@ extension on _HomeSection {
     switch (this) {
       case _HomeSection.day:
         return 'Oggi';
+      case _HomeSection.consuntivo:
+        return 'Consuntivo';
       case _HomeSection.overview:
         return 'Oggi';
       case _HomeSection.quickEntry:
@@ -19932,6 +20533,8 @@ extension on _HomeSection {
     switch (this) {
       case _HomeSection.day:
         return Icons.view_day_outlined;
+      case _HomeSection.consuntivo:
+        return Icons.analytics_outlined;
       case _HomeSection.overview:
         return Icons.today_outlined;
       case _HomeSection.quickEntry:
