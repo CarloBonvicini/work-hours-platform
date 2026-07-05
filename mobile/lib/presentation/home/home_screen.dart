@@ -9944,10 +9944,14 @@ class _QuickDayHero extends StatelessWidget {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(
-                periodBalanceLabel,
-                key: const ValueKey('calendar-live-period-balance-label'),
-                style: labelStyle,
+              Flexible(
+                child: Text(
+                  periodBalanceLabel,
+                  key: const ValueKey('calendar-live-period-balance-label'),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: labelStyle,
+                ),
               ),
               const SizedBox(width: 4),
               Icon(
@@ -14156,35 +14160,37 @@ class _SettingsSectionPanel extends StatelessWidget {
       ],
     );
 
-    return Container(
-      padding: EdgeInsets.fromLTRB(18, isExpanded ? 18 : 12, 18, 18),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerLow,
+    return Material(
+      color: theme.colorScheme.surfaceContainerLow,
+      shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: theme.colorScheme.outlineVariant),
+        side: BorderSide(color: theme.colorScheme.outlineVariant),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (isExpanded)
-            header
-          else
-            SizedBox(
-              height: 30,
-              child: Align(alignment: Alignment.centerLeft, child: header),
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(18, isExpanded ? 18 : 12, 18, 18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (isExpanded)
+              header
+            else
+              SizedBox(
+                height: 30,
+                child: Align(alignment: Alignment.centerLeft, child: header),
+              ),
+            AnimatedSize(
+              duration: const Duration(milliseconds: 180),
+              curve: Curves.easeOut,
+              alignment: Alignment.topCenter,
+              child: isExpanded
+                  ? Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [const SizedBox(height: 16), child],
+                    )
+                  : const SizedBox.shrink(),
             ),
-          AnimatedSize(
-            duration: const Duration(milliseconds: 180),
-            curve: Curves.easeOut,
-            alignment: Alignment.topCenter,
-            child: isExpanded
-                ? Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [const SizedBox(height: 16), child],
-                  )
-                : const SizedBox.shrink(),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -16107,118 +16113,122 @@ class _DayCalendarSettingsCard extends StatelessWidget {
       return onAppearanceSettingsChanged(nextSettings);
     }
 
-    return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerLow,
+    return Material(
+      color: theme.colorScheme.surfaceContainerLow,
+      shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: theme.colorScheme.outlineVariant),
+        side: BorderSide(color: theme.colorScheme.outlineVariant),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Sezione Oggi',
-            style: theme.textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Decidi cosa vuoi vedere e in che ordine nella sezione Oggi.',
-            style: theme.textTheme.bodyMedium,
-          ),
-          const SizedBox(height: 16),
-          Text(
-            'Formato layout',
-            style: theme.textTheme.titleSmall?.copyWith(
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-          const SizedBox(height: 8),
-          SegmentedButton<DayCalendarLayoutMode>(
-            showSelectedIcon: false,
-            segments: const [
-              ButtonSegment(
-                value: DayCalendarLayoutMode.quickEditorFirst,
-                label: Text('Rapido sopra'),
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Sezione Oggi',
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w800,
               ),
-              ButtonSegment(
-                value: DayCalendarLayoutMode.agendaFirst,
-                label: Text('Agenda sopra'),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Decidi cosa vuoi vedere e in che ordine nella sezione Oggi.',
+              style: theme.textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Formato layout',
+              style: theme.textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.w800,
               ),
-            ],
-            selected: {appearanceSettings.dayCalendarLayoutMode},
-            onSelectionChanged: isUpdatingThemeMode
-                ? null
-                : (selection) => unawaited(
-                    updateSettings(
-                      appearanceSettings.copyWith(
-                        dayCalendarLayoutMode: selection.first,
-                      ),
-                    ),
-                  ),
-          ),
-          const SizedBox(height: 18),
-          SwitchListTile.adaptive(
-            contentPadding: EdgeInsets.zero,
-            value: appearanceSettings.showDayWorkdayCard,
-            onChanged: isUpdatingThemeMode
-                ? null
-                : (value) => unawaited(
-                    updateSettings(
-                      appearanceSettings.copyWith(showDayWorkdayCard: value),
-                    ),
-                  ),
-            title: const Text('Mostra "Giornata di oggi"'),
-            subtitle: const Text(
-              'Se preferisci, puoi usare solo modifica rapida e agenda oraria.',
             ),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            'Campi della modifica rapida',
-            style: theme.textTheme.titleSmall?.copyWith(
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            'Entrata e durata restano sempre visibili. Attiva solo i campi opzionali che ti servono davvero.',
-            style: theme.textTheme.bodyMedium,
-          ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: [
-              FilterChip(
-                label: const Text('Uscita'),
-                selected: appearanceSettings.showDayEndTime,
-                onSelected: isUpdatingThemeMode
-                    ? null
-                    : (selected) => unawaited(
-                        updateSettings(
-                          appearanceSettings.copyWith(showDayEndTime: selected),
+            const SizedBox(height: 8),
+            SegmentedButton<DayCalendarLayoutMode>(
+              showSelectedIcon: false,
+              segments: const [
+                ButtonSegment(
+                  value: DayCalendarLayoutMode.quickEditorFirst,
+                  label: Text('Rapido sopra'),
+                ),
+                ButtonSegment(
+                  value: DayCalendarLayoutMode.agendaFirst,
+                  label: Text('Agenda sopra'),
+                ),
+              ],
+              selected: {appearanceSettings.dayCalendarLayoutMode},
+              onSelectionChanged: isUpdatingThemeMode
+                  ? null
+                  : (selection) => unawaited(
+                      updateSettings(
+                        appearanceSettings.copyWith(
+                          dayCalendarLayoutMode: selection.first,
                         ),
                       ),
+                    ),
+            ),
+            const SizedBox(height: 18),
+            SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              value: appearanceSettings.showDayWorkdayCard,
+              onChanged: isUpdatingThemeMode
+                  ? null
+                  : (value) => unawaited(
+                      updateSettings(
+                        appearanceSettings.copyWith(showDayWorkdayCard: value),
+                      ),
+                    ),
+              title: const Text('Mostra "Giornata di oggi"'),
+              subtitle: const Text(
+                'Se preferisci, puoi usare solo modifica rapida e agenda oraria.',
               ),
-              FilterChip(
-                label: const Text('Pausa'),
-                selected: appearanceSettings.showDayBreakMinutes,
-                onSelected: isUpdatingThemeMode
-                    ? null
-                    : (selected) => unawaited(
-                        updateSettings(
-                          appearanceSettings.copyWith(
-                            showDayBreakMinutes: selected,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'Campi della modifica rapida',
+              style: theme.textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Entrata e durata restano sempre visibili. Attiva solo i campi opzionali che ti servono davvero.',
+              style: theme.textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                FilterChip(
+                  label: const Text('Uscita'),
+                  selected: appearanceSettings.showDayEndTime,
+                  onSelected: isUpdatingThemeMode
+                      ? null
+                      : (selected) => unawaited(
+                          updateSettings(
+                            appearanceSettings.copyWith(
+                              showDayEndTime: selected,
+                            ),
                           ),
                         ),
-                      ),
-              ),
-            ],
-          ),
-        ],
+                ),
+                FilterChip(
+                  label: const Text('Pausa'),
+                  selected: appearanceSettings.showDayBreakMinutes,
+                  onSelected: isUpdatingThemeMode
+                      ? null
+                      : (selected) => unawaited(
+                          updateSettings(
+                            appearanceSettings.copyWith(
+                              showDayBreakMinutes: selected,
+                            ),
+                          ),
+                        ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -17980,22 +17990,24 @@ class _SectionCard extends StatelessWidget {
       _ => null,
     };
 
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF111919) : Colors.white,
+    return Material(
+      color: isDark ? const Color(0xFF111919) : Colors.white,
+      shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(
+        side: BorderSide(
           color: isDark ? const Color(0xFF324343) : const Color(0xFFE0D8CA),
         ),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          ?header,
-          if (hasHeader) SizedBox(height: hasTitle || hasSubtitle ? 18 : 14),
-          child,
-        ],
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            ?header,
+            if (hasHeader) SizedBox(height: hasTitle || hasSubtitle ? 18 : 14),
+            child,
+          ],
+        ),
       ),
     );
   }

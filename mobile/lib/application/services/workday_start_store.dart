@@ -88,7 +88,12 @@ class WorkdaySession {
       return null;
     }
 
-    final decoded = jsonDecode(rawValue);
+    final Object? decoded;
+    try {
+      decoded = jsonDecode(rawValue);
+    } catch (_) {
+      return null;
+    }
     if (decoded is! Map<String, dynamic>) {
       return null;
     }
