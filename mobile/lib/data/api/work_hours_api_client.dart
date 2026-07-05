@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
+import 'package:work_hours_mobile/data/api/timeout_http_client.dart';
 import 'package:work_hours_mobile/domain/models/account_session.dart';
 import 'package:work_hours_mobile/domain/models/account_recovery_questions.dart';
 import 'package:work_hours_mobile/domain/models/cloud_backup_bundle.dart';
@@ -32,7 +33,7 @@ class WorkHoursApiClient {
     required String baseUrl,
     http.Client? httpClient,
     this.authToken,
-  }) : _httpClient = httpClient ?? http.Client(),
+  }) : _httpClient = httpClient ?? TimeoutHttpClient(http.Client()),
        _baseUri = _normalizeBaseUri(baseUrl),
        baseUrl = _normalizeBaseUri(baseUrl).toString();
 
@@ -305,9 +306,7 @@ class WorkHoursApiClient {
     final response = await _httpClient.post(
       _buildUri('auth/recovery-questions'),
       headers: _headers(json: true),
-      body: jsonEncode({
-        'email': email,
-      }),
+      body: jsonEncode({'email': email}),
     );
 
     return AccountRecoveryQuestions.fromJson(_decodeObject(response));
@@ -370,7 +369,8 @@ class WorkHoursApiClient {
       headers: _headers(json: true),
       body: jsonEncode({
         'token': token,
-        if (platform != null && platform.trim().isNotEmpty) 'platform': platform,
+        if (platform != null && platform.trim().isNotEmpty)
+          'platform': platform,
         if (appVersion != null && appVersion.trim().isNotEmpty)
           'appVersion': appVersion,
       }),
@@ -378,15 +378,11 @@ class WorkHoursApiClient {
     _decodeResponse(response);
   }
 
-  Future<void> unregisterMobilePushToken({
-    required String token,
-  }) async {
+  Future<void> unregisterMobilePushToken({required String token}) async {
     final response = await _httpClient.post(
       _buildUri('mobile-push/tokens/remove'),
       headers: _headers(json: true),
-      body: jsonEncode({
-        'token': token,
-      }),
+      body: jsonEncode({'token': token}),
     );
     _decodeResponse(response);
   }
@@ -426,7 +422,8 @@ class WorkHoursApiClient {
     );
 
     final body = _decodeObject(response);
-    final droppedItems = body['droppedItems'] as Map<String, dynamic>? ?? const {};
+    final droppedItems =
+        body['droppedItems'] as Map<String, dynamic>? ?? const {};
     return CloudBackupStatus(
       hasBackup: true,
       updatedAt:

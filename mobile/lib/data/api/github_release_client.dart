@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
+import 'package:work_hours_mobile/data/api/timeout_http_client.dart';
 
 class LatestRelease {
   const LatestRelease({
@@ -21,7 +22,12 @@ class GitHubReleaseClient {
     required this.latestReleaseApiUrl,
     required this.fallbackReleasePageUrl,
     http.Client? httpClient,
-  }) : _httpClient = httpClient ?? http.Client();
+  }) : _httpClient =
+           httpClient ??
+           TimeoutHttpClient(
+             http.Client(),
+             timeout: const Duration(seconds: 15),
+           );
 
   final String latestReleaseApiUrl;
   final String fallbackReleasePageUrl;

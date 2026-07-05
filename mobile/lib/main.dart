@@ -35,9 +35,7 @@ Future<void> main() async {
   );
   const accountSessionStore = SharedPreferencesAccountSessionStore();
   final dashboardService = DashboardService(
-    repository: isUiDemoMode
-        ? UiDemoDashboardRepository()
-        : localRepository,
+    repository: isUiDemoMode ? UiDemoDashboardRepository() : localRepository,
   );
   final appUpdateService = isUiDemoMode
       ? const UiDemoAppUpdateService()
@@ -73,10 +71,16 @@ Future<void> main() async {
         );
 
   if (!isUiDemoMode) {
-    await _migrateLegacyApiDataIfNeeded(
-      repository: localRepository,
-      apiClient: apiClient,
-    );
+    try {
+      // L'avvio non deve mai restare bloccato sulla rete: oltre il limite
+      // si parte comunque e la migrazione riprova al prossimo avvio.
+      await _migrateLegacyApiDataIfNeeded(
+        repository: localRepository,
+        apiClient: apiClient,
+      ).timeout(const Duration(seconds: 8));
+    } on TimeoutException {
+      // Ignorato: startup best-effort.
+    }
   }
 
   final initialAccountSession = isUiDemoMode
@@ -85,13 +89,18 @@ Future<void> main() async {
   if (!isUiDemoMode &&
       initialAccountSession != null &&
       await localRepository.isEmpty()) {
-    final restored = await accountService!.restoreFromCloud(
-      session: initialAccountSession,
-    );
-    if (restored.bundle != null) {
-      await themePreferenceStore.saveAppearanceSettings(
-        restored.bundle!.appearanceSettings,
-      );
+    try {
+      final restored = await accountService!
+          .restoreFromCloud(session: initialAccountSession)
+          .timeout(const Duration(seconds: 8));
+      if (restored.bundle != null) {
+        await themePreferenceStore.saveAppearanceSettings(
+          restored.bundle!.appearanceSettings,
+        );
+      }
+    } catch (_) {
+      // Backend giu o rete assente: si parte con i dati locali e il
+      // ripristino cloud resta disponibile dalle impostazioni.
     }
   }
   final resolvedAppearanceSettings = await themePreferenceStore
