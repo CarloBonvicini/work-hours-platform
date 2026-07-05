@@ -79,7 +79,9 @@ jobs:
         env:
           # Versione pinnata: gli aggiornamenti di Flutter si adottano deliberatamente
           # aggiornando questo tag (e quello in mobile-release.yml) dopo verifica locale.
-          FLUTTER_VERSION: 3.44.4
+          # Nota: 3.44.x fa fallire 7 widget test (assertion ListTile/Material) finché
+          # non vengono mergiati i fix di PR #19.
+          FLUTTER_VERSION: 3.41.6
         run: |
           set -eu
           FLUTTER_ROOT="$RUNNER_TEMP/flutter-sdk"
