@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
+import 'package:work_hours_mobile/data/api/timeout_http_client.dart';
 import 'package:work_hours_mobile/domain/models/app_update.dart';
 import 'package:work_hours_mobile/data/api/github_release_client.dart';
 import 'package:work_hours_mobile/application/services/update_launcher.dart';
@@ -66,7 +67,13 @@ class ReleaseAppUpdateService implements AppUpdateService {
     ),
   }) : _releaseClient = releaseClient,
        _updateLauncher = updateLauncher,
-       _httpClient = httpClient ?? http.Client(),
+       // Limita solo l'attesa degli header: il body dell'APK puo durare a lungo.
+       _httpClient =
+           httpClient ??
+           TimeoutHttpClient(
+             http.Client(),
+             timeout: const Duration(seconds: 20),
+           ),
        _temporaryDirectoryProvider =
            temporaryDirectoryProvider ?? getTemporaryDirectory,
        _currentVersion = currentVersion;
