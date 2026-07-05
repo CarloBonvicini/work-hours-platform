@@ -263,10 +263,14 @@ jobs:
 
       - name: Setup Flutter SDK
         shell: bash
+        env:
+          # Versione pinnata: gli aggiornamenti di Flutter si adottano deliberatamente
+          # aggiornando questo tag (e quello in mobile-ci.yml) dopo verifica locale.
+          FLUTTER_VERSION: 3.44.4
         run: |
           set -eu
           FLUTTER_ROOT="$RUNNER_TEMP/flutter-sdk"
-          git clone --depth 1 -b stable https://github.com/flutter/flutter.git "$FLUTTER_ROOT"
+          git clone --depth 1 -b "$FLUTTER_VERSION" https://github.com/flutter/flutter.git "$FLUTTER_ROOT"
           echo "$FLUTTER_ROOT/bin" >> "$GITHUB_PATH"
           export PATH="$FLUTTER_ROOT/bin:$PATH"
           flutter --version
