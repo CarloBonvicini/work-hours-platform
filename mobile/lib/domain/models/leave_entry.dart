@@ -1,6 +1,7 @@
 enum LeaveType {
   vacation,
-  permit;
+  permit,
+  sickness;
 
   String get apiValue => name;
 
@@ -10,6 +11,8 @@ enum LeaveType {
         return 'Ferie';
       case LeaveType.permit:
         return 'Permesso';
+      case LeaveType.sickness:
+        return 'Malattia';
     }
   }
 
@@ -19,9 +22,13 @@ enum LeaveType {
         return LeaveType.vacation;
       case 'permit':
         return LeaveType.permit;
+      case 'sickness':
+        return LeaveType.sickness;
     }
 
-    throw ArgumentError.value(value, 'value', 'Unsupported leave type');
+    // Tipi introdotti da versioni piu nuove dell'app non devono far fallire
+    // il ripristino del backup: meglio un permesso generico che perdere dati.
+    return LeaveType.permit;
   }
 }
 

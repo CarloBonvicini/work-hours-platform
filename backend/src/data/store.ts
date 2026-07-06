@@ -14,12 +14,26 @@ export interface AppearanceSettingsRecord {
   textScale: number;
 }
 
+export interface WorkdayBreakSegmentRecord {
+  startMinutes: number;
+  endMinutes: number;
+}
+
+export interface WorkdaySessionRecord {
+  startMinutes: number;
+  breakStartedMinutes?: number;
+  accumulatedBreakMinutes: number;
+  breakSegments: WorkdayBreakSegmentRecord[];
+  endMinutes?: number;
+}
+
 export interface CloudBackupRecord {
   profile: Profile;
   appearanceSettings: AppearanceSettingsRecord;
   workEntries: WorkEntry[];
   leaveEntries: LeaveEntry[];
   scheduleOverrides: ScheduleOverride[];
+  workdaySessions?: Record<string, WorkdaySessionRecord>;
   updatedAt: string;
 }
 

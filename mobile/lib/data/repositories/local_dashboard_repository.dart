@@ -14,17 +14,22 @@ import 'package:work_hours_mobile/domain/models/weekday_schedule.dart';
 import 'package:work_hours_mobile/domain/models/weekday_target_minutes.dart';
 import 'package:work_hours_mobile/domain/models/work_entry.dart';
 import 'package:work_hours_mobile/domain/repositories/dashboard_repository.dart';
+import 'package:work_hours_mobile/application/services/workday_start_store.dart';
 import 'package:work_hours_mobile/data/api/work_hours_api_client.dart';
 
 class SharedPreferencesLocalDashboardRepository implements DashboardRepository {
   SharedPreferencesLocalDashboardRepository({
     WorkHoursApiClient? ticketApiClient,
-  }) : _ticketApiClient = ticketApiClient;
+    WorkdayStartStore? workdayStartStore,
+  }) : _ticketApiClient = ticketApiClient,
+       _workdayStartStore =
+           workdayStartStore ?? const SharedPreferencesWorkdayStartStore();
 
   static const _bundleKey = 'local_dashboard.bundle';
   static const _migrationKey = 'local_dashboard.legacy_migrated';
 
   final WorkHoursApiClient? _ticketApiClient;
+  final WorkdayStartStore _workdayStartStore;
 
   Future<bool> isEmpty() async {
     final bundle = await _loadBundle();
@@ -42,11 +47,17 @@ class SharedPreferencesLocalDashboardRepository implements DashboardRepository {
   }
 
   Future<LocalDashboardDataBundle> exportBundle() async {
-    return await _loadBundle() ?? _defaultBundle();
+    final bundle = await _loadBundle() ?? _defaultBundle();
+    return bundle.copyWith(
+      workdaySessions: await _workdayStartStore.exportAllSessions(),
+    );
   }
 
   Future<void> importBundle(LocalDashboardDataBundle bundle) async {
     await _saveBundle(bundle);
+    if (bundle.workdaySessions.isNotEmpty) {
+      await _workdayStartStore.importSessions(bundle.workdaySessions);
+    }
   }
 
   @override
@@ -262,7 +273,10 @@ class SharedPreferencesLocalDashboardRepository implements DashboardRepository {
 
   Future<void> _saveBundle(LocalDashboardDataBundle bundle) async {
     final preferences = await SharedPreferences.getInstance();
-    await preferences.setString(_bundleKey, jsonEncode(bundle.toJson()));
+    // Le sessioni di giornata restano nelle loro chiavi dedicate: nel
+    // bundle persistito andrebbero solo in stallo rispetto alla verita.
+    final bundleJson = bundle.toJson()..remove('workdaySessions');
+    await preferences.setString(_bundleKey, jsonEncode(bundleJson));
   }
 
   LocalDashboardDataBundle _defaultBundle() {
