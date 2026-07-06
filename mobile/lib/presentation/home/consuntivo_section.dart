@@ -1,4 +1,10 @@
+import 'dart:convert';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:printing/printing.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:work_hours_mobile/presentation/home/consuntivo_export.dart';
 
 enum ConsuntivoRangeOption { oneMonth, threeMonths, twelveMonths }
 
@@ -207,6 +213,25 @@ class ConsuntivoSection extends StatelessWidget {
                   onRangeChanged(selection.first);
                 }
               },
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                OutlinedButton.icon(
+                  key: const ValueKey('consuntivo-export-pdf'),
+                  onPressed: isLoading ? null : () => _exportPdf(context),
+                  icon: const Icon(Icons.picture_as_pdf_outlined),
+                  label: const Text('Esporta PDF'),
+                ),
+                OutlinedButton.icon(
+                  key: const ValueKey('consuntivo-export-csv'),
+                  onPressed: isLoading ? null : () => _exportCsv(context),
+                  icon: const Icon(Icons.table_view_outlined),
+                  label: const Text('Esporta CSV'),
+                ),
+              ],
             ),
             if (isLoading) ...[
               const SizedBox(height: 10),
@@ -425,6 +450,57 @@ class ConsuntivoSection extends StatelessWidget {
       return const Color(0xFFB42318);
     }
     return theme.colorScheme.onSurfaceVariant;
+  }
+
+  String _exportFileBaseName() {
+    final normalizedPeriod = data.periodLabel
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9]+'), '-')
+        .replaceAll(RegExp(r'-+'), '-')
+        .replaceAll(RegExp(r'^-|-$'), '');
+    return normalizedPeriod.isEmpty
+        ? 'consuntivo'
+        : 'consuntivo-$normalizedPeriod';
+  }
+
+  Future<void> _exportPdf(BuildContext context) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final pdfBytes = await buildConsuntivoPdf(data);
+      await Printing.sharePdf(
+        bytes: pdfBytes,
+        filename: '${_exportFileBaseName()}.pdf',
+      );
+    } catch (_) {
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('Export PDF non riuscito su questo dispositivo.'),
+        ),
+      );
+    }
+  }
+
+  Future<void> _exportCsv(BuildContext context) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final csvBytes = Uint8List.fromList(
+        utf8.encode(buildConsuntivoCsv(data)),
+      );
+      final fileName = '${_exportFileBaseName()}.csv';
+      await SharePlus.instance.share(
+        ShareParams(
+          files: [XFile.fromData(csvBytes, mimeType: 'text/csv')],
+          fileNameOverrides: [fileName],
+          subject: 'Consuntivo ore ${data.periodLabel}',
+        ),
+      );
+    } catch (_) {
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('Export CSV non riuscito su questo dispositivo.'),
+        ),
+      );
+    }
   }
 }
 

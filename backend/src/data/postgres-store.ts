@@ -239,6 +239,21 @@ function sanitizeCloudBackupRecord(value: CloudBackupRecord): CloudBackupRecord 
     workEntries: value.workEntries.map((entry) => ({ ...entry })),
     leaveEntries: value.leaveEntries.map((entry) => ({ ...entry })),
     scheduleOverrides: value.scheduleOverrides.map((entry) => ({ ...entry })),
+    ...(value.workdaySessions
+      ? {
+          workdaySessions: Object.fromEntries(
+            Object.entries(value.workdaySessions).map(([date, session]) => [
+              date,
+              {
+                ...session,
+                breakSegments: session.breakSegments.map((segment) => ({
+                  ...segment
+                }))
+              }
+            ])
+          )
+        }
+      : {}),
     updatedAt: value.updatedAt
   };
 }
@@ -302,9 +317,16 @@ export class PostgresStore implements AppStore {
         id TEXT PRIMARY KEY,
         date DATE NOT NULL,
         minutes INTEGER NOT NULL CHECK (minutes > 0),
-        type TEXT NOT NULL CHECK (type IN ('vacation', 'permit')),
+        type TEXT NOT NULL CHECK (type IN ('vacation', 'permit', 'sickness')),
         note TEXT
       );
+
+      -- Allinea il vincolo sui database creati prima dell'aggiunta di 'sickness'.
+      ALTER TABLE leave_entries
+        DROP CONSTRAINT IF EXISTS leave_entries_type_check;
+      ALTER TABLE leave_entries
+        ADD CONSTRAINT leave_entries_type_check
+        CHECK (type IN ('vacation', 'permit', 'sickness'));
 
       CREATE INDEX IF NOT EXISTS idx_leave_entries_date ON leave_entries(date);
 

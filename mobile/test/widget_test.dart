@@ -1634,6 +1634,16 @@ class _FakeWorkdayStartStore implements WorkdayStartStore {
   Future<void> saveSession(String isoDate, WorkdaySession session) async {
     _values[isoDate] = session;
   }
+
+  @override
+  Future<Map<String, WorkdaySession>> exportAllSessions() async {
+    return Map<String, WorkdaySession>.from(_values);
+  }
+
+  @override
+  Future<void> importSessions(Map<String, WorkdaySession> sessions) async {
+    _values.addAll(sessions);
+  }
 }
 
 class _FakeOnboardingPreferenceStore implements OnboardingPreferenceStore {

@@ -10,6 +10,8 @@ import type {
   AppearanceSettingsRecord,
   AuthUser,
   CloudBackupRecord,
+  WorkdayBreakSegmentRecord,
+  WorkdaySessionRecord,
 } from "./data/store.js";
 import {
   buildDefaultWorkRules,
@@ -237,7 +239,7 @@ function isNonNegativeInteger(value: unknown): value is number {
 }
 
 function isLeaveType(value: unknown): value is LeaveType {
-  return value === "vacation" || value === "permit";
+  return value === "vacation" || value === "permit" || value === "sickness";
 }
 
 function parseWeekdayTargetMinutes(
@@ -1193,6 +1195,76 @@ function parseAppearanceSettingsRecord(
   };
 }
 
+function parseWorkdaySessionRecord(
+  value: unknown
+): WorkdaySessionRecord | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const body = value as Record<string, unknown>;
+  if (!isNonNegativeInteger(body.startMinutes)) {
+    return null;
+  }
+
+  const breakSegments: WorkdayBreakSegmentRecord[] = [];
+  if (Array.isArray(body.breakSegments)) {
+    for (const rawSegment of body.breakSegments) {
+      if (!rawSegment || typeof rawSegment !== "object") {
+        continue;
+      }
+      const segment = rawSegment as Record<string, unknown>;
+      if (
+        isNonNegativeInteger(segment.startMinutes) &&
+        isNonNegativeInteger(segment.endMinutes) &&
+        segment.endMinutes > segment.startMinutes
+      ) {
+        breakSegments.push({
+          startMinutes: segment.startMinutes,
+          endMinutes: segment.endMinutes
+        });
+      }
+    }
+  }
+
+  return {
+    startMinutes: body.startMinutes,
+    ...(isNonNegativeInteger(body.breakStartedMinutes)
+      ? { breakStartedMinutes: body.breakStartedMinutes }
+      : {}),
+    accumulatedBreakMinutes: isNonNegativeInteger(body.accumulatedBreakMinutes)
+      ? body.accumulatedBreakMinutes
+      : 0,
+    breakSegments,
+    ...(isNonNegativeInteger(body.endMinutes)
+      ? { endMinutes: body.endMinutes }
+      : {})
+  };
+}
+
+function parseWorkdaySessionsRecord(
+  value: unknown
+): { sessions: Record<string, WorkdaySessionRecord>; dropped: number } {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return { sessions: {}, dropped: 0 };
+  }
+
+  const sessions: Record<string, WorkdaySessionRecord> = {};
+  let dropped = 0;
+  for (const [date, rawSession] of Object.entries(
+    value as Record<string, unknown>
+  )) {
+    const session = parseWorkdaySessionRecord(rawSession);
+    if (isIsoDate(date) && session) {
+      sessions[date] = session;
+    } else {
+      dropped += 1;
+    }
+  }
+
+  return { sessions, dropped };
+}
+
 function parseCloudBackupPayload(
   payload: unknown,
   fallbackProfileId: string
@@ -1203,6 +1275,7 @@ function parseCloudBackupPayload(
     workEntries: number;
     leaveEntries: number;
     scheduleOverrides: number;
+    workdaySessions: number;
   };
 } {
   if (!payload || typeof payload !== "object") {
@@ -1247,12 +1320,16 @@ function parseCloudBackupPayload(
   const parsedScheduleOverrides = body.scheduleOverrides
     .map(parseScheduleOverrideRecord)
     .filter((entry): entry is ScheduleOverride => entry !== null);
+  const parsedWorkdaySessions = parseWorkdaySessionsRecord(
+    body.workdaySessions
+  );
 
   const droppedItems = {
     workEntries: body.workEntries.length - parsedWorkEntries.length,
     leaveEntries: body.leaveEntries.length - parsedLeaveEntries.length,
     scheduleOverrides:
-      body.scheduleOverrides.length - parsedScheduleOverrides.length
+      body.scheduleOverrides.length - parsedScheduleOverrides.length,
+    workdaySessions: parsedWorkdaySessions.dropped
   };
 
   return {
@@ -1262,6 +1339,7 @@ function parseCloudBackupPayload(
       workEntries: parsedWorkEntries,
       leaveEntries: parsedLeaveEntries,
       scheduleOverrides: parsedScheduleOverrides,
+      workdaySessions: parsedWorkdaySessions.sessions,
       updatedAt: new Date().toISOString()
     },
     droppedItems
@@ -4810,7 +4888,8 @@ export function buildApp(options: BuildAppOptions = {}) {
       droppedItems: parsedBundle.droppedItems ?? {
         workEntries: 0,
         leaveEntries: 0,
-        scheduleOverrides: 0
+        scheduleOverrides: 0,
+        workdaySessions: 0
       }
     };
   });
@@ -5006,7 +5085,9 @@ export function buildApp(options: BuildAppOptions = {}) {
     }
 
     if (!isLeaveType(body.type)) {
-      return reply.code(400).send({ error: "type must be 'vacation' or 'permit'" });
+      return reply
+        .code(400)
+        .send({ error: "type must be 'vacation', 'permit' or 'sickness'" });
     }
 
     if (body.note !== undefined && typeof body.note !== "string") {

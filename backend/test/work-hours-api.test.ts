@@ -374,7 +374,8 @@ describe("Auth and cloud backup API", () => {
     expect(backupResponse.json().droppedItems).toEqual({
       workEntries: 0,
       leaveEntries: 0,
-      scheduleOverrides: 0
+      scheduleOverrides: 0,
+      workdaySessions: 0
     });
 
     const backupMetaResponse = await app.inject({
@@ -645,7 +646,18 @@ describe("Auth and cloud backup API", () => {
             endTime: "16:30",
             breakMinutes: 60
           }
-        ]
+        ],
+        workdaySessions: {
+          "2026-03-20": {
+            startMinutes: 510,
+            accumulatedBreakMinutes: 30,
+            breakSegments: [{ startMinutes: 720, endMinutes: 750 }],
+            endMinutes: 1050
+          },
+          "invalid-date": {
+            startMinutes: 510
+          }
+        }
       }
     });
 
@@ -653,7 +665,8 @@ describe("Auth and cloud backup API", () => {
     expect(backupResponse.json().droppedItems).toEqual({
       workEntries: 1,
       leaveEntries: 1,
-      scheduleOverrides: 1
+      scheduleOverrides: 1,
+      workdaySessions: 1
     });
 
     const restoreResponse = await app.inject({
@@ -667,6 +680,14 @@ describe("Auth and cloud backup API", () => {
     expect(restoreResponse.json().bundle.workEntries).toHaveLength(1);
     expect(restoreResponse.json().bundle.leaveEntries).toHaveLength(1);
     expect(restoreResponse.json().bundle.scheduleOverrides).toHaveLength(1);
+    expect(restoreResponse.json().bundle.workdaySessions).toEqual({
+      "2026-03-20": {
+        startMinutes: 510,
+        accumulatedBreakMinutes: 30,
+        breakSegments: [{ startMinutes: 720, endMinutes: 750 }],
+        endMinutes: 1050
+      }
+    });
   });
 });
 

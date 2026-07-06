@@ -1655,6 +1655,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           restoreResult.bundle!.appearanceSettings,
         );
         await _loadSnapshot(month: _selectedMonth, selectedDate: _selectedDate);
+        await _loadWorkdaySessionForDate(_selectedDate);
       }
 
       if (!mounted) {
@@ -2542,6 +2543,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         );
         _isSavingWorkdaySession = false;
       });
+      unawaited(_queueCloudBackup());
     } catch (error) {
       if (!mounted) {
         return;

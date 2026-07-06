@@ -1,4 +1,4 @@
-export type LeaveType = "vacation" | "permit";
+export type LeaveType = "vacation" | "permit" | "sickness";
 export type Weekday =
   | "monday"
   | "tuesday"
