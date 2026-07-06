@@ -76,10 +76,16 @@ jobs:
       - name: Setup Flutter SDK
         if: ${{ steps.changes.outputs.has_mobile_changes == 'true' && steps.detect.outputs.has_flutter == 'true' }}
         shell: bash
+        env:
+          # Versione pinnata: gli aggiornamenti di Flutter si adottano deliberatamente
+          # aggiornando questo tag (e quello in mobile-release.yml) dopo verifica locale.
+          # Nota: 3.44.x fa fallire 7 widget test (assertion ListTile/Material) finché
+          # non vengono mergiati i fix di PR #19.
+          FLUTTER_VERSION: 3.41.6
         run: |
           set -eu
           FLUTTER_ROOT="$RUNNER_TEMP/flutter-sdk"
-          git clone --depth 1 -b stable https://github.com/flutter/flutter.git "$FLUTTER_ROOT"
+          git clone --depth 1 -b "$FLUTTER_VERSION" https://github.com/flutter/flutter.git "$FLUTTER_ROOT"
           echo "$FLUTTER_ROOT/bin" >> "$GITHUB_PATH"
           export PATH="$FLUTTER_ROOT/bin:$PATH"
           flutter --version
