@@ -37,6 +37,7 @@ import 'package:work_hours_mobile/domain/models/weekday_schedule.dart';
 import 'package:work_hours_mobile/domain/models/weekday_target_minutes.dart';
 import 'package:work_hours_mobile/domain/models/work_entry.dart';
 import 'package:work_hours_mobile/presentation/home/consuntivo_section.dart';
+import 'package:work_hours_mobile/presentation/home/today_extras.dart';
 import 'package:work_hours_mobile/presentation/home/update_release_notes_parser.dart';
 
 enum _QuickEntryMode { work, leave }
@@ -2353,6 +2354,61 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
+  void _rescheduleMissingExitReminderForSession(WorkdaySession session) {
+    final todayMonth = DashboardService.formatMonth(_todayDate);
+    final snapshot = _snapshotForMonth(todayMonth) ?? _snapshot;
+    if (snapshot == null) {
+      return;
+    }
+
+    final schedule = _resolveEffectiveDayScheduleForDate(snapshot, _todayDate);
+    if (schedule.targetMinutes <= 0) {
+      return;
+    }
+
+    final nowMinutes = _currentMinutesOfDay();
+    final actualBreakMinutes = _currentSessionBreakMinutes(session, nowMinutes);
+    final effectiveBreakMinutes = math.max(
+      schedule.breakMinutes,
+      actualBreakMinutes,
+    );
+    final expectedEndMinutes =
+        session.startMinutes + schedule.targetMinutes + effectiveBreakMinutes;
+    unawaited(
+      _localNotificationService.scheduleMissingExitReminder(
+        // Un'ora di margine oltre l'uscita prevista prima del promemoria.
+        delay: Duration(minutes: (expectedEndMinutes + 60) - nowMinutes),
+        expectedEndLabel: formatTimeInput(expectedEndMinutes % (24 * 60)),
+      ),
+    );
+  }
+
+  void _scheduleBreakEndReminderForSession(WorkdaySession session) {
+    final todayMonth = DashboardService.formatMonth(_todayDate);
+    final snapshot = _snapshotForMonth(todayMonth) ?? _snapshot;
+    if (snapshot == null) {
+      return;
+    }
+
+    final schedule = _resolveEffectiveDayScheduleForDate(snapshot, _todayDate);
+    final remainingBreakMinutes =
+        schedule.breakMinutes - session.accumulatedBreakMinutes;
+    if (remainingBreakMinutes <= 0) {
+      return;
+    }
+
+    unawaited(
+      _localNotificationService.scheduleBreakEndReminder(
+        delay: Duration(minutes: remainingBreakMinutes),
+      ),
+    );
+  }
+
+  void _cancelWorkdayReminders() {
+    unawaited(_localNotificationService.cancelBreakEndReminder());
+    unawaited(_localNotificationService.cancelMissingExitReminder());
+  }
+
   Future<void> _recordWorkdayStartNow() async {
     if (!_isSameDay(_selectedDate, _todayDate)) {
       return;
@@ -2378,6 +2434,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _syncSelectedDayPauseWindowDraftForCurrentDisplay(session: session);
         _isSavingWorkdaySession = false;
       });
+      _rescheduleMissingExitReminderForSession(session);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
@@ -2428,6 +2485,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         );
         _isSavingWorkdaySession = false;
       });
+      _scheduleBreakEndReminderForSession(updatedSession);
     } catch (error) {
       if (!mounted) {
         return;
@@ -2483,6 +2541,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         );
         _isSavingWorkdaySession = false;
       });
+      unawaited(_localNotificationService.cancelBreakEndReminder());
+      _rescheduleMissingExitReminderForSession(updatedSession);
     } catch (error) {
       if (!mounted) {
         return;
@@ -2543,6 +2603,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         );
         _isSavingWorkdaySession = false;
       });
+      _cancelWorkdayReminders();
       unawaited(_queueCloudBackup());
     } catch (error) {
       if (!mounted) {
@@ -2573,6 +2634,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _syncSelectedDayPauseWindowDraftForCurrentDisplay(session: null);
         _isSavingWorkdaySession = false;
       });
+      _cancelWorkdayReminders();
     } catch (error) {
       if (!mounted) {
         return;
@@ -7595,6 +7657,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       onSelectDate: _selectDate,
       onOpenDay: _openDayForDate,
       isSelectedDateToday: _isSameDay(_selectedDate, _todayDate),
+      dayLeaveEntries: monthSnapshot.leaveEntries
+          .where(
+            (entry) =>
+                entry.date ==
+                DashboardService.defaultEntryDateOf(_selectedDate),
+          )
+          .toList(growable: false),
+      onOpenLeaveQuickEntry: () => _openLeaveQuickEntryForDate(_selectedDate),
       workdaySession: _workdaySession,
       isSavingWorkdaySession: _isSavingWorkdaySession,
       onRecordWorkdayStartNow: _recordWorkdayStartNow,
@@ -8222,6 +8292,8 @@ class _CalendarCard extends StatelessWidget {
     required this.onSelectDate,
     required this.onOpenDay,
     required this.isSelectedDateToday,
+    required this.dayLeaveEntries,
+    required this.onOpenLeaveQuickEntry,
     required this.workdaySession,
     required this.isSavingWorkdaySession,
     required this.onRecordWorkdayStartNow,
@@ -8280,6 +8352,8 @@ class _CalendarCard extends StatelessWidget {
   final ValueChanged<DateTime> onSelectDate;
   final Future<void> Function(DateTime date) onOpenDay;
   final bool isSelectedDateToday;
+  final List<LeaveEntry> dayLeaveEntries;
+  final VoidCallback onOpenLeaveQuickEntry;
   final WorkdaySession? workdaySession;
   final bool isSavingWorkdaySession;
   final Future<void> Function() onRecordWorkdayStartNow;
@@ -8764,6 +8838,12 @@ class _CalendarCard extends StatelessWidget {
               schedule: effectiveDaySchedule,
               pauseWindow: selectedDayPauseWindow,
               isBusy: isSavingWorkdaySession,
+              flexibleEntryWindowLabel: isSelectedDateToday
+                  ? resolveFlexibleEntryWindowLabel(
+                      workRules: workRules,
+                      schedule: baseDaySchedule,
+                    )
+                  : null,
               onToggleExpanded: (expanded) => unawaited(
                 onAppearanceSettingsChanged(
                   appearanceSettings.copyWith(expandDayWorkdayCard: expanded),
@@ -8777,6 +8857,23 @@ class _CalendarCard extends StatelessWidget {
             ),
           ],
           if (calendarView == _CalendarView.day) ...[
+            SizedBox(height: quickEditorSpacing),
+            TodayExtrasCard(
+              isToday: isSelectedDateToday,
+              dayLeaveEntries: dayLeaveEntries,
+              allowances: buildLeaveAllowanceSummaries(workRules),
+              expectedMinutes: liveExpectedMinutes,
+              workedMinutes: displayedWorkedMinutes,
+              leaveMinutes: dayMetrics.leaveMinutes,
+              hasProgressContext: hasQuickResultContext,
+              remainingOvertimeMinutes: resolveRemainingDailyOvertimeMinutes(
+                workRules: workRules,
+                rawBalanceMinutes:
+                    (displayedWorkedMinutes + dayMetrics.leaveMinutes) -
+                    liveExpectedMinutes,
+              ),
+              onAddLeave: onOpenLeaveQuickEntry,
+            ),
             SizedBox(height: quickEditorSpacing),
             if (appearanceSettings.dayCalendarLayoutMode ==
                 DayCalendarLayoutMode.quickEditorFirst)
@@ -9263,6 +9360,7 @@ class _WorkdaySessionCard extends StatelessWidget {
     required this.onStartBreak,
     required this.onResume,
     required this.onFinish,
+    this.flexibleEntryWindowLabel,
     this.onClear,
   });
 
@@ -9276,6 +9374,7 @@ class _WorkdaySessionCard extends StatelessWidget {
   final Future<void> Function() onStartBreak;
   final Future<void> Function() onResume;
   final Future<void> Function() onFinish;
+  final String? flexibleEntryWindowLabel;
   final Future<void> Function()? onClear;
 
   @override
@@ -9300,6 +9399,7 @@ class _WorkdaySessionCard extends StatelessWidget {
       pauseWindow: pauseWindow,
       nowMinutes: nowMinutes,
     );
+    final breakSegmentsInfo = formatWorkdayBreakSegments(session, nowMinutes);
     final displayedEndMinutes =
         parseTimeInput(schedule.endTime) ?? session?.endMinutes;
     final toggleButtonSize = isExpanded ? 36.0 : 30.0;
@@ -9436,6 +9536,33 @@ class _WorkdaySessionCard extends StatelessWidget {
                           workedSessionInfo,
                           style: theme.textTheme.bodyMedium?.copyWith(
                             fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                      if (breakSegmentsInfo != null) ...[
+                        const SizedBox(height: 6),
+                        Text(
+                          breakSegmentsInfo,
+                          key: const ValueKey(
+                            'calendar-workday-break-segments',
+                          ),
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                      if (status == _WorkdaySessionStatus.notStarted &&
+                          flexibleEntryWindowLabel != null) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          flexibleEntryWindowLabel!,
+                          key: const ValueKey(
+                            'calendar-workday-flexible-window',
+                          ),
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.w700,
+                            color: theme.colorScheme.primary,
                           ),
                         ),
                       ],
