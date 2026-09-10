@@ -57,7 +57,7 @@ List<LeaveAllowanceSummary> buildLeaveAllowanceSummaries(UserWorkRules rules) {
 }
 
 /// Elenco leggibile dei segmenti pausa registrati, inclusa quella in corso.
-String? formatWorkdayBreakSegments(WorkdaySession? session, int nowMinutes) {
+String? formatWorkdayBreakSegments(WorkdaySession? session) {
   if (session == null) {
     return null;
   }
@@ -252,9 +252,10 @@ class TodayExtrasCard extends StatelessWidget {
                 fontWeight: FontWeight.w800,
               ),
             ),
-            for (final allowance in allowances)
+            // Chiave per posizione: due regole possono avere lo stesso nome.
+            for (final (index, allowance) in allowances.indexed)
               Chip(
-                key: ValueKey('today-allowance-${allowance.name}'),
+                key: ValueKey('today-allowance-$index'),
                 avatar: const Icon(Icons.savings_outlined, size: 18),
                 label: Text('${allowance.name}: ${allowance.remainingLabel}'),
               ),

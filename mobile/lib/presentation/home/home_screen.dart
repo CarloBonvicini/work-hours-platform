@@ -9399,7 +9399,7 @@ class _WorkdaySessionCard extends StatelessWidget {
       pauseWindow: pauseWindow,
       nowMinutes: nowMinutes,
     );
-    final breakSegmentsInfo = formatWorkdayBreakSegments(session, nowMinutes);
+    final breakSegmentsInfo = formatWorkdayBreakSegments(session);
     final displayedEndMinutes =
         parseTimeInput(schedule.endTime) ?? session?.endMinutes;
     final toggleButtonSize = isExpanded ? 36.0 : 30.0;

@@ -1,5 +1,7 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:work_hours_mobile/domain/models/day_schedule.dart';
+import 'package:work_hours_mobile/domain/models/leave_entry.dart';
 import 'package:work_hours_mobile/domain/models/user_work_rules.dart';
 import 'package:work_hours_mobile/domain/models/workday_session.dart';
 import 'package:work_hours_mobile/presentation/home/today_extras.dart';
@@ -80,15 +82,15 @@ void main() {
       );
 
       expect(
-        formatWorkdayBreakSegments(session, (16 * 60) + 5),
+        formatWorkdayBreakSegments(session),
         'Pause: 12:30-13:00 · 16:00-in corso',
       );
     });
 
     test('restituisce null senza pause', () {
       const session = WorkdaySession(startMinutes: 8 * 60);
-      expect(formatWorkdayBreakSegments(session, 9 * 60), isNull);
-      expect(formatWorkdayBreakSegments(null, 9 * 60), isNull);
+      expect(formatWorkdayBreakSegments(session), isNull);
+      expect(formatWorkdayBreakSegments(null), isNull);
     });
   });
 
@@ -172,6 +174,78 @@ void main() {
         ),
         isNull,
       );
+    });
+  });
+
+  group('TodayExtrasCard', () {
+    Widget wrap(Widget child) {
+      return MaterialApp(
+        home: Scaffold(body: SingleChildScrollView(child: child)),
+      );
+    }
+
+    testWidgets('mostra residui con nomi duplicati senza errori di chiave', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        wrap(
+          TodayExtrasCard(
+            isToday: true,
+            dayLeaveEntries: const [],
+            allowances: const [
+              LeaveAllowanceSummary(name: 'Ferie', remainingLabel: '12 gg'),
+              LeaveAllowanceSummary(name: 'Ferie', remainingLabel: '6:30'),
+            ],
+            expectedMinutes: 480,
+            workedMinutes: 300,
+            leaveMinutes: 0,
+            hasProgressContext: true,
+            remainingOvertimeMinutes: null,
+            onAddLeave: () {},
+          ),
+        ),
+      );
+
+      expect(tester.takeException(), isNull);
+      expect(find.text('Ferie: 12 gg'), findsOneWidget);
+      expect(find.text('Ferie: 6:30'), findsOneWidget);
+      expect(find.text('5:00 su 8:00 - mancano 3:00'), findsOneWidget);
+    });
+
+    testWidgets('elenca le causali del giorno e il residuo straordinario', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        wrap(
+          TodayExtrasCard(
+            isToday: false,
+            dayLeaveEntries: const [
+              LeaveEntry(
+                id: 'l1',
+                date: '2026-09-11',
+                type: LeaveType.permit,
+                minutes: 120,
+              ),
+            ],
+            allowances: const [],
+            expectedMinutes: 480,
+            workedMinutes: 420,
+            leaveMinutes: 120,
+            hasProgressContext: false,
+            remainingOvertimeMinutes: 60,
+            onAddLeave: () {},
+          ),
+        ),
+      );
+
+      expect(find.text('Causali del giorno'), findsOneWidget);
+      expect(find.text('Permesso 2:00'), findsOneWidget);
+      expect(find.text('Obiettivo superato di 1:00'), findsOneWidget);
+      expect(
+        find.text('Straordinario ancora disponibile oggi: 1:00'),
+        findsOneWidget,
+      );
+      expect(find.text('Residui'), findsNothing);
     });
   });
 }
