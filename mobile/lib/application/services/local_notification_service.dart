@@ -1,12 +1,13 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:timezone/data/latest.dart' as tzdata;
+import 'package:timezone/timezone.dart' as tz;
 import 'package:work_hours_mobile/domain/models/app_update.dart';
 
 class LocalNotificationService {
-  LocalNotificationService({
-    FlutterLocalNotificationsPlugin? plugin,
-  }) : _plugin = plugin ?? FlutterLocalNotificationsPlugin();
+  LocalNotificationService({FlutterLocalNotificationsPlugin? plugin})
+    : _plugin = plugin ?? FlutterLocalNotificationsPlugin();
 
   static const _updateChannelId = 'work_hours_updates';
   static const _updateChannelName = 'Aggiornamenti app';
@@ -22,6 +23,16 @@ class LocalNotificationService {
   static const _overtimeChannelName = 'Limiti straordinario';
   static const _overtimeChannelDescription =
       'Notifiche quando superi il limite di straordinario.';
+
+  static const _workdayChannelId = 'work_hours_workday';
+  static const _workdayChannelName = 'Promemoria giornata';
+  static const _workdayChannelDescription =
+      'Promemoria su pausa e uscita della giornata di lavoro.';
+
+  static const _breakEndReminderId = 1101;
+  static const _missingExitReminderId = 1102;
+
+  static bool _timeZonesInitialized = false;
 
   static const _lastNotifiedUpdateVersionKey =
       'local_notifications.last_notified_update_version';
@@ -73,6 +84,14 @@ class LocalNotificationService {
             importance: Importance.high,
           ),
         );
+        await androidPlugin.createNotificationChannel(
+          const AndroidNotificationChannel(
+            _workdayChannelId,
+            _workdayChannelName,
+            description: _workdayChannelDescription,
+            importance: Importance.high,
+          ),
+        );
       }
 
       _isInitialized = true;
@@ -101,13 +120,21 @@ class LocalNotificationService {
           .resolvePlatformSpecificImplementation<
             IOSFlutterLocalNotificationsPlugin
           >();
-      await iosPlugin?.requestPermissions(alert: true, badge: true, sound: true);
+      await iosPlugin?.requestPermissions(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
 
       final macOsPlugin = _plugin
           .resolvePlatformSpecificImplementation<
             MacOSFlutterLocalNotificationsPlugin
           >();
-      await macOsPlugin?.requestPermissions(alert: true, badge: true, sound: true);
+      await macOsPlugin?.requestPermissions(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
     } catch (_) {
       _isAvailable = false;
     }
@@ -255,9 +282,7 @@ class LocalNotificationService {
     }
   }
 
-  Future<void> notifyTicketReplies({
-    required String message,
-  }) async {
+  Future<void> notifyTicketReplies({required String message}) async {
     if (kIsWeb || !_isAvailable || message.trim().isEmpty) {
       return;
     }
@@ -291,9 +316,107 @@ class LocalNotificationService {
     }
   }
 
-  Future<void> notifyOvertimeLimitExceeded({
+  NotificationDetails get _workdayReminderDetails {
+    return const NotificationDetails(
+      android: AndroidNotificationDetails(
+        _workdayChannelId,
+        _workdayChannelName,
+        channelDescription: _workdayChannelDescription,
+        importance: Importance.high,
+        priority: Priority.high,
+      ),
+      iOS: DarwinNotificationDetails(),
+      macOS: DarwinNotificationDetails(),
+    );
+  }
+
+  Future<void> _scheduleWorkdayReminder({
+    required int notificationId,
+    required Duration delay,
+    required String title,
     required String message,
+    required String payload,
   }) async {
+    if (kIsWeb || !_isAvailable || delay <= Duration.zero) {
+      return;
+    }
+    await initialize();
+    if (!_isAvailable) {
+      return;
+    }
+
+    try {
+      if (!_timeZonesInitialized) {
+        tzdata.initializeTimeZones();
+        _timeZonesInitialized = true;
+      }
+
+      // Il momento e calcolato come scarto da adesso, quindi la zona locale
+      // del database (UTC di default) non altera l'istante assoluto.
+      await _plugin.zonedSchedule(
+        notificationId,
+        title,
+        message,
+        tz.TZDateTime.now(tz.local).add(delay),
+        _workdayReminderDetails,
+        androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+        uiLocalNotificationDateInterpretation:
+            UILocalNotificationDateInterpretation.absoluteTime,
+        payload: payload,
+      );
+    } catch (_) {
+      // Lo scheduling e best-effort: la giornata resta gestibile dall'app.
+    }
+  }
+
+  Future<void> scheduleBreakEndReminder({required Duration delay}) {
+    return _scheduleWorkdayReminder(
+      notificationId: _breakEndReminderId,
+      delay: delay,
+      title: 'Pausa terminata',
+      message:
+          'La pausa prevista e finita. Ricordati di riprendere la giornata nell app.',
+      payload: 'workday_break_end',
+    );
+  }
+
+  Future<void> cancelBreakEndReminder() async {
+    if (kIsWeb || !_isAvailable) {
+      return;
+    }
+    try {
+      await _plugin.cancel(_breakEndReminderId);
+    } catch (_) {
+      // Best-effort.
+    }
+  }
+
+  Future<void> scheduleMissingExitReminder({
+    required Duration delay,
+    required String expectedEndLabel,
+  }) {
+    return _scheduleWorkdayReminder(
+      notificationId: _missingExitReminderId,
+      delay: delay,
+      title: 'Hai registrato l uscita?',
+      message:
+          'L uscita era prevista alle $expectedEndLabel. Se hai finito, registra l uscita nell app.',
+      payload: 'workday_missing_exit',
+    );
+  }
+
+  Future<void> cancelMissingExitReminder() async {
+    if (kIsWeb || !_isAvailable) {
+      return;
+    }
+    try {
+      await _plugin.cancel(_missingExitReminderId);
+    } catch (_) {
+      // Best-effort.
+    }
+  }
+
+  Future<void> notifyOvertimeLimitExceeded({required String message}) async {
     if (kIsWeb || !_isAvailable || message.trim().isEmpty) {
       return;
     }
