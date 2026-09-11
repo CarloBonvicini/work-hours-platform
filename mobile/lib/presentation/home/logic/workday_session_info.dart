@@ -1,0 +1,134 @@
+// Stato e descrizioni della timbratura (sessione di lavoro) del giorno.
+
+import 'dart:math' as math;
+import 'package:work_hours_mobile/application/services/hour_input_parser.dart';
+import 'package:work_hours_mobile/application/services/time_input_parser.dart';
+import 'package:work_hours_mobile/application/services/workday_start_store.dart';
+import 'package:work_hours_mobile/domain/models/day_schedule.dart';
+import 'package:work_hours_mobile/presentation/home/logic/agenda_segments.dart';
+import 'package:work_hours_mobile/presentation/home/models/calendar_day.dart';
+
+enum WorkdaySessionStatus { notStarted, active, onBreak, completed }
+
+int currentSessionBreakMinutes(WorkdaySession? session, int nowMinutes) {
+  if (session == null) {
+    return 0;
+  }
+
+  final runningBreakMinutes = session.breakStartedMinutes == null
+      ? 0
+      : math.max(0, nowMinutes - session.breakStartedMinutes!);
+  return session.accumulatedBreakMinutes + runningBreakMinutes;
+}
+
+WorkdaySessionStatus resolveWorkdaySessionStatus(WorkdaySession? session) {
+  if (session == null) {
+    return WorkdaySessionStatus.notStarted;
+  }
+  if (session.isCompleted) {
+    return WorkdaySessionStatus.completed;
+  }
+  if (session.isOnBreak) {
+    return WorkdaySessionStatus.onBreak;
+  }
+
+  return WorkdaySessionStatus.active;
+}
+
+String workdaySessionDescription({
+  required WorkdaySession? session,
+  required DaySchedule schedule,
+  required CalendarPauseWindow? pauseWindow,
+  required WorkdaySessionStatus status,
+  required int currentBreakMinutes,
+}) {
+  final displayedStart =
+      parseTimeInput(schedule.startTime) ?? session?.startMinutes;
+  final displayedEnd = parseTimeInput(schedule.endTime) ?? session?.endMinutes;
+
+  return switch (status) {
+    WorkdaySessionStatus.notStarted =>
+      'Premi Entrata e salvo l orario attuale. Da li ti mostro subito quando puoi uscire.',
+    WorkdaySessionStatus.active =>
+      displayedStart == null
+          ? 'Entrata registrata.'
+          : 'Entrata registrata alle ${formatTimeInput(displayedStart)}.',
+    WorkdaySessionStatus.onBreak =>
+      'Sei in pausa dalle ${formatTimeInput(pauseWindow?.pauseStartMinutes ?? session!.breakStartedMinutes!)}. Pausa totale: ${currentBreakMinutes.toString()} min.',
+    WorkdaySessionStatus.completed =>
+      displayedStart == null || displayedEnd == null
+          ? 'Giornata chiusa.'
+          : 'Giornata chiusa. Entrata ${formatTimeInput(displayedStart)}, uscita ${formatTimeInput(displayedEnd)}.',
+  };
+}
+
+String workdaySessionStatusLabel(WorkdaySessionStatus status) {
+  return switch (status) {
+    WorkdaySessionStatus.notStarted => 'Da iniziare',
+    WorkdaySessionStatus.active => 'Dentro',
+    WorkdaySessionStatus.onBreak => 'In pausa',
+    WorkdaySessionStatus.completed => 'Chiusa',
+  };
+}
+
+String? resolveExpectedEndInfo({
+  required WorkdaySession? session,
+  required DaySchedule schedule,
+  required int nowMinutes,
+}) {
+  if (session == null || session.isCompleted || schedule.targetMinutes <= 0) {
+    return null;
+  }
+
+  final explicitEndMinutes = parseTimeInput(schedule.endTime);
+  if (explicitEndMinutes != null) {
+    return 'Puoi uscire alle ${formatTimeInput(explicitEndMinutes)}.';
+  }
+
+  final actualBreakMinutes = currentSessionBreakMinutes(session, nowMinutes);
+  final effectiveBreakMinutes = math.max(
+    schedule.breakMinutes,
+    actualBreakMinutes,
+  );
+  final totalMinutes =
+      session.startMinutes + schedule.targetMinutes + effectiveBreakMinutes;
+  final normalizedMinutes = totalMinutes % (24 * 60);
+  final nextDaySuffix = totalMinutes >= (24 * 60) ? ' del giorno dopo' : '';
+  return 'Puoi uscire alle ${formatTimeInput(normalizedMinutes)}$nextDaySuffix.';
+}
+
+String? resolveWorkedSessionInfo({
+  required WorkdaySession? session,
+  required DaySchedule schedule,
+  required CalendarPauseWindow? pauseWindow,
+  required int nowMinutes,
+}) {
+  if (session == null &&
+      (schedule.startTime == null || schedule.endTime == null)) {
+    return null;
+  }
+
+  final measurementSegments = buildAgendaMeasurementSegments(
+    schedule: schedule,
+    session: session,
+    nowMinutes: nowMinutes,
+    pauseWindow: pauseWindow,
+  );
+  if (measurementSegments.isEmpty) {
+    return null;
+  }
+
+  final workedMinutes = measurementSegments
+      .where((segment) => segment.kind == AgendaMeasurementSegmentKind.work)
+      .fold<int>(
+        0,
+        (total, segment) => total + (segment.endMinutes - segment.startMinutes),
+      );
+  final totalBreakMinutes = measurementSegments
+      .where((segment) => segment.kind == AgendaMeasurementSegmentKind.pause)
+      .fold<int>(
+        0,
+        (total, segment) => total + (segment.endMinutes - segment.startMinutes),
+      );
+  return 'Lavoro ${formatHoursInput(workedMinutes)} | Pausa ${formatHoursInput(totalBreakMinutes)}.';
+}
