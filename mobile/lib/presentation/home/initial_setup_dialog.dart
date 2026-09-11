@@ -82,7 +82,8 @@ class _InitialSetupDialogState extends State<InitialSetupDialog> {
     );
     _uniformStartTimeController.text =
         profile.weekdaySchedule.monday.startTime ?? '';
-    _uniformEndTimeController.text = profile.weekdaySchedule.monday.endTime ?? '';
+    _uniformEndTimeController.text =
+        profile.weekdaySchedule.monday.endTime ?? '';
     _uniformBreakController.text = _formatBreakInput(
       profile.weekdaySchedule.monday.breakMinutes,
     );
@@ -223,14 +224,17 @@ class _InitialSetupDialogState extends State<InitialSetupDialog> {
       final endMinutes = parseTimeInput(_uniformEndTimeController.text);
       final hasStartTime = _uniformStartTimeController.text.trim().isNotEmpty;
       final hasEndTime = _uniformEndTimeController.text.trim().isNotEmpty;
-      final breakMinutes = parseBreakDurationInput(_uniformBreakController.text);
+      final breakMinutes = parseBreakDurationInput(
+        _uniformBreakController.text,
+      );
       if (breakMinutes == null) {
         return null;
       }
       if (hasStartTime != hasEndTime) {
         return null;
       }
-      if ((hasStartTime && startMinutes == null) || (hasEndTime && endMinutes == null)) {
+      if ((hasStartTime && startMinutes == null) ||
+          (hasEndTime && endMinutes == null)) {
         return null;
       }
       if ((!hasStartTime || !hasEndTime) && breakMinutes > 0) {
@@ -300,9 +304,14 @@ class _InitialSetupDialogState extends State<InitialSetupDialog> {
       return null;
     }
 
-    final startMinutes = hasStartTime ? parseTimeInput(normalizedStartTimeText) : null;
-    final endMinutes = hasEndTime ? parseTimeInput(normalizedEndTimeText) : null;
-    if ((hasStartTime && startMinutes == null) || (hasEndTime && endMinutes == null)) {
+    final startMinutes = hasStartTime
+        ? parseTimeInput(normalizedStartTimeText)
+        : null;
+    final endMinutes = hasEndTime
+        ? parseTimeInput(normalizedEndTimeText)
+        : null;
+    if ((hasStartTime && startMinutes == null) ||
+        (hasEndTime && endMinutes == null)) {
       return null;
     }
 

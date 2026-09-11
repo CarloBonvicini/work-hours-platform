@@ -1,0 +1,382 @@
+// Timbratura del giorno: entrata, pausa, uscita, promemoria e conferma uscita.
+
+part of '../home_screen.dart';
+
+mixin _WorkdaySessionState on _HomeScreenStateBase {
+  @override
+  Future<void> _loadWorkdaySessionForDate(DateTime date) async {
+    final isoDate = DashboardService.defaultEntryDateOf(date);
+    final session = await widget.workdayStartStore.loadSession(isoDate);
+    if (!mounted || !isSameDay(_selectedDate, date)) {
+      return;
+    }
+
+    setState(() {
+      _workdaySession = session;
+      _syncSelectedDayPauseWindowDraftForCurrentDisplay(session: session);
+    });
+  }
+
+  void _startLiveWorkedMinutesTicker() {
+    _liveWorkedMinutesTimer?.cancel();
+    _liveWorkedMinutesTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (!mounted || _selectedSection != HomeSection.day) {
+        return;
+      }
+      setState(() {});
+    });
+  }
+
+  void _rescheduleMissingExitReminderForSession(WorkdaySession session) {
+    final todayMonth = DashboardService.formatMonth(_todayDate);
+    final snapshot = _snapshotForMonth(todayMonth) ?? _snapshot;
+    if (snapshot == null) {
+      return;
+    }
+
+    final schedule = _resolveEffectiveDayScheduleForDate(snapshot, _todayDate);
+    if (schedule.targetMinutes <= 0) {
+      return;
+    }
+
+    final nowMinutes = _currentMinutesOfDay();
+    final actualBreakMinutes = currentSessionBreakMinutes(session, nowMinutes);
+    final effectiveBreakMinutes = math.max(
+      schedule.breakMinutes,
+      actualBreakMinutes,
+    );
+    final expectedEndMinutes =
+        session.startMinutes + schedule.targetMinutes + effectiveBreakMinutes;
+    unawaited(
+      _localNotificationService.scheduleMissingExitReminder(
+        // Un'ora di margine oltre l'uscita prevista prima del promemoria.
+        delay: Duration(minutes: (expectedEndMinutes + 60) - nowMinutes),
+        expectedEndLabel: formatTimeInput(expectedEndMinutes % (24 * 60)),
+      ),
+    );
+  }
+
+  void _scheduleBreakEndReminderForSession(WorkdaySession session) {
+    final todayMonth = DashboardService.formatMonth(_todayDate);
+    final snapshot = _snapshotForMonth(todayMonth) ?? _snapshot;
+    if (snapshot == null) {
+      return;
+    }
+
+    final schedule = _resolveEffectiveDayScheduleForDate(snapshot, _todayDate);
+    final remainingBreakMinutes =
+        schedule.breakMinutes - session.accumulatedBreakMinutes;
+    if (remainingBreakMinutes <= 0) {
+      return;
+    }
+
+    unawaited(
+      _localNotificationService.scheduleBreakEndReminder(
+        delay: Duration(minutes: remainingBreakMinutes),
+      ),
+    );
+  }
+
+  void _cancelWorkdayReminders() {
+    unawaited(_localNotificationService.cancelBreakEndReminder());
+    unawaited(_localNotificationService.cancelMissingExitReminder());
+  }
+
+  @override
+  Future<void> _recordWorkdayStartNow() async {
+    if (!isSameDay(_selectedDate, _todayDate)) {
+      return;
+    }
+
+    final now = DateTime.now();
+    final startMinutes = (now.hour * 60) + now.minute;
+    final isoDate = DashboardService.defaultEntryDateOf(_selectedDate);
+
+    setState(() {
+      _isSavingWorkdaySession = true;
+    });
+
+    try {
+      final session = WorkdaySession(startMinutes: startMinutes);
+      await widget.workdayStartStore.saveSession(isoDate, session);
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _workdaySession = session;
+        _syncSelectedDayPauseWindowDraftForCurrentDisplay(session: session);
+        _isSavingWorkdaySession = false;
+      });
+      _rescheduleMissingExitReminderForSession(session);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Entrata registrata alle ${formatTimeInput(startMinutes)}.',
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _isSavingWorkdaySession = false;
+        _errorMessage = 'Impossibile registrare l entrata in questo momento.';
+      });
+    }
+  }
+
+  @override
+  Future<void> _startWorkdayBreakNow() async {
+    final session = _workdaySession;
+    if (!isSameDay(_selectedDate, _todayDate) ||
+        session == null ||
+        session.isOnBreak ||
+        session.isCompleted) {
+      return;
+    }
+
+    final now = DateTime.now();
+    final isoDate = DashboardService.defaultEntryDateOf(_selectedDate);
+    setState(() {
+      _isSavingWorkdaySession = true;
+    });
+
+    try {
+      final updatedSession = session.copyWith(
+        breakStartedMinutes: (now.hour * 60) + now.minute,
+      );
+      await widget.workdayStartStore.saveSession(isoDate, updatedSession);
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _workdaySession = updatedSession;
+        _syncSelectedDayPauseWindowDraftForCurrentDisplay(
+          session: updatedSession,
+        );
+        _isSavingWorkdaySession = false;
+      });
+      _scheduleBreakEndReminderForSession(updatedSession);
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _isSavingWorkdaySession = false;
+        _errorMessage = 'Impossibile avviare la pausa in questo momento.';
+      });
+    }
+  }
+
+  @override
+  Future<void> _resumeWorkdayNow() async {
+    final session = _workdaySession;
+    final breakStartedMinutes = session?.breakStartedMinutes;
+    if (!isSameDay(_selectedDate, _todayDate) ||
+        session == null ||
+        breakStartedMinutes == null ||
+        session.isCompleted) {
+      return;
+    }
+
+    final now = DateTime.now();
+    final nowMinutes = (now.hour * 60) + now.minute;
+    final isoDate = DashboardService.defaultEntryDateOf(_selectedDate);
+    setState(() {
+      _isSavingWorkdaySession = true;
+    });
+
+    try {
+      final addedBreakMinutes = math.max(0, nowMinutes - breakStartedMinutes);
+      final updatedSession = session.copyWith(
+        breakStartedMinutes: null,
+        accumulatedBreakMinutes:
+            session.accumulatedBreakMinutes + addedBreakMinutes,
+        breakSegments: [
+          ...session.breakSegments,
+          WorkdayBreakSegment(
+            startMinutes: breakStartedMinutes,
+            endMinutes: nowMinutes,
+          ),
+        ],
+      );
+      await widget.workdayStartStore.saveSession(isoDate, updatedSession);
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _workdaySession = updatedSession;
+        _syncSelectedDayPauseWindowDraftForCurrentDisplay(
+          session: updatedSession,
+        );
+        _isSavingWorkdaySession = false;
+      });
+      unawaited(_localNotificationService.cancelBreakEndReminder());
+      _rescheduleMissingExitReminderForSession(updatedSession);
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _isSavingWorkdaySession = false;
+        _errorMessage = 'Impossibile riprendere la giornata in questo momento.';
+      });
+    }
+  }
+
+  @override
+  Future<void> _finishWorkdayNow() async {
+    final session = _workdaySession;
+    if (!isSameDay(_selectedDate, _todayDate) ||
+        session == null ||
+        session.isCompleted) {
+      return;
+    }
+
+    final now = DateTime.now();
+    final nowMinutes = (now.hour * 60) + now.minute;
+    final isoDate = DashboardService.defaultEntryDateOf(_selectedDate);
+    setState(() {
+      _isSavingWorkdaySession = true;
+    });
+
+    try {
+      final totalBreakMinutes = session.breakStartedMinutes == null
+          ? session.accumulatedBreakMinutes
+          : session.accumulatedBreakMinutes +
+                    math.max(0, nowMinutes - session.breakStartedMinutes!)
+                as int;
+      final completedBreakSegments = session.breakStartedMinutes == null
+          ? session.breakSegments
+          : [
+              ...session.breakSegments,
+              WorkdayBreakSegment(
+                startMinutes: session.breakStartedMinutes!,
+                endMinutes: nowMinutes,
+              ),
+            ];
+      final updatedSession = session.copyWith(
+        breakStartedMinutes: null,
+        accumulatedBreakMinutes: totalBreakMinutes,
+        breakSegments: completedBreakSegments,
+        endMinutes: nowMinutes,
+      );
+      await widget.workdayStartStore.saveSession(isoDate, updatedSession);
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _workdaySession = updatedSession;
+        _syncSelectedDayPauseWindowDraftForCurrentDisplay(
+          session: updatedSession,
+        );
+        _isSavingWorkdaySession = false;
+      });
+      _cancelWorkdayReminders();
+      unawaited(_queueCloudBackup());
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _isSavingWorkdaySession = false;
+        _errorMessage = 'Impossibile registrare l uscita in questo momento.';
+      });
+    }
+  }
+
+  @override
+  Future<void> _clearWorkdaySession() async {
+    final isoDate = DashboardService.defaultEntryDateOf(_selectedDate);
+    setState(() {
+      _isSavingWorkdaySession = true;
+    });
+
+    try {
+      await widget.workdayStartStore.clearSession(isoDate);
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _workdaySession = null;
+        _syncSelectedDayPauseWindowDraftForCurrentDisplay(session: null);
+        _isSavingWorkdaySession = false;
+      });
+      _cancelWorkdayReminders();
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _isSavingWorkdaySession = false;
+        _errorMessage = 'Impossibile rimuovere la giornata registrata.';
+      });
+    }
+  }
+
+  @override
+  Future<void> _confirmSuggestedExitMinutes(int exitMinutes) async {
+    final clampedExitMinutes = exitMinutes.clamp(0, (23 * 60) + 59).toInt();
+    _scheduleOverrideEndTimeController.text = formatTimeInput(
+      clampedExitMinutes,
+    );
+    _clearPendingExitConfirmationForSelectedDate();
+    _normalizeSelectedDayPauseWindowForCurrentDraft();
+    _clearAgendaPreviewState();
+    if (mounted) {
+      setState(() {
+        _errorMessage = null;
+      });
+    }
+    _pushCurrentScheduleOverrideDraftToHistory();
+    await _autosaveScheduleOverride();
+  }
+
+  @override
+  int _currentMinutesOfDay() {
+    final now = DateTime.now();
+    return (now.hour * 60) + now.minute;
+  }
+
+  @override
+  bool get _hasPendingExitConfirmationForSelectedDate =>
+      _pendingExitConfirmationDateKey ==
+          DashboardService.defaultEntryDateOf(_selectedDate) &&
+      _pendingExitConfirmationMinutes != null;
+
+  @override
+  int? get _pendingExitConfirmationForSelectedDate =>
+      _hasPendingExitConfirmationForSelectedDate
+      ? _pendingExitConfirmationMinutes
+      : null;
+
+  @override
+  void _setPendingExitConfirmationForSelectedDate(int minutes) {
+    _pendingExitConfirmationDateKey = DashboardService.defaultEntryDateOf(
+      _selectedDate,
+    );
+    _pendingExitConfirmationMinutes = minutes.clamp(0, (23 * 60) + 59);
+  }
+
+  @override
+  void _clearPendingExitConfirmationForSelectedDate() {
+    final selectedDateKey = DashboardService.defaultEntryDateOf(_selectedDate);
+    if (_pendingExitConfirmationDateKey != selectedDateKey &&
+        _pendingExitConfirmationMinutes != null) {
+      return;
+    }
+    _pendingExitConfirmationDateKey = null;
+    _pendingExitConfirmationMinutes = null;
+  }
+}
