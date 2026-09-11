@@ -148,75 +148,40 @@ class HomeScreen extends StatefulWidget {
 abstract class _HomeScreenStateBase extends State<HomeScreen>
     with WidgetsBindingObserver {
   final _profileFormKey = GlobalKey<FormState>();
-
   final _quickEntryFormKey = GlobalKey<FormState>();
-
   final _scheduleOverrideFormKey = GlobalKey<FormState>();
-
   final _ticketFormKey = GlobalKey<FormState>();
-
   final _fullNameController = TextEditingController();
-
   final _uniformDailyTargetController = TextEditingController();
-
   final _uniformStartTimeController = TextEditingController();
-
   final _uniformEndTimeController = TextEditingController();
-
   final _uniformBreakController = TextEditingController();
-
   final _rulesExpectedDailyController = TextEditingController();
-
   final _rulesMinimumBreakController = TextEditingController();
-
   final _rulesMaximumDailyCreditController = TextEditingController();
-
   final _rulesMaximumDailyDebitController = TextEditingController();
-
   final _rulesMaximumMonthlyCreditController = TextEditingController();
-
   final _rulesMaximumMonthlyDebitController = TextEditingController();
-
   final _rulesOvertimeDailyCapController = TextEditingController();
-
   final _rulesOvertimeWeeklyCapController = TextEditingController();
-
   final _rulesOvertimeMonthlyCapController = TextEditingController();
-
   final _rulesFlexibleStartWindowController = TextEditingController();
-
   final _rulesWalletDailyExitController = TextEditingController();
-
   final _rulesWalletWeeklyExitController = TextEditingController();
-
   final _rulesImplicitCreditDailyCapController = TextEditingController();
-
   final _entryDateController = TextEditingController();
-
   final _entryMinutesController = TextEditingController();
-
   final _entryNoteController = TextEditingController();
-
   final _scheduleOverrideTargetController = TextEditingController();
-
   final _scheduleOverrideStartTimeController = TextEditingController();
-
   final _scheduleOverrideEndTimeController = TextEditingController();
-
   final _scheduleOverrideBreakController = TextEditingController();
-
   final _ticketNameController = TextEditingController();
-
   final _ticketEmailController = TextEditingController();
-
   final _ticketSubjectController = TextEditingController();
-
   final _ticketMessageController = TextEditingController();
-
   final _ticketReplyController = TextEditingController();
-
   final _ticketRecoveryIdController = TextEditingController();
-
   final _ticketAppVersionController = TextEditingController(
     text: const String.fromEnvironment('APP_VERSION', defaultValue: '0.1.0'),
   );
@@ -238,184 +203,99 @@ abstract class _HomeScreenStateBase extends State<HomeScreen>
   };
 
   DashboardSnapshot? _snapshot;
-
   final Map<String, DashboardSnapshot> _snapshotCache = {};
-
   AppUpdate? _availableUpdate;
-
   late String _selectedMonth;
-
   late DateTime _selectedDate;
-
   CalendarView _calendarView = CalendarView.month;
-
   bool _useUniformDailyTarget = true;
-
   bool _rulesOvertimeEnabled = false;
-
   bool _rulesOvertimeCapEnabled = false;
-
   bool _rulesFixedScheduleEnabled = false;
-
   bool _rulesFlexibleStartEnabled = false;
-
   bool _rulesWalletEnabled = false;
-
   bool _rulesImplicitCreditEnabled = false;
-
   WorkRulesPauseAdjustmentMode _rulesPauseAdjustmentMode =
       WorkRulesPauseAdjustmentMode.keepWorkedMinutes;
 
   List<WorkPermissionRule> _rulesAdditionalPermissions = const [];
-
   List<WorkPermissionRule> _rulesLeaveBanks = const [];
-
   LeaveType _selectedLeaveType = LeaveType.vacation;
-
   QuickEntryMode _selectedEntryMode = QuickEntryMode.work;
-
   String? _errorMessage;
-
   bool _isLoading = true;
-
   bool _isCheckingForUpdate = true;
-
   bool _isSavingProfile = false;
-
   bool _isReloadingProfile = false;
-
   bool _isSavingScheduleOverride = false;
-
   bool _isSubmittingEntry = false;
-
   bool _isSubmittingTicket = false;
-
   bool _isOpeningUpdate = false;
-
   bool _isShowingUpdateDialog = false;
-
   bool _isLoadingCalendarData = false;
-
   bool _isUpdatingThemeMode = false;
-
   bool _isSavingWorkdaySession = false;
-
   bool _isAgendaInteracting = false;
-
   bool _isLoadingTicketThreads = false;
-
   bool _isLoadingConsuntivoData = false;
-
   bool _isSubmittingTicketReply = false;
-
   bool _isRecordingTicketVoice = false;
-
   bool _isRecoveringTrackedTicket = false;
-
   bool _isAuthenticatingAccount = false;
-
   bool _isRecoveringAccountPassword = false;
-
   bool _isConfiguringRecoveryQuestions = false;
-
   bool _isRestoringCloudBackup = false;
-
   bool _isSyncingCloudBackup = false;
-
   bool _isLoadingCloudBackupStatus = false;
-
   bool _isBackgroundUpdateDownloadInProgress = false;
-
   bool _isPromptingBackgroundUpdateInstall = false;
-
   bool _cloudBackupQueued = false;
-
   AppUpdate? _backgroundUpdate;
-
   DownloadedAppUpdate? _backgroundDownloadedUpdate;
-
   UpdateDownloadProgress _backgroundUpdateProgress =
       const UpdateDownloadProgress(receivedBytes: 0, totalBytes: null);
 
   late bool _hasCompletedInitialSetup;
-
   HomeSection _selectedSection = HomeSection.calendar;
-
   ConsuntivoRangeOption _consuntivoRange = ConsuntivoRangeOption.oneMonth;
-
   SupportTicketCategory _selectedTicketCategory = SupportTicketCategory.bug;
-
   List<TrackedSupportTicket> _trackedTickets = const [];
-
   Map<String, SupportTicketThread> _ticketThreadsById = const {};
-
   List<SupportTicketUploadAttachment> _ticketAttachments = const [];
-
   bool _includeDiagnosticLogsInTicket = true;
-
   String? _selectedTrackedTicketId;
-
   int _unreadTicketReplyCount = 0;
-
   WorkdaySession? _workdaySession;
-
   bool _scheduleOverrideAutosaveQueued = false;
-
   List<ScheduleOverrideDraftState> _scheduleOverrideHistory = const [];
-
   int _scheduleOverrideHistoryIndex = -1;
-
   String? _scheduleOverrideHistoryDateKey;
-
   int? _selectedDayPauseStartMinutes;
-
   int? _selectedDayPauseEndMinutes;
-
   int? _agendaPreviewStartMinutes;
-
   int? _agendaPreviewEndMinutes;
-
   int? _agendaPreviewBreakMinutes;
-
   int? _agendaPreviewPauseStartMinutes;
-
   int? _agendaPreviewPauseEndMinutes;
-
   int? _pendingExitConfirmationMinutes;
-
   String? _pendingExitConfirmationDateKey;
-
   String? _lastOvertimeExceededNotificationKey;
-
   AccountSession? _accountSession;
-
   DateTime? _lastCloudBackupAt;
-
   DateTime? _lastCloudBackupAttemptAt;
-
   bool? _lastCloudBackupSucceeded;
-
   String? _lastCloudBackupFeedback;
-
   bool _hasCloudBackupAvailable = false;
-
   AccountAuthMode _accountAuthMode = AccountAuthMode.login;
-
   Timer? _ticketNotificationTimer;
-
   Timer? _liveWorkedMinutesTimer;
-
   StreamSubscription<RemoteMessage>? _foregroundPushSubscription;
-
   final AudioRecorder _ticketAudioRecorder = AudioRecorder();
-
   final LocalNotificationService _localNotificationService =
       LocalNotificationService();
 
   final DiagnosticLogService _diagnosticLogService = DiagnosticLogService();
-
   final _accountEmailController = TextEditingController();
-
   final _accountPasswordController = TextEditingController();
 
   // Implementati in Interazione con l'agenda: anteprima e applicazione delle modifiche trascinate (agenda_interaction_state.dart).
@@ -607,7 +487,6 @@ abstract class _HomeScreenStateBase extends State<HomeScreen>
 
   // Implementati in Storico undo/redo della bozza di orario del giorno (schedule_override_history_state.dart).
   bool get _canRedoScheduleOverride;
-
   bool get _canUndoScheduleOverride;
 
   void _primeScheduleOverrideHistoryFromCurrentDisplay();
