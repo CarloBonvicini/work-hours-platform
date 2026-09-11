@@ -130,7 +130,7 @@ mixin _DashboardDataState on _HomeScreenStateBase {
       _entryDateController.text = DashboardService.defaultEntryDateOf(date);
       _entryMinutesController.text = prefilledMinutes == null
           ? ''
-          : formatHoursInput(prefilledMinutes);
+          : prefilledMinutes.toString();
       _entryNoteController.text = note ?? '';
     });
   }
@@ -149,7 +149,7 @@ mixin _DashboardDataState on _HomeScreenStateBase {
       _entryDateController.text = DashboardService.defaultEntryDateOf(date);
       _entryMinutesController.text = prefilledMinutes == null
           ? ''
-          : formatHoursInput(prefilledMinutes);
+          : prefilledMinutes.toString();
       _entryNoteController.text = note ?? '';
     });
   }
