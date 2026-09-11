@@ -32,6 +32,7 @@ Per ogni task:
 - Nessun warning o errore nei controlli richiesti.
 - Backend: `npm run lint`, `npm test`, `npm run build`.
 - Mobile: `flutter analyze`, `flutter test`.
+- La CI mobile usa una versione Flutter pinnata (`FLUTTER_VERSION` in `.github/workflows/mobile-ci.yml` e `mobile-release.yml`): gli aggiornamenti del tag si fanno deliberatamente, verificando prima analyze/test.
 - In caso di compromesso strutturale, esplicitalo e proponi piano di refactor.
 
 ## Override locali
