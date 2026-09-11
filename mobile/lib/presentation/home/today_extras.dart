@@ -7,6 +7,7 @@ import 'package:work_hours_mobile/domain/models/day_schedule.dart';
 import 'package:work_hours_mobile/domain/models/leave_entry.dart';
 import 'package:work_hours_mobile/domain/models/user_work_rules.dart';
 import 'package:work_hours_mobile/domain/models/workday_session.dart';
+import 'package:work_hours_mobile/presentation/home/logic/rule_value_labels.dart';
 
 /// Riepilogo residuo di una regola permessi/banca ore per la schermata Oggi.
 class LeaveAllowanceSummary {
@@ -19,28 +20,14 @@ class LeaveAllowanceSummary {
   final String remainingLabel;
 }
 
-int _ruleRemainingMinutes(WorkPermissionRule rule) {
-  final safeUsed = math.min(rule.usedMinutes, rule.allowanceMinutes);
-  return math.max(rule.allowanceMinutes - safeUsed, 0);
-}
-
-int _ruleRemainingDays(WorkPermissionRule rule) {
-  final safeUsed = math.min(rule.usedDays, rule.allowanceDays);
-  return math.max(rule.allowanceDays - safeUsed, 0);
-}
-
-String _formatDays(int days) {
-  return days == 1 ? '1 g' : '$days gg';
-}
-
 String _ruleRemainingLabel(WorkPermissionRule rule) {
   switch (rule.allowanceType) {
     case WorkPermissionAllowanceType.hours:
-      return formatHoursInput(_ruleRemainingMinutes(rule));
+      return formatHoursInput(ruleRemainingMinutes(rule));
     case WorkPermissionAllowanceType.days:
-      return _formatDays(_ruleRemainingDays(rule));
+      return formatRuleDaysValue(ruleRemainingDays(rule));
     case WorkPermissionAllowanceType.both:
-      return '${_formatDays(_ruleRemainingDays(rule))} + ${formatHoursInput(_ruleRemainingMinutes(rule))}';
+      return '${formatRuleDaysValue(ruleRemainingDays(rule))} + ${formatHoursInput(ruleRemainingMinutes(rule))}';
   }
 }
 

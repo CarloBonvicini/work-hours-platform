@@ -2,6 +2,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:work_hours_mobile/domain/models/weekday_target_minutes.dart';
+import 'package:work_hours_mobile/presentation/home/models/calendar_view.dart';
 
 DateTime monthToDate(String month) {
   final parts = month.split('-');
@@ -105,4 +106,33 @@ String compactWeekdayLabel(WeekdayKey weekday) {
     case WeekdayKey.sunday:
       return 'Do';
   }
+}
+
+/// Sposta [date] di [days] giorni di calendario. A differenza di
+/// `add(Duration(days: n))` (che somma 24 ore esatte) resta corretto anche nei
+/// giorni del cambio ora legale, che durano 23 o 25 ore.
+DateTime addCalendarDays(DateTime date, int days) {
+  return DateUtils.addDaysToDate(date, days);
+}
+
+/// Data di riferimento dopo aver spostato la vista [view] di [step] periodi.
+DateTime shiftCalendarPeriodDate(
+  DateTime selectedDate,
+  CalendarView view,
+  int step,
+) {
+  return switch (view) {
+    CalendarView.day => addCalendarDays(selectedDate, step),
+    CalendarView.week => addCalendarDays(selectedDate, step * 7),
+    CalendarView.month => DateTime(
+      selectedDate.year,
+      selectedDate.month + step,
+      1,
+    ),
+    CalendarView.year => DateTime(
+      selectedDate.year + step,
+      selectedDate.month,
+      1,
+    ),
+  };
 }

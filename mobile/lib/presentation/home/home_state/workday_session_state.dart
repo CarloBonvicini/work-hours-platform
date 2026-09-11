@@ -82,6 +82,44 @@ mixin _WorkdaySessionState on _HomeScreenStateBase {
     unawaited(_localNotificationService.cancelMissingExitReminder());
   }
 
+  /// Su una giornata gia' chiusa l'entrata riapre la sessione: il tempo tra
+  /// l'uscita e adesso diventa una pausa, cosi' non si perde nulla di quanto
+  /// registrato. Altrimenti inizia una sessione nuova.
+  (WorkdaySession, String) _sessionForRecordedStart({
+    required WorkdaySession? current,
+    required int startMinutes,
+  }) {
+    final previousEndMinutes = current?.endMinutes;
+    if (current == null || previousEndMinutes == null) {
+      return (
+        WorkdaySession(startMinutes: startMinutes),
+        'Entrata registrata alle ${formatTimeInput(startMinutes)}.',
+      );
+    }
+
+    final awayMinutes = math.max(0, startMinutes - previousEndMinutes);
+    final reopened = current.copyWith(
+      endMinutes: null,
+      accumulatedBreakMinutes: current.accumulatedBreakMinutes + awayMinutes,
+      breakSegments: awayMinutes > 0
+          ? [
+              ...current.breakSegments,
+              WorkdayBreakSegment(
+                startMinutes: previousEndMinutes,
+                endMinutes: startMinutes,
+              ),
+            ]
+          : current.breakSegments,
+    );
+    final pauseLabel = awayMinutes > 0
+        ? ' Pausa ${formatTimeInput(previousEndMinutes)}-${formatTimeInput(startMinutes)} aggiunta.'
+        : '';
+    return (
+      reopened,
+      'Rientro registrato alle ${formatTimeInput(startMinutes)}.$pauseLabel',
+    );
+  }
+
   @override
   Future<void> _recordWorkdayStartNow() async {
     if (!isSameDay(_selectedDate, _todayDate)) {
@@ -97,7 +135,10 @@ mixin _WorkdaySessionState on _HomeScreenStateBase {
     });
 
     try {
-      final session = WorkdaySession(startMinutes: startMinutes);
+      final (session, message) = _sessionForRecordedStart(
+        current: _workdaySession,
+        startMinutes: startMinutes,
+      );
       await widget.workdayStartStore.saveSession(isoDate, session);
       if (!mounted) {
         return;
@@ -109,13 +150,9 @@ mixin _WorkdaySessionState on _HomeScreenStateBase {
         _isSavingWorkdaySession = false;
       });
       _rescheduleMissingExitReminderForSession(session);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Entrata registrata alle ${formatTimeInput(startMinutes)}.',
-          ),
-        ),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(message)));
     } catch (error) {
       if (!mounted) {
         return;

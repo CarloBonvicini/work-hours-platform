@@ -20,7 +20,7 @@ mixin _CalendarNavigationState on _HomeScreenStateBase {
   @override
   Future<void> _shiftSelectedDay(int step) async {
     await _setSelectedDate(
-      _selectedDate.add(Duration(days: step)),
+      addCalendarDays(_selectedDate, step),
       alignToPeriod: false,
     );
   }
@@ -101,20 +101,11 @@ mixin _CalendarNavigationState on _HomeScreenStateBase {
 
   @override
   Future<void> _shiftCalendarPeriod(int step) async {
-    final nextDate = switch (_calendarView) {
-      CalendarView.day => _selectedDate.add(Duration(days: step)),
-      CalendarView.week => _selectedDate.add(Duration(days: step * 7)),
-      CalendarView.month => DateTime(
-        _selectedDate.year,
-        _selectedDate.month + step,
-        1,
-      ),
-      CalendarView.year => DateTime(
-        _selectedDate.year + step,
-        _selectedDate.month,
-        1,
-      ),
-    };
+    final nextDate = shiftCalendarPeriodDate(
+      _selectedDate,
+      _calendarView,
+      step,
+    );
 
     await _setSelectedDate(nextDate, alignToPeriod: true);
   }
@@ -249,7 +240,7 @@ mixin _CalendarNavigationState on _HomeScreenStateBase {
 
   DateTime _lastDayOfWeek(DateTime date) {
     final firstDay = _firstDayOfWeek(date);
-    return firstDay.add(const Duration(days: 6));
+    return addCalendarDays(firstDay, 6);
   }
 
   String _calendarPeriodLabelFor(CalendarView view) {

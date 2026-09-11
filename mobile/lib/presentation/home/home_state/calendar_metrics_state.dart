@@ -42,7 +42,7 @@ mixin _CalendarMetricsState on _HomeScreenStateBase {
     final firstDay = _firstDayOfWeek(_selectedDate);
     return List.generate(
       7,
-      (index) => _buildDayMetrics(firstDay.add(Duration(days: index))),
+      (index) => _buildDayMetrics(addCalendarDays(firstDay, index)),
       growable: false,
     );
   }
@@ -259,7 +259,7 @@ mixin _CalendarMetricsState on _HomeScreenStateBase {
       ));
     }
 
-    final tomorrow = _todayDate.add(const Duration(days: 1));
+    final tomorrow = addCalendarDays(_todayDate, 1);
     final tomorrowSnapshot =
         _snapshotForMonth(DashboardService.formatMonth(tomorrow)) ??
         (isSameMonth(tomorrow, monthToDate(snapshot.summary.month))
@@ -293,7 +293,7 @@ mixin _CalendarMetricsState on _HomeScreenStateBase {
   Future<void> _ensureUpcomingWeekData() async {
     final days = List.generate(
       7,
-      (index) => _todayDate.add(Duration(days: index)),
+      (index) => addCalendarDays(_todayDate, index),
       growable: false,
     );
     final missingMonths = days
@@ -327,7 +327,7 @@ mixin _CalendarMetricsState on _HomeScreenStateBase {
   @override
   List<WeekPlanDay> _buildUpcomingWeekPlan() {
     return List.generate(7, (index) {
-      final date = _todayDate.add(Duration(days: index));
+      final date = addCalendarDays(_todayDate, index);
       final month = DashboardService.formatMonth(date);
       final monthSnapshot = _snapshotForMonth(month);
       if (monthSnapshot == null) {

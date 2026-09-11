@@ -968,6 +968,91 @@ void main() {
     );
   });
 
+  testWidgets('records the full workday flow and reopens a closed day', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(1400, 2200));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final workdayStartStore = _FakeWorkdayStartStore();
+    final today = DateTime.now();
+    final todayIsoDate = DashboardService.defaultEntryDateOf(today);
+
+    await tester.pumpWidget(
+      WorkHoursApp(
+        dashboardService: DashboardService(
+          repository: _FakeDashboardRepository(),
+        ),
+        appUpdateService: _FakeAppUpdateService(),
+        updateReminderStore: _FakeUpdateReminderStore(),
+        onboardingPreferenceStore: _FakeOnboardingPreferenceStore(
+          hasCompleted: true,
+        ),
+        themePreferenceStore: _FakeThemePreferenceStore(),
+        workdayStartStore: workdayStartStore,
+        supportTicketStore: _FakeSupportTicketStore(),
+        hasCompletedInitialSetup: true,
+      ),
+    );
+    await tester.pumpAndSettle();
+    if (find.text('Ricordamelo piu tardi').evaluate().isNotEmpty) {
+      await tester.tap(find.text('Ricordamelo piu tardi'));
+      await tester.pumpAndSettle();
+    }
+    await tester.tap(find.byKey(const ValueKey('navigation-menu-button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('navigation-option-day')));
+    await tester.pumpAndSettle();
+
+    Future<void> tapAction(String key) async {
+      final finder = find.byKey(ValueKey(key));
+      await tester.ensureVisible(finder);
+      await tester.tap(finder);
+      await tester.pumpAndSettle();
+    }
+
+    await tapAction('calendar-record-start-button');
+    final started = await workdayStartStore.loadSession(todayIsoDate);
+    expect(started, isNotNull);
+    expect(started!.isCompleted, isFalse);
+    expect(find.text('Dentro'), findsWidgets);
+
+    await tapAction('calendar-start-break-button');
+    expect(
+      (await workdayStartStore.loadSession(todayIsoDate))!.isOnBreak,
+      isTrue,
+    );
+    expect(find.text('In pausa'), findsWidgets);
+
+    await tapAction('calendar-resume-workday-button');
+    final resumed = await workdayStartStore.loadSession(todayIsoDate);
+    expect(resumed!.isOnBreak, isFalse);
+    expect(resumed.breakSegments, hasLength(1));
+
+    await tapAction('calendar-end-workday-button');
+    final closed = await workdayStartStore.loadSession(todayIsoDate);
+    expect(closed!.isCompleted, isTrue);
+    expect(find.text('Chiusa'), findsWidgets);
+
+    // Con la giornata chiusa il pulsante deve offrire il rientro, non una
+    // nuova entrata che cancellerebbe la timbratura gia' registrata.
+    expect(find.text('Rientro'), findsOneWidget);
+    await tapAction('calendar-record-start-button');
+    final reopened = await workdayStartStore.loadSession(todayIsoDate);
+    expect(reopened!.isCompleted, isFalse);
+    expect(reopened.startMinutes, started.startMinutes);
+    // La pausa fuori sede viene aggiunta solo se tra uscita e rientro e'
+    // passato almeno un minuto: nel test dipende dal cambio di minuto.
+    expect(reopened.breakSegments.length, anyOf(1, 2));
+    if (reopened.breakSegments.length == 2) {
+      expect(reopened.breakSegments.last.startMinutes, closed.endMinutes);
+    }
+    expect(
+      reopened.accumulatedBreakMinutes >= closed.accumulatedBreakMinutes,
+      isTrue,
+    );
+    expect(find.text('Dentro'), findsWidgets);
+  });
+
   testWidgets('persists collapsed state for the today workday card', (
     tester,
   ) async {

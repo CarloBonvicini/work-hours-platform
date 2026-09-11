@@ -5,6 +5,7 @@ import 'package:work_hours_mobile/domain/models/day_schedule.dart';
 import 'package:work_hours_mobile/domain/models/profile.dart';
 import 'package:work_hours_mobile/domain/models/weekday_schedule.dart';
 import 'package:work_hours_mobile/domain/models/weekday_target_minutes.dart';
+import 'package:work_hours_mobile/presentation/home/logic/hours_labels.dart';
 
 class InitialSetupConfiguration {
   const InitialSetupConfiguration({
@@ -84,7 +85,7 @@ class _InitialSetupDialogState extends State<InitialSetupDialog> {
         profile.weekdaySchedule.monday.startTime ?? '';
     _uniformEndTimeController.text =
         profile.weekdaySchedule.monday.endTime ?? '';
-    _uniformBreakController.text = _formatBreakInput(
+    _uniformBreakController.text = formatBreakInput(
       profile.weekdaySchedule.monday.breakMinutes,
     );
     for (final weekday in WeekdayKey.values) {
@@ -94,7 +95,7 @@ class _InitialSetupDialogState extends State<InitialSetupDialog> {
       );
       _weekdayStartTimeControllers[weekday]!.text = daySchedule.startTime ?? '';
       _weekdayEndTimeControllers[weekday]!.text = daySchedule.endTime ?? '';
-      _weekdayBreakControllers[weekday]!.text = _formatBreakInput(
+      _weekdayBreakControllers[weekday]!.text = formatBreakInput(
         daySchedule.breakMinutes,
       );
     }
@@ -251,7 +252,7 @@ class _InitialSetupDialogState extends State<InitialSetupDialog> {
         _uniformStartTimeController.text = formatTimeInput(startMinutes);
         _uniformEndTimeController.text = formatTimeInput(endMinutes);
       }
-      _uniformBreakController.text = _formatBreakInput(breakMinutes);
+      _uniformBreakController.text = formatBreakInput(breakMinutes);
       return WeekdaySchedule.uniform(
         uniformMinutes,
         startTime: startMinutes == null ? null : formatTimeInput(startMinutes),
@@ -592,10 +593,6 @@ class _InitialSetupDialogState extends State<InitialSetupDialog> {
         value.friday;
     return (total / 5).round();
   }
-}
-
-String _formatBreakInput(int minutes) {
-  return minutes == 0 ? '' : formatHoursInput(minutes);
 }
 
 class _InitialSetupDayRow extends StatelessWidget {
