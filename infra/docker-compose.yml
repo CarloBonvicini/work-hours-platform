@@ -1,4 +1,7 @@
-version: "2.1"
+# Nome progetto fisso: i container (infra-api-1, infra-db-1) e il volume
+# infra_postgres_data non devono dipendere dalla cartella in cui gira compose.
+# Un nome diverso creerebbe uno stack nuovo con un database vuoto.
+name: infra
 
 services:
   db:
