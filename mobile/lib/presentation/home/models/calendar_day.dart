@@ -1,6 +1,5 @@
 // Modelli di vista di una cella/giorno del calendario.
 
-
 class CalendarDay {
   const CalendarDay({
     required this.date,
