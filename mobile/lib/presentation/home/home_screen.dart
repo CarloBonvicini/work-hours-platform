@@ -37,6 +37,11 @@ import 'package:work_hours_mobile/domain/models/weekday_schedule.dart';
 import 'package:work_hours_mobile/domain/models/weekday_target_minutes.dart';
 import 'package:work_hours_mobile/domain/models/work_entry.dart';
 import 'package:work_hours_mobile/presentation/home/consuntivo_section.dart';
+import 'package:work_hours_mobile/presentation/home/logic/calendar_dates.dart';
+import 'package:work_hours_mobile/presentation/home/models/activity_item.dart';
+import 'package:work_hours_mobile/presentation/home/models/agenda_range.dart';
+import 'package:work_hours_mobile/presentation/home/models/calendar_day.dart';
+import 'package:work_hours_mobile/presentation/home/models/day_metrics.dart';
 import 'package:work_hours_mobile/presentation/home/today_extras.dart';
 import 'package:work_hours_mobile/presentation/home/update_release_notes_parser.dart';
 
@@ -84,15 +89,6 @@ enum _HomeSection {
 }
 
 enum _ScheduleOverrideAutosaveAction { none, save, remove }
-
-enum _TodayStatus {
-  dayOff,
-  planned,
-  needsAttention,
-  inProgress,
-  completed,
-  absent,
-}
 
 enum _TodayOverridePreset { startLater, finishEarlier, longerBreak, dayOff }
 
@@ -577,7 +573,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }) {
     _fullNameController.text = snapshot.profile.fullName;
     _useUniformDailyTarget = snapshot.profile.useUniformDailyTarget;
-    _uniformDailyTargetController.text = _formatHoursInput(
+    _uniformDailyTargetController.text = formatHoursInput(
       snapshot.profile.dailyTargetMinutes,
     );
     _uniformStartTimeController.text =
@@ -587,33 +583,33 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _uniformBreakController.text = _formatBreakInput(
       snapshot.profile.weekdaySchedule.monday.breakMinutes,
     );
-    _rulesExpectedDailyController.text = _formatHoursInput(
+    _rulesExpectedDailyController.text = formatHoursInput(
       snapshot.profile.workRules.expectedDailyMinutes,
     );
     _rulesMinimumBreakController.text = _formatBreakInput(
       snapshot.profile.workRules.minimumBreakMinutes,
     );
-    _rulesMaximumDailyCreditController.text = _formatHoursInput(
+    _rulesMaximumDailyCreditController.text = formatHoursInput(
       snapshot.profile.workRules.maximumDailyCreditMinutes,
     );
-    _rulesMaximumDailyDebitController.text = _formatHoursInput(
+    _rulesMaximumDailyDebitController.text = formatHoursInput(
       snapshot.profile.workRules.maximumDailyDebitMinutes,
     );
-    _rulesMaximumMonthlyCreditController.text = _formatHoursInput(
+    _rulesMaximumMonthlyCreditController.text = formatHoursInput(
       snapshot.profile.workRules.maximumMonthlyCreditMinutes,
     );
-    _rulesMaximumMonthlyDebitController.text = _formatHoursInput(
+    _rulesMaximumMonthlyDebitController.text = formatHoursInput(
       snapshot.profile.workRules.maximumMonthlyDebitMinutes,
     );
     _rulesOvertimeEnabled = snapshot.profile.workRules.overtimeEnabled;
     _rulesOvertimeCapEnabled = snapshot.profile.workRules.overtimeCapEnabled;
-    _rulesOvertimeDailyCapController.text = _formatHoursInput(
+    _rulesOvertimeDailyCapController.text = formatHoursInput(
       snapshot.profile.workRules.overtimeDailyCapMinutes,
     );
-    _rulesOvertimeWeeklyCapController.text = _formatHoursInput(
+    _rulesOvertimeWeeklyCapController.text = formatHoursInput(
       snapshot.profile.workRules.overtimeWeeklyCapMinutes,
     );
-    _rulesOvertimeMonthlyCapController.text = _formatHoursInput(
+    _rulesOvertimeMonthlyCapController.text = formatHoursInput(
       snapshot.profile.workRules.overtimeMonthlyCapMinutes,
     );
     _rulesFixedScheduleEnabled =
@@ -621,19 +617,19 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         snapshot.profile.workRules.flexibleStartEnabled;
     _rulesFlexibleStartEnabled =
         snapshot.profile.workRules.flexibleStartEnabled;
-    _rulesFlexibleStartWindowController.text = _formatHoursInput(
+    _rulesFlexibleStartWindowController.text = formatHoursInput(
       snapshot.profile.workRules.flexibleStartWindowMinutes,
     );
     _rulesWalletEnabled = snapshot.profile.workRules.walletEnabled;
-    _rulesWalletDailyExitController.text = _formatHoursInput(
+    _rulesWalletDailyExitController.text = formatHoursInput(
       snapshot.profile.workRules.walletDailyExitEarlyMinutes,
     );
-    _rulesWalletWeeklyExitController.text = _formatHoursInput(
+    _rulesWalletWeeklyExitController.text = formatHoursInput(
       snapshot.profile.workRules.walletWeeklyExitEarlyMinutes,
     );
     _rulesImplicitCreditEnabled =
         snapshot.profile.workRules.implicitCreditEnabled;
-    _rulesImplicitCreditDailyCapController.text = _formatHoursInput(
+    _rulesImplicitCreditDailyCapController.text = formatHoursInput(
       snapshot.profile.workRules.implicitCreditDailyCapMinutes,
     );
     _rulesPauseAdjustmentMode = snapshot.profile.workRules.pauseAdjustmentMode;
@@ -645,7 +641,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
     for (final weekday in WeekdayKey.values) {
       final daySchedule = snapshot.profile.weekdaySchedule.forWeekday(weekday);
-      _weekdayControllers[weekday]!.text = _formatHoursInput(
+      _weekdayControllers[weekday]!.text = formatHoursInput(
         daySchedule.targetMinutes,
       );
       _weekdayStartTimeControllers[weekday]!.text = daySchedule.startTime ?? '';
@@ -1773,7 +1769,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Future<void> _loadWorkdaySessionForDate(DateTime date) async {
     final isoDate = DashboardService.defaultEntryDateOf(date);
     final session = await widget.workdayStartStore.loadSession(isoDate);
-    if (!mounted || !_isSameDay(_selectedDate, date)) {
+    if (!mounted || !isSameDay(_selectedDate, date)) {
       return;
     }
 
@@ -2410,7 +2406,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _recordWorkdayStartNow() async {
-    if (!_isSameDay(_selectedDate, _todayDate)) {
+    if (!isSameDay(_selectedDate, _todayDate)) {
       return;
     }
 
@@ -2456,7 +2452,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   Future<void> _startWorkdayBreakNow() async {
     final session = _workdaySession;
-    if (!_isSameDay(_selectedDate, _todayDate) ||
+    if (!isSameDay(_selectedDate, _todayDate) ||
         session == null ||
         session.isOnBreak ||
         session.isCompleted) {
@@ -2501,7 +2497,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Future<void> _resumeWorkdayNow() async {
     final session = _workdaySession;
     final breakStartedMinutes = session?.breakStartedMinutes;
-    if (!_isSameDay(_selectedDate, _todayDate) ||
+    if (!isSameDay(_selectedDate, _todayDate) ||
         session == null ||
         breakStartedMinutes == null ||
         session.isCompleted) {
@@ -2557,7 +2553,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   Future<void> _finishWorkdayNow() async {
     final session = _workdaySession;
-    if (!_isSameDay(_selectedDate, _todayDate) ||
+    if (!isSameDay(_selectedDate, _todayDate) ||
         session == null ||
         session.isCompleted) {
       return;
@@ -2739,7 +2735,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   void _handleOvertimeLimitExceededNotification(int exceededMinutes) {
-    if (exceededMinutes <= 0 || !_isSameDay(_selectedDate, _todayDate)) {
+    if (exceededMinutes <= 0 || !isSameDay(_selectedDate, _todayDate)) {
       _lastOvertimeExceededNotificationKey = null;
       return;
     }
@@ -2753,7 +2749,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     unawaited(
       _localNotificationService.notifyOvertimeLimitExceeded(
         message:
-            'Sei oltre il limite di straordinario di ${_formatHoursInput(exceededMinutes)}.',
+            'Sei oltre il limite di straordinario di ${formatHoursInput(exceededMinutes)}.',
       ),
     );
   }
@@ -2769,7 +2765,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _entryDateController.text = DashboardService.defaultEntryDateOf(date);
       _entryMinutesController.text = prefilledMinutes == null
           ? ''
-          : _formatHoursInput(prefilledMinutes);
+          : formatHoursInput(prefilledMinutes);
       _entryNoteController.text = note ?? '';
     });
   }
@@ -2787,7 +2783,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _entryDateController.text = DashboardService.defaultEntryDateOf(date);
       _entryMinutesController.text = prefilledMinutes == null
           ? ''
-          : _formatHoursInput(prefilledMinutes);
+          : formatHoursInput(prefilledMinutes);
       _entryNoteController.text = note ?? '';
     });
   }
@@ -2822,7 +2818,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final preparedSchedule = _buildPresetSchedule(preset, baseSchedule);
 
     await _setSelectedDate(today);
-    _scheduleOverrideTargetController.text = _formatHoursInput(
+    _scheduleOverrideTargetController.text = formatHoursInput(
       preparedSchedule.targetMinutes,
     );
     _scheduleOverrideStartTimeController.text =
@@ -3386,7 +3382,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           );
     return workedMinutes == null
         ? 'Ore di lavoro: --'
-        : 'Ore di lavoro: ${_formatHoursInput(workedMinutes)}';
+        : 'Ore di lavoro: ${formatHoursInput(workedMinutes)}';
   }
 
   Future<void> _pickScheduleOverrideBreakMinutes() async {
@@ -3420,7 +3416,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
 
     _seedScheduleOverrideDraftFromCurrentDisplay();
-    _scheduleOverrideTargetController.text = _formatHoursInput(pickedMinutes);
+    _scheduleOverrideTargetController.text = formatHoursInput(pickedMinutes);
     _clearPendingExitConfirmationForSelectedDate();
     final startMinutes = parseTimeInput(
       _scheduleOverrideStartTimeController.text,
@@ -3473,7 +3469,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       return;
     }
 
-    _uniformDailyTargetController.text = _formatHoursInput(pickedMinutes);
+    _uniformDailyTargetController.text = formatHoursInput(pickedMinutes);
     if (mounted) {
       setState(() {});
     }
@@ -3535,7 +3531,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       return;
     }
 
-    controller.text = _formatHoursInput(pickedMinutes);
+    controller.text = formatHoursInput(pickedMinutes);
     if (mounted) {
       setState(() {});
     }
@@ -3612,7 +3608,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final breakController = _weekdayBreakControllers[weekday]!;
 
     if (!enabled) {
-      targetController.text = _formatHoursInput(0);
+      targetController.text = formatHoursInput(0);
       startController.clear();
       endController.clear();
       breakController.clear();
@@ -3635,7 +3631,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           parseHoursInput(_uniformDailyTargetController.text) ??
           parseHoursInput(_rulesExpectedDailyController.text) ??
           8 * 60;
-      targetController.text = _formatHoursInput(fallbackTargetMinutes);
+      targetController.text = formatHoursInput(fallbackTargetMinutes);
     }
 
     final uniformStart = _uniformStartTimeController.text.trim();
@@ -3924,7 +3920,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       return;
     }
 
-    controller.text = _formatHoursInput(pickedMinutes);
+    controller.text = formatHoursInput(pickedMinutes);
     if (mounted) {
       setState(() {});
     }
@@ -4010,10 +4006,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }) async {
     final nameController = TextEditingController(text: initialRule?.name ?? '');
     final allowanceController = TextEditingController(
-      text: _formatHoursInput(initialRule?.allowanceMinutes ?? 0),
+      text: formatHoursInput(initialRule?.allowanceMinutes ?? 0),
     );
     final usedController = TextEditingController(
-      text: _formatHoursInput(initialRule?.usedMinutes ?? 0),
+      text: formatHoursInput(initialRule?.usedMinutes ?? 0),
     );
     final allowanceDaysController = TextEditingController(
       text: (initialRule?.allowanceDays ?? 0).toString(),
@@ -4266,7 +4262,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       return;
     }
 
-    controller.text = _formatHoursInput(pickedMinutes);
+    controller.text = formatHoursInput(pickedMinutes);
     if (mounted) {
       setState(() {});
     }
@@ -4361,7 +4357,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final breakMinutes =
         parseBreakDurationInput(_scheduleOverrideBreakController.text) ?? 0;
     final targetMinutes = math.max(0, endMinutes - startMinutes - breakMinutes);
-    _scheduleOverrideTargetController.text = _formatHoursInput(targetMinutes);
+    _scheduleOverrideTargetController.text = formatHoursInput(targetMinutes);
     _clearPendingExitConfirmationForSelectedDate();
     return true;
   }
@@ -4576,7 +4572,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               }
 
               return Text(
-                _formatHoursInput(value),
+                formatHoursInput(value),
                 style: Theme.of(
                   context,
                 ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
@@ -4672,7 +4668,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       if (value == 0 && zeroLabel != null) {
         return zeroLabel;
       }
-      return _formatHoursInput(value);
+      return formatHoursInput(value);
     }
 
     final pickedMinutes = await showModalBottomSheet<int>(
@@ -4713,7 +4709,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   void _markSelectedDayAsDayOff() {
     _seedScheduleOverrideDraftFromCurrentDisplay();
-    _scheduleOverrideTargetController.text = _formatHoursInput(0);
+    _scheduleOverrideTargetController.text = formatHoursInput(0);
     _scheduleOverrideStartTimeController.clear();
     _scheduleOverrideEndTimeController.clear();
     _scheduleOverrideBreakController.clear();
@@ -4766,7 +4762,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     return (now.hour * 60) + now.minute;
   }
 
-  void _setSelectedDayPauseWindowDraft(_CalendarPauseWindow? pauseWindow) {
+  void _setSelectedDayPauseWindowDraft(CalendarPauseWindow? pauseWindow) {
     if (pauseWindow == null ||
         pauseWindow.resumeMinutes <= pauseWindow.pauseStartMinutes) {
       _selectedDayPauseStartMinutes = null;
@@ -4827,10 +4823,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     return DashboardService.defaultEntryDateOf(date);
   }
 
-  bool _samePauseWindow(
-    _CalendarPauseWindow? left,
-    _CalendarPauseWindow? right,
-  ) {
+  bool _samePauseWindow(CalendarPauseWindow? left, CalendarPauseWindow? right) {
     return left?.pauseStartMinutes == right?.pauseStartMinutes &&
         left?.resumeMinutes == right?.resumeMinutes;
   }
@@ -4857,7 +4850,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void _resetScheduleOverrideHistoryForDate(
     DateTime date, {
     required DaySchedule schedule,
-    _CalendarPauseWindow? pauseWindow,
+    CalendarPauseWindow? pauseWindow,
   }) {
     _scheduleOverrideHistoryDateKey = _scheduleOverrideHistoryDateKeyFor(date);
     _scheduleOverrideHistory = [
@@ -4981,7 +4974,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
-  ({DaySchedule schedule, _CalendarPauseWindow? pauseWindow})
+  ({DaySchedule schedule, CalendarPauseWindow? pauseWindow})
   _displayedScheduleStateForSelectedDate({
     DashboardSnapshot? snapshot,
     WorkdaySession? session,
@@ -4995,7 +4988,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         ? effectiveSchedule
         : _resolveBaseDayScheduleForDate(resolvedSnapshot, _selectedDate);
     final draftSchedule = _resolveCurrentScheduleDraft(effectiveSchedule);
-    final effectiveSession = _isSameDay(_selectedDate, _todayDate)
+    final effectiveSession = isSameDay(_selectedDate, _todayDate)
         ? (session ?? _workdaySession)
         : null;
     final displayedSchedule = _resolveDisplayedDayScheduleForSession(
@@ -5033,7 +5026,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _setSelectedDayPauseWindowDraft(displayedState.pauseWindow);
   }
 
-  _CalendarPauseWindow? _agendaPreviewPauseWindow() {
+  CalendarPauseWindow? _agendaPreviewPauseWindow() {
     final pauseStartMinutes = _agendaPreviewPauseStartMinutes;
     final pauseEndMinutes = _agendaPreviewPauseEndMinutes;
     if (pauseStartMinutes == null ||
@@ -5042,13 +5035,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       return null;
     }
 
-    return _CalendarPauseWindow(
+    return CalendarPauseWindow(
       pauseStartMinutes: pauseStartMinutes,
       resumeMinutes: pauseEndMinutes,
     );
   }
 
-  _CalendarPauseWindow? _selectedDayPauseWindowDraft() {
+  CalendarPauseWindow? _selectedDayPauseWindowDraft() {
     final pauseStartMinutes = _selectedDayPauseStartMinutes;
     final pauseEndMinutes = _selectedDayPauseEndMinutes;
     if (pauseStartMinutes == null ||
@@ -5057,7 +5050,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       return null;
     }
 
-    return _CalendarPauseWindow(
+    return CalendarPauseWindow(
       pauseStartMinutes: pauseStartMinutes,
       resumeMinutes: pauseEndMinutes,
     );
@@ -5065,10 +5058,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   void _applyDayScheduleDraft(
     DaySchedule schedule, {
-    _CalendarPauseWindow? pauseWindow,
+    CalendarPauseWindow? pauseWindow,
   }) {
     _clearPendingExitConfirmationForSelectedDate();
-    _scheduleOverrideTargetController.text = _formatHoursInput(
+    _scheduleOverrideTargetController.text = formatHoursInput(
       schedule.targetMinutes,
     );
     _scheduleOverrideStartTimeController.text = schedule.startTime ?? '';
@@ -5110,14 +5103,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       endMinutes - breakMinutes,
     );
     _setSelectedDayPauseWindowDraft(
-      _CalendarPauseWindow(
+      CalendarPauseWindow(
         pauseStartMinutes: clampedPauseStartMinutes,
         resumeMinutes: clampedPauseStartMinutes + breakMinutes,
       ),
     );
   }
 
-  _CalendarPauseWindow? _resolveSelectedDayPauseWindow({
+  CalendarPauseWindow? _resolveSelectedDayPauseWindow({
     required DaySchedule schedule,
     WorkdaySession? session,
   }) {
@@ -5164,7 +5157,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     WorkdaySession? session,
     DateTime selectedDate,
   ) {
-    if (!_isSameDay(selectedDate, _todayDate) || session == null) {
+    if (!isSameDay(selectedDate, _todayDate) || session == null) {
       return schedule;
     }
 
@@ -5285,7 +5278,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       pauseStartMinutes != null &&
               pauseEndMinutes != null &&
               pauseEndMinutes > pauseStartMinutes
-          ? _CalendarPauseWindow(
+          ? CalendarPauseWindow(
               pauseStartMinutes: pauseStartMinutes,
               resumeMinutes: pauseEndMinutes,
             )
@@ -5376,11 +5369,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
-  _DayMetrics _withDisplayedDaySchedule(
-    _DayMetrics metrics,
+  DayMetrics _withDisplayedDaySchedule(
+    DayMetrics metrics,
     DaySchedule displayedSchedule,
   ) {
-    return _DayMetrics(
+    return DayMetrics(
       date: metrics.date,
       expectedMinutes: metrics.expectedMinutes,
       workedMinutes: metrics.workedMinutes,
@@ -6328,14 +6321,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final displayedSchedule = _resolveDisplayedDayScheduleForSession(
       daySchedule,
       baseSchedule,
-      _isSameDay(selectedDate, _todayDate) ? _workdaySession : null,
+      isSameDay(selectedDate, _todayDate) ? _workdaySession : null,
       selectedDate,
     );
     final displayedPauseWindow = _resolveCalendarPauseWindow(
       schedule: displayedSchedule,
       startMinutes: parseTimeInput(displayedSchedule.startTime),
       endMinutes: parseTimeInput(displayedSchedule.endTime),
-      session: _isSameDay(selectedDate, _todayDate) ? _workdaySession : null,
+      session: isSameDay(selectedDate, _todayDate) ? _workdaySession : null,
       nowMinutes: _currentMinutesOfDay(),
     );
     _applyDayScheduleDraft(daySchedule, pauseWindow: displayedPauseWindow);
@@ -6552,15 +6545,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     assignIfMatches(
       targetText,
       _uniformDailyTargetController,
-      _formatHoursInput(targetMinutes),
+      formatHoursInput(targetMinutes),
     );
     assignIfMatches(
       targetText,
       _scheduleOverrideTargetController,
-      _formatHoursInput(targetMinutes),
+      formatHoursInput(targetMinutes),
     );
     for (final controller in _weekdayControllers.values) {
-      assignIfMatches(targetText, controller, _formatHoursInput(targetMinutes));
+      assignIfMatches(targetText, controller, formatHoursInput(targetMinutes));
     }
 
     final normalizedStart = startMinutes == null
@@ -6696,7 +6689,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   List<String> _requiredMonthsForConsuntivoRange() {
     final monthCount = _consuntivoRange.monthCount;
-    final anchorMonthDate = _monthToDate(_selectedMonth);
+    final anchorMonthDate = monthToDate(_selectedMonth);
 
     return List.generate(monthCount, (index) {
       final offset = (monthCount - 1) - index;
@@ -6762,7 +6755,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       return;
     }
 
-    final currentMonthDate = _monthToDate(_selectedMonth);
+    final currentMonthDate = monthToDate(_selectedMonth);
     final nextMonthDate = DateTime(
       currentMonthDate.year,
       currentMonthDate.month + step,
@@ -6809,7 +6802,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           final snapshot = snapshotsByMonth[month];
           if (snapshot == null) {
             return ConsuntivoMonthSummary(
-              monthLabel: _formatMonthLabel(month),
+              monthLabel: formatMonthLabel(month),
               expectedMinutes: 0,
               workedMinutes: 0,
               leaveMinutes: 0,
@@ -6818,7 +6811,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           }
 
           return ConsuntivoMonthSummary(
-            monthLabel: _formatMonthLabel(snapshot.summary.month),
+            monthLabel: formatMonthLabel(snapshot.summary.month),
             expectedMinutes: snapshot.summary.expectedMinutes,
             workedMinutes: snapshot.summary.workedMinutes,
             leaveMinutes: snapshot.summary.leaveMinutes,
@@ -6873,14 +6866,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       snapshotsByMonth: snapshotsByMonth,
     );
 
-    final firstMonthLabel = _formatMonthLabel(requiredMonths.first);
-    final lastMonthLabel = _formatMonthLabel(requiredMonths.last);
+    final firstMonthLabel = formatMonthLabel(requiredMonths.first);
+    final lastMonthLabel = formatMonthLabel(requiredMonths.last);
     final periodLabel = firstMonthLabel == lastMonthLabel
         ? firstMonthLabel
         : '$firstMonthLabel - $lastMonthLabel';
 
     return ConsuntivoSectionData(
-      anchorMonthLabel: _formatMonthLabel(_selectedMonth),
+      anchorMonthLabel: formatMonthLabel(_selectedMonth),
       periodLabel: periodLabel,
       totals: ConsuntivoTotals(
         expectedMinutes: totalExpectedMinutes,
@@ -6936,8 +6929,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       overridesByMonthAndDate[month] = overrideByDate;
     }
 
-    final startDate = _monthToDate(requiredMonths.first);
-    final selectedMonthDate = _monthToDate(_selectedMonth);
+    final startDate = monthToDate(requiredMonths.first);
+    final selectedMonthDate = monthToDate(_selectedMonth);
     final selectedMonthLastDate = DateTime(
       selectedMonthDate.year,
       selectedMonthDate.month + 1,
@@ -6990,7 +6983,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           final endTime = effectiveSchedule.endTime?.trim() ?? '';
           final hasTimeline = startTime.isNotEmpty && endTime.isNotEmpty;
           final scheduleDetail = hasTimeline
-              ? 'Dettaglio: $startTime-$endTime, pausa ${_formatHoursInput(effectiveSchedule.breakMinutes)}'
+              ? 'Dettaglio: $startTime-$endTime, pausa ${formatHoursInput(effectiveSchedule.breakMinutes)}'
               : null;
 
           final details = <String>[];
@@ -6998,7 +6991,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             final leaveLabel = leaveEntries
                 .map(
                   (entry) =>
-                      '${entry.type.label} ${_formatHoursInput(entry.minutes)}',
+                      '${entry.type.label} ${formatHoursInput(entry.minutes)}',
                 )
                 .join(', ');
             details.add('Causali: $leaveLabel');
@@ -7017,9 +7010,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           allDays.add(
             ConsuntivoDaySummary(
               dateLabel:
-                  '${_formatWeekdayShortLabel(cursor)} ${_formatCompactDate(cursor)}',
-              plannedLabel: _formatHoursInput(effectiveSchedule.targetMinutes),
-              registeredLabel: _formatHoursInput(registeredMinutes),
+                  '${formatWeekdayShortLabel(cursor)} ${formatCompactDate(cursor)}',
+              plannedLabel: formatHoursInput(effectiveSchedule.targetMinutes),
+              registeredLabel: formatHoursInput(registeredMinutes),
               balanceMinutes: balanceMinutes,
               scheduleDetail: scheduleDetail,
               causalDetail: details.isEmpty ? null : details.join(' | '),
@@ -7088,11 +7081,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     return snapshot.scheduleOverrides.length;
   }
 
-  _DayMetrics _buildDayMetrics(DateTime date) {
+  DayMetrics _buildDayMetrics(DateTime date) {
     final month = DashboardService.formatMonth(date);
     final snapshot = _snapshotForMonth(month);
     if (snapshot == null) {
-      return _DayMetrics.empty(date);
+      return DayMetrics.empty(date);
     }
 
     final isoDate = DashboardService.defaultEntryDateOf(date);
@@ -7106,7 +7099,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final rawBalanceMinutes =
         workedMinutes + leaveMinutes - effectiveSchedule.targetMinutes;
 
-    return _DayMetrics(
+    return DayMetrics(
       date: date,
       expectedMinutes: effectiveSchedule.targetMinutes,
       workedMinutes: workedMinutes,
@@ -7121,7 +7114,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
-  List<_DayMetrics> _buildWeekMetrics() {
+  List<DayMetrics> _buildWeekMetrics() {
     final firstDay = _firstDayOfWeek(_selectedDate);
     return List.generate(
       7,
@@ -7130,16 +7123,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
-  List<_MonthMetrics> _buildYearMetrics() {
+  List<MonthMetrics> _buildYearMetrics() {
     return List.generate(12, (index) {
       final month =
           '${_selectedDate.year}-${(index + 1).toString().padLeft(2, '0')}';
       final snapshot = _snapshotForMonth(month);
       if (snapshot == null) {
-        return _MonthMetrics.empty(month);
+        return MonthMetrics.empty(month);
       }
 
-      return _MonthMetrics(
+      return MonthMetrics(
         month: snapshot.summary.month,
         expectedMinutes: snapshot.summary.expectedMinutes,
         workedMinutes: snapshot.summary.workedMinutes,
@@ -7154,13 +7147,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   String _calendarPeriodLabelFor(_CalendarView view) {
     switch (view) {
       case _CalendarView.day:
-        return _formatLongDate(_selectedDate);
+        return formatLongDate(_selectedDate);
       case _CalendarView.week:
         final firstDay = _firstDayOfWeek(_selectedDate);
         final lastDay = _lastDayOfWeek(_selectedDate);
-        return '${_formatCompactDate(firstDay)} - ${_formatCompactDate(lastDay)}';
+        return '${formatCompactDate(firstDay)} - ${formatCompactDate(lastDay)}';
       case _CalendarView.month:
-        return _formatMonthLabel(_selectedMonth);
+        return formatMonthLabel(_selectedMonth);
       case _CalendarView.year:
         return '${_selectedDate.year}';
     }
@@ -7172,9 +7165,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     String month, {
     DateTime? preferredDate,
   }) {
-    final monthDate = _monthToDate(month);
+    final monthDate = monthToDate(month);
     final candidateDate = preferredDate;
-    if (candidateDate != null && _isSameMonth(candidateDate, monthDate)) {
+    if (candidateDate != null && isSameMonth(candidateDate, monthDate)) {
       return DateTime(
         candidateDate.year,
         candidateDate.month,
@@ -7182,7 +7175,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       );
     }
 
-    if (_snapshot != null && _isSameMonth(_selectedDate, monthDate)) {
+    if (_snapshot != null && isSameMonth(_selectedDate, monthDate)) {
       return DateTime(
         _selectedDate.year,
         _selectedDate.month,
@@ -7191,15 +7184,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
 
     final today = DateTime.now();
-    if (_isSameMonth(today, monthDate)) {
+    if (isSameMonth(today, monthDate)) {
       return DateTime(today.year, today.month, today.day);
     }
 
     return DateTime(monthDate.year, monthDate.month, 1);
   }
 
-  List<_CalendarDay> _buildCalendarDays(DashboardSnapshot snapshot) {
-    final monthDate = _monthToDate(snapshot.summary.month);
+  List<CalendarDay> _buildCalendarDays(DashboardSnapshot snapshot) {
+    final monthDate = monthToDate(snapshot.summary.month);
     final firstDayOfMonth = DateTime(monthDate.year, monthDate.month, 1);
     final daysInMonth = DateTime(monthDate.year, monthDate.month + 1, 0).day;
     final workMinutesByDate = <String, int>{};
@@ -7221,9 +7214,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       );
     }
 
-    final days = <_CalendarDay>[];
+    final days = <CalendarDay>[];
     for (var index = 1; index < firstDayOfMonth.weekday; index += 1) {
-      days.add(const _CalendarDay.empty());
+      days.add(const CalendarDay.empty());
     }
 
     final today = DateTime.now();
@@ -7239,28 +7232,28 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         date,
       );
       final hasOverride = _findScheduleOverrideForDate(snapshot, date) != null;
-      final relation = switch (_compareDateToToday(date)) {
-        0 => _CalendarDayRelation.today,
-        < 0 => _CalendarDayRelation.past,
-        _ => _CalendarDayRelation.future,
+      final relation = switch (compareDateToToday(date)) {
+        0 => CalendarDayRelation.today,
+        < 0 => CalendarDayRelation.past,
+        _ => CalendarDayRelation.future,
       };
       final workedMinutes = workMinutesByDate[isoDate] ?? 0;
       final leaveMinutes = leaveMinutesByDate[isoDate] ?? 0;
-      final todayStatusLabel = relation == _CalendarDayRelation.today
+      final todayStatusLabel = relation == CalendarDayRelation.today
           ? _workdaySessionStatusLabel(
               _resolveWorkdaySessionStatus(_workdaySession),
             )
           : null;
       days.add(
-        _CalendarDay(
+        CalendarDay(
           date: date,
           isoDate: isoDate,
           expectedMinutes: effectiveSchedule.targetMinutes,
           workedMinutes: workedMinutes,
           leaveMinutes: leaveMinutes,
           hasOverride: hasOverride,
-          isToday: _isSameDay(date, today),
-          isSelected: _isSameDay(date, _selectedDate),
+          isToday: isSameDay(date, today),
+          isSelected: isSameDay(date, _selectedDate),
           relation: relation,
           primaryLabel: _buildCalendarDayPrimaryLabel(
             relation: relation,
@@ -7281,7 +7274,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             schedule: displayedSchedule,
             workedMinutes: workedMinutes,
             leaveMinutes: leaveMinutes,
-            session: relation == _CalendarDayRelation.today
+            session: relation == CalendarDayRelation.today
                 ? _workdaySession
                 : null,
           ),
@@ -7290,13 +7283,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
 
     while (days.length % 7 != 0) {
-      days.add(const _CalendarDay.empty());
+      days.add(const CalendarDay.empty());
     }
 
     return days;
   }
 
-  List<_ActivityItem> _buildActivitiesForDate(
+  List<ActivityItem> _buildActivitiesForDate(
     DashboardSnapshot snapshot,
     DateTime date,
   ) {
@@ -7306,18 +7299,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     ).where((item) => item.date == selectedIsoDate).toList(growable: false);
   }
 
-  _TodayStatus _resolveDayStatus(DateTime date, _DayMetrics metrics) {
+  TodayStatus _resolveDayStatus(DateTime date, DayMetrics metrics) {
     final registeredMinutes = metrics.workedMinutes + metrics.leaveMinutes;
     if (metrics.expectedMinutes == 0 && registeredMinutes == 0) {
-      return _TodayStatus.dayOff;
+      return TodayStatus.dayOff;
     }
     if (metrics.leaveMinutes >= metrics.expectedMinutes &&
         metrics.expectedMinutes > 0) {
-      return _TodayStatus.absent;
+      return TodayStatus.absent;
     }
     if (registeredMinutes >= metrics.expectedMinutes &&
         metrics.expectedMinutes > 0) {
-      return _TodayStatus.completed;
+      return TodayStatus.completed;
     }
 
     final now = DateTime.now();
@@ -7326,35 +7319,35 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final scheduledEnd = parseTimeInput(metrics.schedule.endTime);
 
     if (date.isAfter(_todayDate)) {
-      return _TodayStatus.planned;
+      return TodayStatus.planned;
     }
 
     if (date.isBefore(_todayDate)) {
       return registeredMinutes == 0
-          ? _TodayStatus.needsAttention
-          : _TodayStatus.inProgress;
+          ? TodayStatus.needsAttention
+          : TodayStatus.inProgress;
     }
 
     if (registeredMinutes == 0) {
       if (scheduledStart != null && currentMinutesOfDay < scheduledStart) {
-        return _TodayStatus.planned;
+        return TodayStatus.planned;
       }
-      return _TodayStatus.needsAttention;
+      return TodayStatus.needsAttention;
     }
 
     if (scheduledEnd != null && currentMinutesOfDay >= scheduledEnd + 15) {
-      return _TodayStatus.needsAttention;
+      return TodayStatus.needsAttention;
     }
 
-    return _TodayStatus.inProgress;
+    return TodayStatus.inProgress;
   }
 
-  _TodayStatus _resolveTodayStatus(_DayMetrics metrics) {
+  TodayStatus _resolveTodayStatus(DayMetrics metrics) {
     return _resolveDayStatus(_todayDate, metrics);
   }
 
   List<({IconData icon, String title, String description})>
-  _buildTodayReminders(DashboardSnapshot snapshot, _DayMetrics metrics) {
+  _buildTodayReminders(DashboardSnapshot snapshot, DayMetrics metrics) {
     final reminders = <({IconData icon, String title, String description})>[];
     final todayStatus = _resolveTodayStatus(metrics);
     final now = DateTime.now();
@@ -7362,7 +7355,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final scheduledStart = parseTimeInput(metrics.schedule.startTime);
     final scheduledEnd = parseTimeInput(metrics.schedule.endTime);
 
-    if (todayStatus == _TodayStatus.needsAttention &&
+    if (todayStatus == TodayStatus.needsAttention &&
         scheduledStart != null &&
         currentMinutesOfDay >= scheduledStart) {
       reminders.add((
@@ -7373,7 +7366,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       ));
     }
 
-    if (todayStatus == _TodayStatus.inProgress &&
+    if (todayStatus == TodayStatus.inProgress &&
         scheduledEnd != null &&
         currentMinutesOfDay >= scheduledEnd - 30) {
       reminders.add((
@@ -7387,7 +7380,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final tomorrow = _todayDate.add(const Duration(days: 1));
     final tomorrowSnapshot =
         _snapshotForMonth(DashboardService.formatMonth(tomorrow)) ??
-        (_isSameMonth(tomorrow, _monthToDate(snapshot.summary.month))
+        (isSameMonth(tomorrow, monthToDate(snapshot.summary.month))
             ? snapshot
             : null);
     final tomorrowOverride = tomorrowSnapshot == null
@@ -7448,18 +7441,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
-  List<_WeekPlanDay> _buildUpcomingWeekPlan() {
+  List<WeekPlanDay> _buildUpcomingWeekPlan() {
     return List.generate(7, (index) {
       final date = _todayDate.add(Duration(days: index));
       final month = DashboardService.formatMonth(date);
       final monthSnapshot = _snapshotForMonth(month);
       if (monthSnapshot == null) {
-        return _WeekPlanDay.empty(date);
+        return WeekPlanDay.empty(date);
       }
 
       final metrics = _buildDayMetrics(date);
       final override = _findScheduleOverrideForDate(monthSnapshot, date);
-      return _WeekPlanDay(
+      return WeekPlanDay(
         date: date,
         status: _resolveDayStatus(date, metrics),
         metrics: metrics,
@@ -7538,9 +7531,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     return const [60, 120, 240, 480];
   }
 
-  List<_ActivityItem> _buildActivities(DashboardSnapshot snapshot) {
+  List<ActivityItem> _buildActivities(DashboardSnapshot snapshot) {
     final workItems = snapshot.workEntries.map(
-      (entry) => _ActivityItem(
+      (entry) => ActivityItem(
         key: 'work-${entry.id}',
         date: entry.date,
         title: 'Ore lavorate',
@@ -7554,7 +7547,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
 
     final leaveItems = snapshot.leaveEntries.map(
-      (entry) => _ActivityItem(
+      (entry) => ActivityItem(
         key: 'leave-${entry.id}',
         date: entry.date,
         title: entry.type.label,
@@ -7606,7 +7599,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
     final selectedDayPauseWindow = _resolveSelectedDayPauseWindow(
       schedule: displayedDaySchedule,
-      session: _isSameDay(_selectedDate, _todayDate) ? _workdaySession : null,
+      session: isSameDay(_selectedDate, _todayDate) ? _workdaySession : null,
     );
     final dayMetrics = _withDisplayedDaySchedule(
       baseDayMetrics,
@@ -7641,7 +7634,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       pendingExitConfirmationMinutes: pendingExitConfirmationMinutes,
       dayMetrics: dayMetrics,
       weekMetrics: weekMetrics,
-      monthMetrics: _MonthMetrics(
+      monthMetrics: MonthMetrics(
         month: monthSnapshot.summary.month,
         expectedMinutes: monthSnapshot.summary.expectedMinutes,
         workedMinutes: monthSnapshot.summary.workedMinutes,
@@ -7656,7 +7649,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       onNextPeriod: onNextPeriod,
       onSelectDate: _selectDate,
       onOpenDay: _openDayForDate,
-      isSelectedDateToday: _isSameDay(_selectedDate, _todayDate),
+      isSelectedDateToday: isSameDay(_selectedDate, _todayDate),
       dayLeaveEntries: monthSnapshot.leaveEntries
           .where(
             (entry) =>
@@ -7719,7 +7712,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             snapshot: snapshot,
             title: '',
             calendarView: _CalendarView.day,
-            periodLabel: _formatLongDate(_selectedDate),
+            periodLabel: formatLongDate(_selectedDate),
             showViewSelector: false,
             onPreviousPeriod: () => _shiftSelectedDay(-1),
             onNextPeriod: () => _shiftSelectedDay(1),
@@ -8328,13 +8321,13 @@ class _CalendarCard extends StatelessWidget {
   final String month;
   final DateTime selectedDate;
   final UserWorkRules workRules;
-  final List<_CalendarDay> days;
+  final List<CalendarDay> days;
   final DaySchedule baseDaySchedule;
   final DaySchedule effectiveDaySchedule;
   final DaySchedule draftDaySchedule;
   final DaySchedule quickEditorDaySchedule;
-  final _CalendarPauseWindow? quickEditorPauseWindow;
-  final _CalendarPauseWindow? selectedDayPauseWindow;
+  final CalendarPauseWindow? quickEditorPauseWindow;
+  final CalendarPauseWindow? selectedDayPauseWindow;
   final GlobalKey<FormState> overrideFormKey;
   final AppAppearanceSettings appearanceSettings;
   final TextEditingController overrideTargetController;
@@ -8342,10 +8335,10 @@ class _CalendarCard extends StatelessWidget {
   final TextEditingController overrideEndTimeController;
   final TextEditingController overrideBreakController;
   final int? pendingExitConfirmationMinutes;
-  final _DayMetrics dayMetrics;
-  final List<_DayMetrics> weekMetrics;
-  final _MonthMetrics monthMetrics;
-  final List<_MonthMetrics> yearMetrics;
+  final DayMetrics dayMetrics;
+  final List<DayMetrics> weekMetrics;
+  final MonthMetrics monthMetrics;
+  final List<MonthMetrics> yearMetrics;
   final Future<void> Function(_CalendarView view) onCalendarViewChanged;
   final Future<void> Function() onPreviousPeriod;
   final Future<void> Function() onNextPeriod;
@@ -8399,7 +8392,7 @@ class _CalendarCard extends StatelessWidget {
     final theme = Theme.of(context);
     final effectiveQuickEditorStartTime =
         quickEditorDaySchedule.startTime ?? overrideStartTimeController.text;
-    final effectiveQuickEditorTargetText = _formatHoursInput(
+    final effectiveQuickEditorTargetText = formatHoursInput(
       quickEditorDaySchedule.targetMinutes,
     );
     final effectiveQuickEditorEndTime =
@@ -8542,7 +8535,7 @@ class _CalendarCard extends StatelessWidget {
         remainingToProgrammedExitMinutes == null
         ? null
         : remainingToProgrammedExitMinutes > 0
-        ? 'Mancano ${_formatHoursInput(remainingToProgrammedExitMinutes)} all\'uscita programmata'
+        ? 'Mancano ${formatHoursInput(remainingToProgrammedExitMinutes)} all\'uscita programmata'
         : 'Uscita programmata raggiunta';
     final workedMinutesAtProgrammedExit =
         remainingToProgrammedExitMinutes == null
@@ -8576,7 +8569,7 @@ class _CalendarCard extends StatelessWidget {
         : candidateConfirmableExitMinutes;
     final canRestoreWorkingDay =
         isQuickEditorDayOff && !isUsingStandardSchedule;
-    final selectedDayInfo = switch (_compareDateToToday(selectedDate)) {
+    final selectedDayInfo = switch (compareDateToToday(selectedDate)) {
       0 => (
         label: 'Oggi',
         icon: Icons.today_outlined,
@@ -8684,14 +8677,14 @@ class _CalendarCard extends StatelessWidget {
       weekMetrics: isSelectedDateToday
           ? weekMetrics
                 .map((metric) {
-                  if (!_isSameDay(metric.date, selectedDate)) {
+                  if (!isSameDay(metric.date, selectedDate)) {
                     return metric;
                   }
 
                   final rawLiveBalanceMinutes =
                       (displayedWorkedMinutes + metric.leaveMinutes) -
                       liveExpectedMinutes;
-                  return _DayMetrics(
+                  return DayMetrics(
                     date: metric.date,
                     expectedMinutes: liveExpectedMinutes,
                     workedMinutes: displayedWorkedMinutes,
@@ -9367,7 +9360,7 @@ class _WorkdaySessionCard extends StatelessWidget {
   final bool isExpanded;
   final WorkdaySession? session;
   final DaySchedule schedule;
-  final _CalendarPauseWindow? pauseWindow;
+  final CalendarPauseWindow? pauseWindow;
   final bool isBusy;
   final ValueChanged<bool> onToggleExpanded;
   final Future<void> Function() onRecordNow;
@@ -9830,7 +9823,7 @@ class _QuickDayComputedSummary extends StatelessWidget {
     final overtimeValue = switch ((isDayOff, hasStartedDay)) {
       (true, _) => '0:00',
       (false, false) => 'Da calcolare',
-      _ => _formatHoursInput(overtimeMinutes),
+      _ => formatHoursInput(overtimeMinutes),
     };
     final overtimeColor = switch ((isDayOff, hasStartedDay)) {
       (true, _) => colorScheme.onSurfaceVariant,
@@ -9843,7 +9836,7 @@ class _QuickDayComputedSummary extends StatelessWidget {
             : colorScheme.onSurfaceVariant,
     };
     final overtimeHelperText = exceededOvertimeMinutes > 0
-        ? 'Fuori limite di ${_formatHoursInput(exceededOvertimeMinutes)}'
+        ? 'Fuori limite di ${formatHoursInput(exceededOvertimeMinutes)}'
         : null;
 
     return _QuickDayHero(
@@ -9945,8 +9938,8 @@ class _QuickDayHero extends StatelessWidget {
     final hasRemainingToProgrammedExit =
         remainingToProgrammedExitLabel != null && !isDayOff && hasResultContext;
     final workedValue = workedMinutesAtProgrammedExit == null
-        ? _formatHoursInput(workedMinutes)
-        : '${_formatHoursInput(workedMinutes)}/${_formatHoursInput(workedMinutesAtProgrammedExit!)}';
+        ? formatHoursInput(workedMinutes)
+        : '${formatHoursInput(workedMinutes)}/${formatHoursInput(workedMinutesAtProgrammedExit!)}';
     final neutralValueColor = colorScheme.onSurfaceVariant;
     Widget metricBlock({
       required String label,
@@ -10052,7 +10045,7 @@ class _QuickDayHero extends StatelessWidget {
     };
     final periodBalanceValue = periodBalanceInfo.balanceMinutes == 0
         ? '0:00'
-        : _formatHoursInput(periodBalanceInfo.balanceMinutes.abs());
+        : formatHoursInput(periodBalanceInfo.balanceMinutes.abs());
     final periodBalanceBlock = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -10355,15 +10348,15 @@ class _CalendarPeriodSummary extends StatelessWidget {
   });
 
   final _CalendarView calendarView;
-  final List<_CalendarDay> days;
-  final _DayMetrics dayMetrics;
+  final List<CalendarDay> days;
+  final DayMetrics dayMetrics;
   final DaySchedule daySchedule;
-  final _CalendarPauseWindow? dayPauseWindow;
+  final CalendarPauseWindow? dayPauseWindow;
   final bool isDayScheduleProvisional;
   final WorkdaySession? workdaySession;
-  final List<_DayMetrics> weekMetrics;
-  final _MonthMetrics monthMetrics;
-  final List<_MonthMetrics> yearMetrics;
+  final List<DayMetrics> weekMetrics;
+  final MonthMetrics monthMetrics;
+  final List<MonthMetrics> yearMetrics;
   final DateTime selectedDate;
   final ValueChanged<DateTime> onSelectDate;
   final Future<void> Function(DateTime date) onOpenDay;
@@ -10419,7 +10412,7 @@ class _CalendarPeriodSummary extends StatelessWidget {
       _CalendarView.year => _CalendarYearSummary(
         yearMetrics: yearMetrics,
         onOpenMonth: (month) {
-          onSelectDate(_monthToDate(month));
+          onSelectDate(monthToDate(month));
           unawaited(onCalendarViewChanged(_CalendarView.month));
         },
       ),
@@ -10442,9 +10435,9 @@ class _CalendarDaySummary extends StatelessWidget {
     required this.onToggleExpanded,
   });
 
-  final _DayMetrics metrics;
+  final DayMetrics metrics;
   final DaySchedule schedule;
-  final _CalendarPauseWindow? pauseWindow;
+  final CalendarPauseWindow? pauseWindow;
   final bool isProvisional;
   final WorkdaySession? workdaySession;
   final void Function({
@@ -10485,7 +10478,7 @@ class _CalendarDaySummary extends StatelessWidget {
         scheduledEndMinutes != null &&
         scheduledEndMinutes > scheduledStartMinutes;
     final hasMeasuredSegments = measurementSegments.isNotEmpty;
-    final agendaRange = _resolveCompactAgendaRangeForBounds(
+    final agendaRange = resolveCompactAgendaRangeForBounds(
       startMinutes: hasStructuredSchedule
           ? scheduledStartMinutes
           : (hasMeasuredSegments
@@ -10611,14 +10604,14 @@ class _CalendarWeekSummary extends StatelessWidget {
     required this.onOpenDay,
   });
 
-  final List<_DayMetrics> metrics;
+  final List<DayMetrics> metrics;
   final DateTime selectedDate;
   final WorkdaySession? todayWorkdaySession;
   final Future<void> Function(DateTime date) onOpenDay;
 
   @override
   Widget build(BuildContext context) {
-    final agendaRange = _resolveAgendaRange(metrics);
+    final agendaRange = resolveAgendaRange(metrics);
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -10662,13 +10655,13 @@ class _AgendaWeekCompactOverview extends StatelessWidget {
     required this.onOpenDay,
   });
 
-  final List<_DayMetrics> metrics;
+  final List<DayMetrics> metrics;
   final WorkdaySession? todayWorkdaySession;
   final Future<void> Function(DateTime date) onOpenDay;
 
   @override
   Widget build(BuildContext context) {
-    final overviewRange = _resolveAgendaRangeForSchedules(
+    final overviewRange = resolveAgendaRangeForSchedules(
       metrics.map((day) => day.schedule),
     );
     final now = DateTime.now();
@@ -10679,7 +10672,7 @@ class _AgendaWeekCompactOverview extends StatelessWidget {
         for (var index = 0; index < metrics.length; index += 1) ...[
           (() {
             final day = metrics[index];
-            final isToday = _isSameDay(day.date, DateUtils.dateOnly(now));
+            final isToday = isSameDay(day.date, DateUtils.dateOnly(now));
             final effectiveSession = isToday ? todayWorkdaySession : null;
             return _CompactWeekTimelineRow(
               metrics: day,
@@ -10709,8 +10702,8 @@ class _CompactWeekTimelineRow extends StatelessWidget {
     this.onTap,
   });
 
-  final _DayMetrics metrics;
-  final _AgendaRange range;
+  final DayMetrics metrics;
+  final AgendaRange range;
   final List<_AgendaMeasurementSegment> measurementSegments;
   final WorkdaySession? workdaySession;
   final VoidCallback? onTap;
@@ -10745,23 +10738,23 @@ class _CompactWeekTimelineRow extends StatelessWidget {
             0.1,
           )!
         : colorScheme.surfaceContainerLow;
-    final relation = switch (_compareDateToToday(metrics.date)) {
-      0 => _CalendarDayRelation.today,
-      < 0 => _CalendarDayRelation.past,
-      _ => _CalendarDayRelation.future,
+    final relation = switch (compareDateToToday(metrics.date)) {
+      0 => CalendarDayRelation.today,
+      < 0 => CalendarDayRelation.past,
+      _ => CalendarDayRelation.future,
     };
     final dayDetails = _buildCalendarDayDetails(
       relation: relation,
       schedule: schedule,
       workedMinutes: metrics.workedMinutes,
       leaveMinutes: metrics.leaveMinutes,
-      session: relation == _CalendarDayRelation.today ? workdaySession : null,
+      session: relation == CalendarDayRelation.today ? workdaySession : null,
     );
     final helperText = schedule.targetMinutes <= 0
         ? 'Giorno libero'
         : _compactWeekScheduleLabel(schedule);
     final effectiveWorkedMinutes =
-        relation == _CalendarDayRelation.today && workdaySession == null
+        relation == CalendarDayRelation.today && workdaySession == null
         ? metrics.workedMinutes
         : (dayDetails?.workedMinutes ?? metrics.workedMinutes);
     final hasRegisteredWorkOrLeave =
@@ -10771,7 +10764,7 @@ class _CompactWeekTimelineRow extends StatelessWidget {
               metrics.expectedMinutes
         : 0;
     final isCurrentWithoutRegistrations =
-        relation != _CalendarDayRelation.future &&
+        relation != CalendarDayRelation.future &&
         !hasRegisteredWorkOrLeave &&
         schedule.targetMinutes > 0;
     final workedLabelColor = workedDeltaMinutes >= 0
@@ -10784,15 +10777,15 @@ class _CompactWeekTimelineRow extends StatelessWidget {
         ? null
         : isCurrentWithoutRegistrations
         ? 'Nessuna timbratura'
-        : 'Ore ${_formatHoursInput(effectiveWorkedMinutes)}';
+        : 'Ore ${formatHoursInput(effectiveWorkedMinutes)}';
     final balanceFooterLabel = isCurrentWithoutRegistrations
-        ? relation == _CalendarDayRelation.past
+        ? relation == CalendarDayRelation.past
               ? 'Da registrare'
               : 'Da iniziare'
         : workedDeltaMinutes > 0
-        ? 'Credito: ${_formatHoursInput(workedDeltaMinutes)}'
+        ? 'Credito: ${formatHoursInput(workedDeltaMinutes)}'
         : workedDeltaMinutes < 0
-        ? 'Debito: ${_formatHoursInput(workedDeltaMinutes.abs())}'
+        ? 'Debito: ${formatHoursInput(workedDeltaMinutes.abs())}'
         : 'In pari';
 
     final rowContent = Row(
@@ -10804,14 +10797,14 @@ class _CompactWeekTimelineRow extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                _formatWeekdayShortLabel(metrics.date),
+                formatWeekdayShortLabel(metrics.date),
                 style: theme.textTheme.titleSmall?.copyWith(
                   fontWeight: FontWeight.w800,
                 ),
               ),
               const SizedBox(height: 2),
               Text(
-                _formatCompactDate(metrics.date),
+                formatCompactDate(metrics.date),
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: colorScheme.onSurfaceVariant,
                 ),
@@ -10997,8 +10990,8 @@ class _AgendaDayTimeline extends StatefulWidget {
     required this.onInteractionChanged,
   });
 
-  final _DayMetrics metrics;
-  final _AgendaRange range;
+  final DayMetrics metrics;
+  final AgendaRange range;
   final DaySchedule schedule;
   final bool isProvisional;
   final List<_AgendaMeasurementSegment> measurementSegments;
@@ -11026,7 +11019,7 @@ class _AgendaDayTimeline extends StatefulWidget {
 }
 
 class _AgendaDayTimelineState extends State<_AgendaDayTimeline> {
-  _AgendaRange? _lockedRange;
+  AgendaRange? _lockedRange;
 
   @override
   void didUpdateWidget(covariant _AgendaDayTimeline oldWidget) {
@@ -11110,11 +11103,11 @@ class _AgendaWeekTimeline extends StatelessWidget {
     required this.range,
   });
 
-  final List<_DayMetrics> metrics;
+  final List<DayMetrics> metrics;
   final DateTime selectedDate;
   final WorkdaySession? todayWorkdaySession;
   final Future<void> Function(DateTime date) onOpenDay;
-  final _AgendaRange range;
+  final AgendaRange range;
 
   @override
   Widget build(BuildContext context) {
@@ -11147,7 +11140,7 @@ class _AgendaWeekTimeline extends StatelessWidget {
             const SizedBox(width: 12),
             for (final day in metrics) ...[
               (() {
-                final isToday = _isSameDay(day.date, DateUtils.dateOnly(now));
+                final isToday = isSameDay(day.date, DateUtils.dateOnly(now));
                 final effectiveSession = isToday ? todayWorkdaySession : null;
                 return SizedBox(
                   width: columnWidth,
@@ -11157,7 +11150,7 @@ class _AgendaWeekTimeline extends StatelessWidget {
                         height: headerHeight,
                         child: _AgendaDayHeader(
                           metrics: day,
-                          isSelected: _isSameDay(day.date, selectedDate),
+                          isSelected: isSameDay(day.date, selectedDate),
                           onTap: () => unawaited(onOpenDay(day.date)),
                         ),
                       ),
@@ -11168,7 +11161,7 @@ class _AgendaWeekTimeline extends StatelessWidget {
                         range: range,
                         height: timelineHeight,
                         displayMode: _AgendaSurfaceDisplayMode.week,
-                        isSelected: _isSameDay(day.date, selectedDate),
+                        isSelected: isSameDay(day.date, selectedDate),
                         measurementSegments: _buildAgendaMeasurementSegments(
                           schedule: day.schedule,
                           session: effectiveSession,
@@ -11196,7 +11189,7 @@ class _AgendaDayHeader extends StatelessWidget {
     required this.onTap,
   });
 
-  final _DayMetrics metrics;
+  final DayMetrics metrics;
   final bool isSelected;
   final VoidCallback onTap;
 
@@ -11237,7 +11230,7 @@ class _AgendaDayHeader extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                _formatWeekdayShortLabel(metrics.date),
+                formatWeekdayShortLabel(metrics.date),
                 style: theme.textTheme.labelLarge?.copyWith(
                   color: secondaryTextColor,
                   fontWeight: FontWeight.w700,
@@ -11245,7 +11238,7 @@ class _AgendaDayHeader extends StatelessWidget {
               ),
               const SizedBox(height: 2),
               Text(
-                _formatCompactDate(metrics.date),
+                formatCompactDate(metrics.date),
                 style: theme.textTheme.titleMedium?.copyWith(
                   color: primaryTextColor,
                   fontWeight: FontWeight.w800,
@@ -11262,7 +11255,7 @@ class _AgendaDayHeader extends StatelessWidget {
 class _AgendaHourRail extends StatelessWidget {
   const _AgendaHourRail({required this.range, required this.height});
 
-  final _AgendaRange range;
+  final AgendaRange range;
   final double height;
 
   @override
@@ -11282,7 +11275,7 @@ class _AgendaHourRail extends StatelessWidget {
         children: [
           for (final mark in range.hourMarks)
             Positioned(
-              top: _resolveAgendaLabelTop(
+              top: resolveAgendaLabelTop(
                 range.positionFor(mark, height),
                 height,
               ),
@@ -11312,9 +11305,9 @@ class _AgendaDaySurface extends StatefulWidget {
     this.onInteractionChanged,
   });
 
-  final _DayMetrics metrics;
+  final DayMetrics metrics;
   final DaySchedule schedule;
-  final _AgendaRange range;
+  final AgendaRange range;
   final double height;
   final _AgendaSurfaceDisplayMode displayMode;
   final bool isSelected;
@@ -11537,11 +11530,11 @@ class _AgendaScheduleBlock extends StatefulWidget {
     this.onInteractionChanged,
   });
 
-  final _DayMetrics metrics;
+  final DayMetrics metrics;
   final DaySchedule schedule;
   final int startMinutes;
   final int endMinutes;
-  final _AgendaRange range;
+  final AgendaRange range;
   final double height;
   final _AgendaSurfaceDisplayMode displayMode;
   final List<_AgendaMeasurementSegment> measurementSegments;
@@ -12335,7 +12328,7 @@ class _AgendaPauseEditOverlay extends StatelessWidget {
     this.onDragEnd,
   });
 
-  final _AgendaRange range;
+  final AgendaRange range;
   final double height;
   final int blockStartMinutes;
   final int blockEndMinutes;
@@ -12491,7 +12484,7 @@ class _AgendaSegmentFillOverlay extends StatelessWidget {
                                 horizontal: 6,
                               ),
                               child: Text(
-                                _formatHoursInput(segmentMinutes),
+                                formatHoursInput(segmentMinutes),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: theme.textTheme.labelLarge?.copyWith(
@@ -12598,8 +12591,8 @@ class _CalendarMonthSummary extends StatelessWidget {
     required this.onOpenDay,
   });
 
-  final List<_CalendarDay> days;
-  final _MonthMetrics monthMetrics;
+  final List<CalendarDay> days;
+  final MonthMetrics monthMetrics;
   final Future<void> Function(DateTime date) onOpenDay;
 
   @override
@@ -12652,7 +12645,7 @@ class _CalendarYearSummary extends StatelessWidget {
     required this.onOpenMonth,
   });
 
-  final List<_MonthMetrics> yearMetrics;
+  final List<MonthMetrics> yearMetrics;
   final ValueChanged<String> onOpenMonth;
 
   @override
@@ -12710,7 +12703,7 @@ class _CalendarDayCell extends StatelessWidget {
     required this.onTap,
   });
 
-  final _CalendarDay day;
+  final CalendarDay day;
   final bool isCompact;
   final VoidCallback? onTap;
 
@@ -12724,17 +12717,17 @@ class _CalendarDayCell extends StatelessWidget {
 
     final isSelected = day.isSelected;
     final baseBackgroundColor = switch (day.relation) {
-      _CalendarDayRelation.past => Color.lerp(
+      CalendarDayRelation.past => Color.lerp(
         colorScheme.surface,
         colorScheme.secondary,
         0.12,
       )!,
-      _CalendarDayRelation.today => Color.lerp(
+      CalendarDayRelation.today => Color.lerp(
         colorScheme.surface,
         colorScheme.primary,
         0.2,
       )!,
-      _CalendarDayRelation.future => Color.lerp(
+      CalendarDayRelation.future => Color.lerp(
         colorScheme.surface,
         colorScheme.tertiary,
         0.1,
@@ -12744,20 +12737,20 @@ class _CalendarDayCell extends StatelessWidget {
         ? Color.lerp(baseBackgroundColor, colorScheme.primary, 0.18)!
         : baseBackgroundColor;
     final borderColor = switch (day.relation) {
-      _CalendarDayRelation.past => colorScheme.secondary,
-      _CalendarDayRelation.today => colorScheme.primary,
-      _CalendarDayRelation.future => colorScheme.tertiary,
+      CalendarDayRelation.past => colorScheme.secondary,
+      CalendarDayRelation.today => colorScheme.primary,
+      CalendarDayRelation.future => colorScheme.tertiary,
     };
     final textColor = switch (day.relation) {
-      _CalendarDayRelation.past => colorScheme.onSecondaryContainer,
-      _CalendarDayRelation.today => colorScheme.onPrimaryContainer,
-      _CalendarDayRelation.future => colorScheme.onTertiaryContainer,
+      CalendarDayRelation.past => colorScheme.onSecondaryContainer,
+      CalendarDayRelation.today => colorScheme.onPrimaryContainer,
+      CalendarDayRelation.future => colorScheme.onTertiaryContainer,
     };
     final detailColor = textColor.withValues(alpha: 0.88);
     final workColor = switch (day.relation) {
-      _CalendarDayRelation.past => colorScheme.secondary,
-      _CalendarDayRelation.today => colorScheme.primary,
-      _CalendarDayRelation.future => colorScheme.tertiary,
+      CalendarDayRelation.past => colorScheme.secondary,
+      CalendarDayRelation.today => colorScheme.primary,
+      CalendarDayRelation.future => colorScheme.tertiary,
     };
     final pauseColor = Color.lerp(workColor, colorScheme.secondary, 0.6)!;
 
@@ -12871,7 +12864,7 @@ class _CalendarDayCell extends StatelessWidget {
 class _MonthCellFallback extends StatelessWidget {
   const _MonthCellFallback({required this.day, required this.detailColor});
 
-  final _CalendarDay day;
+  final CalendarDay day;
   final Color detailColor;
 
   @override
@@ -12920,7 +12913,7 @@ class _MonthCellCompactSummary extends StatelessWidget {
     required this.pauseColor,
   });
 
-  final _CalendarDayDetails details;
+  final CalendarDayDetails details;
   final Color textColor;
   final Color workColor;
   final Color pauseColor;
@@ -12942,13 +12935,13 @@ class _MonthCellCompactSummary extends StatelessWidget {
         const SizedBox(height: 4),
         _MonthDataToken(
           color: workColor,
-          label: _formatHoursInput(details.workedMinutes),
+          label: formatHoursInput(details.workedMinutes),
           textColor: textColor,
         ),
         const SizedBox(height: 2),
         _MonthDataToken(
           color: pauseColor,
-          label: _formatHoursInput(details.pauseMinutes),
+          label: formatHoursInput(details.pauseMinutes),
           textColor: textColor.withValues(alpha: 0.92),
         ),
       ],
@@ -12965,8 +12958,8 @@ class _MonthCellTinySummary extends StatelessWidget {
     required this.pauseColor,
   });
 
-  final _CalendarDay day;
-  final _CalendarDayDetails? details;
+  final CalendarDay day;
+  final CalendarDayDetails? details;
   final Color detailColor;
   final Color workColor;
   final Color pauseColor;
@@ -13025,7 +13018,7 @@ class _MonthMiniTimeline extends StatelessWidget {
     required this.pauseColor,
   });
 
-  final _CalendarDayDetails details;
+  final CalendarDayDetails details;
   final Color workColor;
   final Color pauseColor;
 
@@ -13235,7 +13228,7 @@ class _InlineInfoPanel extends StatelessWidget {
 class _YearMonthCard extends StatelessWidget {
   const _YearMonthCard({required this.metrics, required this.onTap});
 
-  final _MonthMetrics metrics;
+  final MonthMetrics metrics;
   final VoidCallback onTap;
 
   @override
@@ -13260,7 +13253,7 @@ class _YearMonthCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  _formatMonthLabel(metrics.month),
+                  formatMonthLabel(metrics.month),
                   style: theme.textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.w800,
                   ),
@@ -13291,7 +13284,7 @@ class _RecentActivityCard extends StatelessWidget {
     required this.onOpenLeaveEntry,
   });
 
-  final List<_WeekPlanDay> weekPlan;
+  final List<WeekPlanDay> weekPlan;
   final Future<void> Function(DateTime date) onOpenDay;
   final void Function(DateTime date, {int? prefilledMinutes, String? note})
   onOpenWorkEntry;
@@ -13343,7 +13336,7 @@ class _WeekPlanRow extends StatelessWidget {
     required this.onOpenLeaveEntry,
   });
 
-  final _WeekPlanDay day;
+  final WeekPlanDay day;
   final VoidCallback onOpenDay;
   final VoidCallback onOpenWorkEntry;
   final VoidCallback onOpenLeaveEntry;
@@ -13363,7 +13356,7 @@ class _WeekPlanRow extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    _formatLongDate(day.date),
+                    formatLongDate(day.date),
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.w800,
                     ),
@@ -13796,7 +13789,7 @@ class _WorkSettingsCard extends StatelessWidget {
         }
         final latestStartMinutes =
             weekdayStartMinutes + flexibleStartWindowMinutes;
-        final dayLabel = _compactWeekdayLabel(weekday);
+        final dayLabel = compactWeekdayLabel(weekday);
         final overflowSuffix = latestStartMinutes >= (24 * 60) ? ' +1g' : '';
         flexibleStartRangeHints.add(
           '$dayLabel ${formatTimeInput(weekdayStartMinutes)} - ${formatTimeInput(latestStartMinutes % (24 * 60))}$overflowSuffix',
@@ -14399,7 +14392,7 @@ class _WorkingWeekdaySelector extends StatelessWidget {
                 key: ValueKey(
                   'work-settings-working-day-toggle-${WeekdayKey.values[index].name}',
                 ),
-                label: _compactWeekdayLabel(WeekdayKey.values[index]),
+                label: compactWeekdayLabel(WeekdayKey.values[index]),
                 isSelected: selectedWeekdays.contains(WeekdayKey.values[index]),
                 onTap: () => onChanged(
                   WeekdayKey.values[index],
@@ -15130,33 +15123,33 @@ String _formatRuleDaysValue(int days) {
 String _formatRuleAllowanceValue(WorkPermissionRule rule) {
   switch (rule.allowanceType) {
     case WorkPermissionAllowanceType.hours:
-      return _formatHoursInput(rule.allowanceMinutes);
+      return formatHoursInput(rule.allowanceMinutes);
     case WorkPermissionAllowanceType.days:
       return _formatRuleDaysValue(rule.allowanceDays);
     case WorkPermissionAllowanceType.both:
-      return '${_formatRuleDaysValue(rule.allowanceDays)} + ${_formatHoursInput(rule.allowanceMinutes)}';
+      return '${_formatRuleDaysValue(rule.allowanceDays)} + ${formatHoursInput(rule.allowanceMinutes)}';
   }
 }
 
 String _formatRuleUsedValue(WorkPermissionRule rule) {
   switch (rule.allowanceType) {
     case WorkPermissionAllowanceType.hours:
-      return _formatHoursInput(_ruleSafeUsedMinutes(rule));
+      return formatHoursInput(_ruleSafeUsedMinutes(rule));
     case WorkPermissionAllowanceType.days:
       return _formatRuleDaysValue(_ruleSafeUsedDays(rule));
     case WorkPermissionAllowanceType.both:
-      return '${_formatRuleDaysValue(_ruleSafeUsedDays(rule))} + ${_formatHoursInput(_ruleSafeUsedMinutes(rule))}';
+      return '${_formatRuleDaysValue(_ruleSafeUsedDays(rule))} + ${formatHoursInput(_ruleSafeUsedMinutes(rule))}';
   }
 }
 
 String _formatRuleRemainingValue(WorkPermissionRule rule) {
   switch (rule.allowanceType) {
     case WorkPermissionAllowanceType.hours:
-      return _formatHoursInput(_ruleRemainingMinutes(rule));
+      return formatHoursInput(_ruleRemainingMinutes(rule));
     case WorkPermissionAllowanceType.days:
       return _formatRuleDaysValue(_ruleRemainingDays(rule));
     case WorkPermissionAllowanceType.both:
-      return '${_formatRuleDaysValue(_ruleRemainingDays(rule))} + ${_formatHoursInput(_ruleRemainingMinutes(rule))}';
+      return '${_formatRuleDaysValue(_ruleRemainingDays(rule))} + ${formatHoursInput(_ruleRemainingMinutes(rule))}';
   }
 }
 
@@ -15207,7 +15200,7 @@ class _LeaveBanksEditor extends StatelessWidget {
     if (rule.allowanceType.includesDays) {
       final remainingDays = _ruleRemainingDays(rule);
       if (rule.allowanceType == WorkPermissionAllowanceType.both) {
-        return '${_formatRuleDaysValue(remainingDays)} + ${_formatHoursInput(_remainingMinutes(rule))} disponibili';
+        return '${_formatRuleDaysValue(remainingDays)} + ${formatHoursInput(_remainingMinutes(rule))} disponibili';
       }
       return '${_formatRuleDaysValue(remainingDays)} disponibili';
     }
@@ -15465,15 +15458,15 @@ class _PermissionRulesEditor extends StatelessWidget {
                       ),
                       _PermissionRuleMonitorChip(
                         label: 'Monte ore',
-                        value: _formatHoursInput(totalAllowanceMinutes),
+                        value: formatHoursInput(totalAllowanceMinutes),
                       ),
                       _PermissionRuleMonitorChip(
                         label: 'Usate ore',
-                        value: _formatHoursInput(totalUsedMinutes),
+                        value: formatHoursInput(totalUsedMinutes),
                       ),
                       _PermissionRuleMonitorChip(
                         label: 'Residuo ore',
-                        value: _formatHoursInput(remainingMinutes),
+                        value: formatHoursInput(remainingMinutes),
                       ),
                     ],
                     if (dayRules.isNotEmpty) ...[
@@ -15734,7 +15727,7 @@ String _formatSettingsLimitValue(
   if (parsedMinutes == unboundedMinutes) {
     return 'Nessun limite';
   }
-  return _formatHoursInput(parsedMinutes);
+  return formatHoursInput(parsedMinutes);
 }
 
 String _formatOptionalHoursValue(String rawValue, {required String zeroLabel}) {
@@ -15742,7 +15735,7 @@ String _formatOptionalHoursValue(String rawValue, {required String zeroLabel}) {
   if (parsedMinutes == null || parsedMinutes <= 0) {
     return zeroLabel;
   }
-  return _formatHoursInput(parsedMinutes);
+  return formatHoursInput(parsedMinutes);
 }
 
 class _AppearanceSettingsPanel extends StatefulWidget {
@@ -18192,7 +18185,7 @@ class _MetricCard extends StatelessWidget {
 class _ActivityRow extends StatelessWidget {
   const _ActivityRow({required this.item});
 
-  final _ActivityItem item;
+  final ActivityItem item;
 
   @override
   Widget build(BuildContext context) {
@@ -18293,220 +18286,11 @@ class _MinutesField extends StatelessWidget {
   }
 }
 
-class _ActivityItem {
-  const _ActivityItem({
-    required this.key,
-    required this.date,
-    required this.title,
-    required this.subtitle,
-    required this.minutes,
-    required this.accentColor,
-    required this.icon,
-  });
-
-  final String key;
-  final String date;
-  final String title;
-  final String subtitle;
-  final int minutes;
-  final Color accentColor;
-  final IconData icon;
-}
-
-class _CalendarDay {
-  const _CalendarDay({
-    required this.date,
-    required this.isoDate,
-    required this.expectedMinutes,
-    required this.workedMinutes,
-    required this.leaveMinutes,
-    required this.hasOverride,
-    required this.isToday,
-    required this.isSelected,
-    required this.relation,
-    required this.primaryLabel,
-    required this.secondaryLabel,
-    required this.details,
-  });
-
-  const _CalendarDay.empty()
-    : date = null,
-      isoDate = '',
-      expectedMinutes = 0,
-      workedMinutes = 0,
-      leaveMinutes = 0,
-      hasOverride = false,
-      isToday = false,
-      isSelected = false,
-      relation = _CalendarDayRelation.future,
-      primaryLabel = null,
-      secondaryLabel = null,
-      details = null;
-
-  final DateTime? date;
-  final String isoDate;
-  final int expectedMinutes;
-  final int workedMinutes;
-  final int leaveMinutes;
-  final bool hasOverride;
-  final bool isToday;
-  final bool isSelected;
-  final _CalendarDayRelation relation;
-  final String? primaryLabel;
-  final String? secondaryLabel;
-  final _CalendarDayDetails? details;
-}
-
-enum _CalendarDayRelation { past, today, future }
-
-class _CalendarDayDetails {
-  const _CalendarDayDetails({
-    required this.timelineLines,
-    required this.workedLabel,
-    required this.pauseLabel,
-    required this.workedMinutes,
-    required this.pauseMinutes,
-    this.startMinutes,
-    this.pauseStartMinutes,
-    this.resumeMinutes,
-    this.endMinutes,
-  });
-
-  final List<String> timelineLines;
-  final String workedLabel;
-  final String pauseLabel;
-  final int workedMinutes;
-  final int pauseMinutes;
-  final int? startMinutes;
-  final int? pauseStartMinutes;
-  final int? resumeMinutes;
-  final int? endMinutes;
-}
-
-class _CalendarPauseWindow {
-  const _CalendarPauseWindow({
-    required this.pauseStartMinutes,
-    required this.resumeMinutes,
-  });
-
-  final int pauseStartMinutes;
-  final int resumeMinutes;
-}
-
 class _ScheduleOverrideDraftState {
   const _ScheduleOverrideDraftState({required this.schedule, this.pauseWindow});
 
   final DaySchedule schedule;
-  final _CalendarPauseWindow? pauseWindow;
-}
-
-class _DayMetrics {
-  const _DayMetrics({
-    required this.date,
-    required this.expectedMinutes,
-    required this.workedMinutes,
-    required this.leaveMinutes,
-    required this.rawBalanceMinutes,
-    required this.balanceMinutes,
-    required this.hasOverride,
-    required this.schedule,
-    this.overrideNote,
-  });
-
-  factory _DayMetrics.empty(DateTime date) {
-    return _DayMetrics(
-      date: date,
-      expectedMinutes: 0,
-      workedMinutes: 0,
-      leaveMinutes: 0,
-      rawBalanceMinutes: 0,
-      balanceMinutes: 0,
-      hasOverride: false,
-      schedule: const DaySchedule(targetMinutes: 0),
-    );
-  }
-
-  final DateTime date;
-  final int expectedMinutes;
-  final int workedMinutes;
-  final int leaveMinutes;
-  final int rawBalanceMinutes;
-  final int balanceMinutes;
-  final bool hasOverride;
-  final DaySchedule schedule;
-  final String? overrideNote;
-}
-
-class _AgendaRange {
-  const _AgendaRange({required this.startMinutes, required this.endMinutes});
-
-  final int startMinutes;
-  final int endMinutes;
-
-  int get totalMinutes => endMinutes - startMinutes;
-
-  Iterable<int> get hourMarks sync* {
-    for (var mark = startMinutes; mark <= endMinutes; mark += 60) {
-      yield mark;
-    }
-  }
-
-  double timelineHeight({double pixelsPerHour = 32, double minHeight = 280}) {
-    final computedHeight = (totalMinutes / 60) * pixelsPerHour;
-    return math.max(computedHeight, minHeight).toDouble();
-  }
-
-  double positionFor(int minutes, double height) {
-    if (totalMinutes <= 0) {
-      return 0;
-    }
-
-    final clampedMinutes = minutes.clamp(startMinutes, endMinutes).toDouble();
-    return ((clampedMinutes - startMinutes) / totalMinutes) * height;
-  }
-
-  int minutesForPosition(double position, double height, {int snapStep = 1}) {
-    if (height <= 0 || totalMinutes <= 0) {
-      return startMinutes;
-    }
-
-    final ratio = (position / height).clamp(0.0, 1.0);
-    final rawMinutes = startMinutes + (ratio * totalMinutes);
-    final snappedMinutes = ((rawMinutes / snapStep).round() * snapStep).toInt();
-    return snappedMinutes.clamp(startMinutes, endMinutes);
-  }
-}
-
-class _MonthMetrics {
-  const _MonthMetrics({
-    required this.month,
-    required this.expectedMinutes,
-    required this.workedMinutes,
-    required this.leaveMinutes,
-    required this.rawBalanceMinutes,
-    required this.balanceMinutes,
-    required this.overrideCount,
-  });
-
-  factory _MonthMetrics.empty(String month) {
-    return _MonthMetrics(
-      month: month,
-      expectedMinutes: 0,
-      workedMinutes: 0,
-      leaveMinutes: 0,
-      rawBalanceMinutes: 0,
-      balanceMinutes: 0,
-      overrideCount: 0,
-    );
-  }
-
-  final String month;
-  final int expectedMinutes;
-  final int workedMinutes;
-  final int leaveMinutes;
-  final int rawBalanceMinutes;
-  final int balanceMinutes;
-  final int overrideCount;
+  final CalendarPauseWindow? pauseWindow;
 }
 
 class _DisplayedMonthBalanceInfo {
@@ -18539,28 +18323,6 @@ class _QuickDayControlInsights {
   final String? configurationHint;
 }
 
-class _WeekPlanDay {
-  const _WeekPlanDay({
-    required this.date,
-    required this.status,
-    required this.metrics,
-    this.overrideNote,
-  });
-
-  factory _WeekPlanDay.empty(DateTime date) {
-    return _WeekPlanDay(
-      date: date,
-      status: _TodayStatus.planned,
-      metrics: _DayMetrics.empty(date),
-    );
-  }
-
-  final DateTime date;
-  final _TodayStatus status;
-  final _DayMetrics metrics;
-  final String? overrideNote;
-}
-
 String _formatHours(int minutes, {bool signed = false}) {
   final absoluteHours = minutes.abs() / 60;
   final formattedHours = absoluteHours == absoluteHours.truncateToDouble()
@@ -18579,17 +18341,13 @@ String _formatHours(int minutes, {bool signed = false}) {
   return '$prefix${formattedHours}h';
 }
 
-String _formatHoursInput(int minutes) {
-  return formatHoursInput(minutes);
-}
-
 String _formatSignedHoursInput(int minutes) {
   if (minutes == 0) {
     return '0:00';
   }
 
   final prefix = minutes > 0 ? '+' : '-';
-  return '$prefix${_formatHoursInput(minutes.abs())}';
+  return '$prefix${formatHoursInput(minutes.abs())}';
 }
 
 bool _matchesDaySchedule(DaySchedule left, DaySchedule right) {
@@ -18653,7 +18411,7 @@ int _resolveLiveWorkedMinutes({
   required DaySchedule quickEditorSchedule,
   required UserWorkRules workRules,
   required WorkdaySession? session,
-  required _CalendarPauseWindow? pauseWindow,
+  required CalendarPauseWindow? pauseWindow,
   required int nowMinutes,
   String? rawStartTimeText,
   String? rawEndTimeText,
@@ -18780,7 +18538,7 @@ String _resolveSuggestedExitLabel({
 
 _DisplayedMonthBalanceInfo _buildDisplayedMonthBalanceInfo({
   required DateTime selectedDate,
-  required List<_CalendarDay> days,
+  required List<CalendarDay> days,
   required int liveExpectedMinutes,
   required int liveWorkedMinutes,
   required int liveLeaveMinutes,
@@ -18806,12 +18564,12 @@ _DisplayedMonthBalanceInfo _buildDisplayedMonthBalanceInfo({
       continue;
     }
 
-    final isSelectedCalendarDay = _isSameDay(date, selectedDay);
+    final isSelectedCalendarDay = isSameDay(date, selectedDay);
     monthExpectedMinutes += isSelectedCalendarDay
         ? liveExpectedMinutes
         : day.expectedMinutes;
 
-    if (day.relation == _CalendarDayRelation.future && !isSelectedCalendarDay) {
+    if (day.relation == CalendarDayRelation.future && !isSelectedCalendarDay) {
       continue;
     }
 
@@ -18827,22 +18585,22 @@ _DisplayedMonthBalanceInfo _buildDisplayedMonthBalanceInfo({
 
   if (monthExpectedMinutes <= 0) {
     return _DisplayedMonthBalanceInfo(
-      value: _formatHoursInput(monthWorkedMinutes),
+      value: formatHoursInput(monthWorkedMinutes),
     );
   }
 
   return _DisplayedMonthBalanceInfo(
     value:
-        '${_formatHoursInput(monthWorkedMinutes)} / ${_formatHoursInput(monthExpectedMinutes)}',
+        '${formatHoursInput(monthWorkedMinutes)} / ${formatHoursInput(monthExpectedMinutes)}',
   );
 }
 
-int _resolveWorkedMinutesForCalendarDay(_CalendarDay day) {
+int _resolveWorkedMinutesForCalendarDay(CalendarDay day) {
   if (day.workedMinutes > 0) {
     return day.workedMinutes;
   }
 
-  if (day.relation == _CalendarDayRelation.past && day.hasOverride) {
+  if (day.relation == CalendarDayRelation.past && day.hasOverride) {
     final derivedWorkedMinutes = day.details?.workedMinutes ?? 0;
     if (derivedWorkedMinutes > 0) {
       return derivedWorkedMinutes;
@@ -18854,8 +18612,8 @@ int _resolveWorkedMinutesForCalendarDay(_CalendarDay day) {
 
 _DisplayedPeriodBalanceInfo _buildDisplayedPeriodBalanceInfo({
   required DateTime selectedDate,
-  required List<_CalendarDay> days,
-  required List<_DayMetrics> weekMetrics,
+  required List<CalendarDay> days,
+  required List<DayMetrics> weekMetrics,
   required DayBalanceAggregation aggregation,
   required int liveExpectedMinutes,
   required int liveWorkedMinutes,
@@ -18873,7 +18631,7 @@ _DisplayedPeriodBalanceInfo _buildDisplayedPeriodBalanceInfo({
     case DayBalanceAggregation.weekly:
       var hasWeeklyEntries = false;
       final weeklyBalanceMinutes = weekMetrics.fold<int>(0, (total, metric) {
-        if (_isSameDay(metric.date, selectedDay)) {
+        if (isSameDay(metric.date, selectedDay)) {
           if (!hasLiveContext) {
             return total;
           }
@@ -18901,10 +18659,10 @@ _DisplayedPeriodBalanceInfo _buildDisplayedPeriodBalanceInfo({
         if (date == null) {
           continue;
         }
-        if (day.relation == _CalendarDayRelation.future) {
+        if (day.relation == CalendarDayRelation.future) {
           continue;
         }
-        if (_isSameDay(date, selectedDay)) {
+        if (isSameDay(date, selectedDay)) {
           if (!hasLiveContext) {
             continue;
           }
@@ -18943,8 +18701,8 @@ const int _unboundedMonthlyLimitMinutes = 31 * 24 * 60;
 _QuickDayControlInsights _buildQuickDayControlInsights({
   required DateTime selectedDate,
   required UserWorkRules workRules,
-  required List<_CalendarDay> days,
-  required List<_DayMetrics> weekMetrics,
+  required List<CalendarDay> days,
+  required List<DayMetrics> weekMetrics,
   required int liveExpectedMinutes,
   required int liveWorkedMinutes,
   required int liveLeaveMinutes,
@@ -18968,7 +18726,7 @@ _QuickDayControlInsights _buildQuickDayControlInsights({
   final selectedDay = DateUtils.dateOnly(selectedDate);
   var weeklyOvertimeMinutes = 0;
   for (final metric in weekMetrics) {
-    final isSelectedMetric = _isSameDay(metric.date, selectedDay);
+    final isSelectedMetric = isSameDay(metric.date, selectedDay);
     final hasMetricContext = isSelectedMetric
         ? hasLiveResultContext
         : _hasRegisteredBalanceContext(
@@ -18992,10 +18750,10 @@ _QuickDayControlInsights _buildQuickDayControlInsights({
   var monthlyRawBalanceMinutes = 0;
   for (final day in days) {
     final date = day.date;
-    if (date == null || day.relation == _CalendarDayRelation.future) {
+    if (date == null || day.relation == CalendarDayRelation.future) {
       continue;
     }
-    final isSelectedCalendarDay = _isSameDay(date, selectedDay);
+    final isSelectedCalendarDay = isSameDay(date, selectedDay);
     final hasDayContext = isSelectedCalendarDay
         ? hasLiveResultContext
         : _hasRegisteredBalanceContext(
@@ -19083,13 +18841,13 @@ _QuickDayControlInsights _buildQuickDayControlInsights({
     exceededDailyDebitLimitMinutes,
   )) {
     (> 0, _, _, _) =>
-      'Superato limite credito mensile di ${_formatHoursInput(exceededMonthlyCreditLimitMinutes)}',
+      'Superato limite credito mensile di ${formatHoursInput(exceededMonthlyCreditLimitMinutes)}',
     (_, > 0, _, _) =>
-      'Superato limite debito mensile di ${_formatHoursInput(exceededMonthlyDebitLimitMinutes)}',
+      'Superato limite debito mensile di ${formatHoursInput(exceededMonthlyDebitLimitMinutes)}',
     (_, _, > 0, _) =>
-      'Superato limite credito giornaliero di ${_formatHoursInput(exceededDailyCreditLimitMinutes)}',
+      'Superato limite credito giornaliero di ${formatHoursInput(exceededDailyCreditLimitMinutes)}',
     (_, _, _, > 0) =>
-      'Superato limite debito giornaliero di ${_formatHoursInput(exceededDailyDebitLimitMinutes)}',
+      'Superato limite debito giornaliero di ${formatHoursInput(exceededDailyDebitLimitMinutes)}',
     _ => null,
   };
 
@@ -19165,55 +18923,34 @@ int? _resolveConfiguredMonthlyDebitLimit(UserWorkRules workRules) {
   return debitLimit;
 }
 
-DateTime _monthToDate(String month) {
-  final parts = month.split('-');
-  final year = int.parse(parts[0]);
-  final monthValue = int.parse(parts[1]);
-  return DateTime(year, monthValue, 1);
-}
-
-bool _isSameMonth(DateTime left, DateTime right) {
-  return left.year == right.year && left.month == right.month;
-}
-
-bool _isSameDay(DateTime left, DateTime right) {
-  return _isSameMonth(left, right) && left.day == right.day;
-}
-
-int _compareDateToToday(DateTime date) {
-  final target = DateUtils.dateOnly(date);
-  final today = DateUtils.dateOnly(DateTime.now());
-  return target.compareTo(today);
-}
-
 String? _buildCalendarDayPrimaryLabel({
-  required _CalendarDayRelation relation,
+  required CalendarDayRelation relation,
   required DaySchedule schedule,
   required int workedMinutes,
   required int leaveMinutes,
   required bool hasOverride,
 }) {
   return switch (relation) {
-    _CalendarDayRelation.past => _buildPastCalendarDayLabel(
+    CalendarDayRelation.past => _buildPastCalendarDayLabel(
       workedMinutes: workedMinutes,
       leaveMinutes: leaveMinutes,
       hasOverride: hasOverride,
       schedule: schedule,
     ),
-    _CalendarDayRelation.today ||
-    _CalendarDayRelation.future => _buildScheduledCalendarDayLabel(schedule),
+    CalendarDayRelation.today ||
+    CalendarDayRelation.future => _buildScheduledCalendarDayLabel(schedule),
   };
 }
 
 String? _buildCalendarDaySecondaryLabel({
-  required _CalendarDayRelation relation,
+  required CalendarDayRelation relation,
   required int workedMinutes,
   required int leaveMinutes,
   required bool hasOverride,
   required String? todayStatusLabel,
 }) {
   return switch (relation) {
-    _CalendarDayRelation.past => switch ((
+    CalendarDayRelation.past => switch ((
       workedMinutes > 0,
       leaveMinutes > 0,
       hasOverride,
@@ -19224,8 +18961,8 @@ String? _buildCalendarDaySecondaryLabel({
       (false, false, true) => 'Modificato',
       _ => null,
     },
-    _CalendarDayRelation.today => todayStatusLabel ?? 'Oggi',
-    _CalendarDayRelation.future => hasOverride ? 'Personalizzato' : 'Default',
+    CalendarDayRelation.today => todayStatusLabel ?? 'Oggi',
+    CalendarDayRelation.future => hasOverride ? 'Personalizzato' : 'Default',
   };
 }
 
@@ -19236,13 +18973,13 @@ String? _buildPastCalendarDayLabel({
   required DaySchedule schedule,
 }) {
   if (workedMinutes > 0 && leaveMinutes > 0) {
-    return '${_formatHoursInput(workedMinutes)} + ${_formatHoursInput(leaveMinutes)}';
+    return '${formatHoursInput(workedMinutes)} + ${formatHoursInput(leaveMinutes)}';
   }
   if (workedMinutes > 0) {
-    return '${_formatHoursInput(workedMinutes)} lavoro';
+    return '${formatHoursInput(workedMinutes)} lavoro';
   }
   if (leaveMinutes > 0) {
-    return '${_formatHoursInput(leaveMinutes)} permesso';
+    return '${formatHoursInput(leaveMinutes)} permesso';
   }
   if (hasOverride) {
     return _buildScheduledCalendarDayLabel(schedule) ?? 'Modificato';
@@ -19257,13 +18994,13 @@ String? _buildScheduledCalendarDayLabel(DaySchedule schedule) {
     return '$start-$end';
   }
   if (schedule.targetMinutes > 0) {
-    return _formatHoursInput(schedule.targetMinutes);
+    return formatHoursInput(schedule.targetMinutes);
   }
   return 'Libero';
 }
 
-_CalendarDayDetails? _buildCalendarDayDetails({
-  required _CalendarDayRelation relation,
+CalendarDayDetails? _buildCalendarDayDetails({
+  required CalendarDayRelation relation,
   required DaySchedule schedule,
   required int workedMinutes,
   required int leaveMinutes,
@@ -19284,7 +19021,7 @@ _CalendarDayDetails? _buildCalendarDayDetails({
           ((session.endMinutes ?? nowMinutes) - session.startMinutes) -
               pauseMinutes,
         )
-      : relation == _CalendarDayRelation.past
+      : relation == CalendarDayRelation.past
       ? hasRegisteredWorkOrLeave
             ? workedMinutes
             : (_resolveComputedWorkedMinutes(schedule: schedule) ?? 0)
@@ -19321,10 +19058,10 @@ _CalendarDayDetails? _buildCalendarDayDetails({
     timelineLines.add('Fine: ${formatTimeInput(endMinutes)}');
   }
 
-  return _CalendarDayDetails(
+  return CalendarDayDetails(
     timelineLines: timelineLines,
-    workedLabel: 'Lavorato: ${_formatHoursInput(resolvedWorkedMinutes)}',
-    pauseLabel: 'Pausa: ${_formatHoursInput(pauseMinutes)}',
+    workedLabel: 'Lavorato: ${formatHoursInput(resolvedWorkedMinutes)}',
+    pauseLabel: 'Pausa: ${formatHoursInput(pauseMinutes)}',
     workedMinutes: resolvedWorkedMinutes,
     pauseMinutes: pauseMinutes,
     startMinutes: startMinutes,
@@ -19334,7 +19071,7 @@ _CalendarDayDetails? _buildCalendarDayDetails({
   );
 }
 
-_CalendarPauseWindow? _resolveCalendarPauseWindow({
+CalendarPauseWindow? _resolveCalendarPauseWindow({
   required DaySchedule schedule,
   required int? startMinutes,
   required int? endMinutes,
@@ -19346,7 +19083,7 @@ _CalendarPauseWindow? _resolveCalendarPauseWindow({
       ..sort((left, right) => left.startMinutes.compareTo(right.startMinutes));
     if (orderedBreakSegments.isNotEmpty) {
       final firstBreak = orderedBreakSegments.first;
-      return _CalendarPauseWindow(
+      return CalendarPauseWindow(
         pauseStartMinutes: firstBreak.startMinutes,
         resumeMinutes: firstBreak.endMinutes,
       );
@@ -19354,7 +19091,7 @@ _CalendarPauseWindow? _resolveCalendarPauseWindow({
     if (session.breakStartedMinutes != null) {
       final pauseEndMinutes = session.endMinutes ?? nowMinutes;
       if (pauseEndMinutes > session.breakStartedMinutes!) {
-        return _CalendarPauseWindow(
+        return CalendarPauseWindow(
           pauseStartMinutes: session.breakStartedMinutes!,
           resumeMinutes: pauseEndMinutes,
         );
@@ -19380,7 +19117,7 @@ _CalendarPauseWindow? _resolveCalendarPauseWindow({
     return null;
   }
 
-  return _CalendarPauseWindow(
+  return CalendarPauseWindow(
     pauseStartMinutes: pauseStartMinutes,
     resumeMinutes: resumeMinutes,
   );
@@ -19394,130 +19131,8 @@ String _formatDownloadSize(int bytes) {
   return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
 }
 
-_AgendaRange _resolveAgendaRange(Iterable<_DayMetrics> metricsCollection) {
-  return _resolveAgendaRangeForSchedules(
-    metricsCollection.map((metrics) => metrics.schedule),
-  );
-}
-
-_AgendaRange _resolveCompactAgendaRangeForBounds({
-  required int? startMinutes,
-  required int? endMinutes,
-}) {
-  if (startMinutes == null ||
-      endMinutes == null ||
-      endMinutes <= startMinutes) {
-    return const _AgendaRange(startMinutes: 6 * 60, endMinutes: 22 * 60);
-  }
-
-  var stableStartMinutes = math.max(0, startMinutes - 30);
-  var stableEndMinutes = math.min((23 * 60) + 59, endMinutes + 45);
-  stableStartMinutes = (stableStartMinutes ~/ 60) * 60;
-  stableEndMinutes = ((stableEndMinutes + 59) ~/ 60) * 60;
-  stableEndMinutes = math.min(stableEndMinutes, (23 * 60) + 59);
-
-  if ((stableEndMinutes - stableStartMinutes) < 8 * 60) {
-    final midpoint = (startMinutes + endMinutes) ~/ 2;
-    stableStartMinutes = (midpoint - (8 * 60 ~/ 2)).clamp(0, 16 * 60).toInt();
-    stableStartMinutes = (stableStartMinutes ~/ 60) * 60;
-    stableEndMinutes = math.min(stableStartMinutes + 8 * 60, (23 * 60) + 59);
-  }
-
-  if (stableEndMinutes <= stableStartMinutes) {
-    return const _AgendaRange(startMinutes: 6 * 60, endMinutes: 22 * 60);
-  }
-
-  return _AgendaRange(
-    startMinutes: stableStartMinutes,
-    endMinutes: stableEndMinutes,
-  );
-}
-
-_AgendaRange _resolveAgendaRangeForSchedules(Iterable<DaySchedule> schedules) {
-  final starts = <int>[];
-  final ends = <int>[];
-
-  for (final schedule in schedules) {
-    final startMinutes = parseTimeInput(schedule.startTime);
-    final endMinutes = parseTimeInput(schedule.endTime);
-    if (startMinutes == null ||
-        endMinutes == null ||
-        endMinutes <= startMinutes) {
-      continue;
-    }
-    starts.add(startMinutes);
-    ends.add(endMinutes);
-  }
-
-  if (starts.isEmpty || ends.isEmpty) {
-    return const _AgendaRange(startMinutes: 6 * 60, endMinutes: 22 * 60);
-  }
-  return _resolveCompactAgendaRangeForBounds(
-    startMinutes: starts.reduce(math.min),
-    endMinutes: ends.reduce(math.max),
-  );
-}
-
-String _formatMonthLabel(String month) {
-  final monthDate = _monthToDate(month);
-  const monthNames = [
-    'gennaio',
-    'febbraio',
-    'marzo',
-    'aprile',
-    'maggio',
-    'giugno',
-    'luglio',
-    'agosto',
-    'settembre',
-    'ottobre',
-    'novembre',
-    'dicembre',
-  ];
-
-  return '${monthNames[monthDate.month - 1]} ${monthDate.year}';
-}
-
-String _formatLongDate(DateTime date) {
-  const monthNames = [
-    'gennaio',
-    'febbraio',
-    'marzo',
-    'aprile',
-    'maggio',
-    'giugno',
-    'luglio',
-    'agosto',
-    'settembre',
-    'ottobre',
-    'novembre',
-    'dicembre',
-  ];
-
-  return '${date.day} ${monthNames[date.month - 1]} ${date.year}';
-}
-
-String _formatCompactDate(DateTime date) {
-  const monthNames = [
-    'gen',
-    'feb',
-    'mar',
-    'apr',
-    'mag',
-    'giu',
-    'lug',
-    'ago',
-    'set',
-    'ott',
-    'nov',
-    'dic',
-  ];
-
-  return '${date.day} ${monthNames[date.month - 1]}';
-}
-
 String _formatTicketDateTime(DateTime value) {
-  return '${_formatCompactDate(value)}, ${formatTimeInput((value.hour * 60) + value.minute)}';
+  return '${formatCompactDate(value)}, ${formatTimeInput((value.hour * 60) + value.minute)}';
 }
 
 String _formatTicketAttachmentSize(int sizeBytes) {
@@ -19541,44 +19156,11 @@ Color _ticketStatusColor(BuildContext context, SupportTicketStatus status) {
   }
 }
 
-String _formatWeekdayShortLabel(DateTime date) {
-  const weekdayNames = ['Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab', 'Dom'];
-
-  return weekdayNames[date.weekday - 1];
-}
-
-String _compactWeekdayLabel(WeekdayKey weekday) {
-  switch (weekday) {
-    case WeekdayKey.monday:
-      return 'Lu';
-    case WeekdayKey.tuesday:
-      return 'Ma';
-    case WeekdayKey.wednesday:
-      return 'Me';
-    case WeekdayKey.thursday:
-      return 'Gi';
-    case WeekdayKey.friday:
-      return 'Ve';
-    case WeekdayKey.saturday:
-      return 'Sa';
-    case WeekdayKey.sunday:
-      return 'Do';
-  }
-}
-
-double _resolveAgendaLabelTop(double position, double height) {
-  const labelHeight = 18.0;
-  return math.min(
-    math.max(position - (labelHeight / 2), 0),
-    height - labelHeight,
-  );
-}
-
 List<_AgendaMeasurementSegment> _buildAgendaMeasurementSegments({
   required DaySchedule schedule,
   required WorkdaySession? session,
   required int nowMinutes,
-  _CalendarPauseWindow? pauseWindow,
+  CalendarPauseWindow? pauseWindow,
 }) {
   final startMinutes = parseTimeInput(schedule.startTime);
   final endMinutes = parseTimeInput(schedule.endTime);
@@ -19593,7 +19175,7 @@ List<_AgendaMeasurementSegment> _buildAgendaMeasurementSegments({
           startMinutes: startMinutes,
           endMinutes: pauseWindow.pauseStartMinutes,
           label:
-              '${_formatHoursInput(pauseWindow.pauseStartMinutes - startMinutes)} lavoro',
+              '${formatHoursInput(pauseWindow.pauseStartMinutes - startMinutes)} lavoro',
           kind: _AgendaMeasurementSegmentKind.work,
         ),
       );
@@ -19604,7 +19186,7 @@ List<_AgendaMeasurementSegment> _buildAgendaMeasurementSegments({
           startMinutes: pauseWindow.pauseStartMinutes,
           endMinutes: pauseWindow.resumeMinutes,
           label:
-              '${_formatHoursInput(pauseWindow.resumeMinutes - pauseWindow.pauseStartMinutes)} pausa',
+              '${formatHoursInput(pauseWindow.resumeMinutes - pauseWindow.pauseStartMinutes)} pausa',
           kind: _AgendaMeasurementSegmentKind.pause,
         ),
       );
@@ -19615,7 +19197,7 @@ List<_AgendaMeasurementSegment> _buildAgendaMeasurementSegments({
           startMinutes: pauseWindow.resumeMinutes,
           endMinutes: endMinutes,
           label:
-              '${_formatHoursInput(endMinutes - pauseWindow.resumeMinutes)} lavoro',
+              '${formatHoursInput(endMinutes - pauseWindow.resumeMinutes)} lavoro',
           kind: _AgendaMeasurementSegmentKind.work,
         ),
       );
@@ -19657,7 +19239,7 @@ List<_AgendaMeasurementSegment> _buildAgendaMeasurementSegments({
           startMinutes: startMinutes,
           endMinutes: pauseWindow.pauseStartMinutes,
           label:
-              '${_formatHoursInput(pauseWindow.pauseStartMinutes - startMinutes)} lavoro',
+              '${formatHoursInput(pauseWindow.pauseStartMinutes - startMinutes)} lavoro',
           kind: _AgendaMeasurementSegmentKind.work,
         ),
       );
@@ -19667,7 +19249,7 @@ List<_AgendaMeasurementSegment> _buildAgendaMeasurementSegments({
         startMinutes: pauseWindow.pauseStartMinutes,
         endMinutes: pauseWindow.resumeMinutes,
         label:
-            '${_formatHoursInput(pauseWindow.resumeMinutes - pauseWindow.pauseStartMinutes)} pausa',
+            '${formatHoursInput(pauseWindow.resumeMinutes - pauseWindow.pauseStartMinutes)} pausa',
         kind: _AgendaMeasurementSegmentKind.pause,
       ),
     );
@@ -19677,7 +19259,7 @@ List<_AgendaMeasurementSegment> _buildAgendaMeasurementSegments({
           startMinutes: pauseWindow.resumeMinutes,
           endMinutes: endMinutes,
           label:
-              '${_formatHoursInput(endMinutes - pauseWindow.resumeMinutes)} lavoro',
+              '${formatHoursInput(endMinutes - pauseWindow.resumeMinutes)} lavoro',
           kind: _AgendaMeasurementSegmentKind.work,
         ),
       );
@@ -19699,7 +19281,7 @@ List<_AgendaMeasurementSegment> _buildAgendaMeasurementSegments({
           _AgendaMeasurementSegment(
             startMinutes: cursor,
             endMinutes: breakSegment.startMinutes,
-            label: '${_formatHoursInput(workMinutes)} lavoro',
+            label: '${formatHoursInput(workMinutes)} lavoro',
             kind: _AgendaMeasurementSegmentKind.work,
           ),
         );
@@ -19712,7 +19294,7 @@ List<_AgendaMeasurementSegment> _buildAgendaMeasurementSegments({
         _AgendaMeasurementSegment(
           startMinutes: breakSegment.startMinutes,
           endMinutes: breakSegment.endMinutes,
-          label: '${_formatHoursInput(pauseMinutes)} pausa',
+          label: '${formatHoursInput(pauseMinutes)} pausa',
           kind: _AgendaMeasurementSegmentKind.pause,
         ),
       );
@@ -19729,7 +19311,7 @@ List<_AgendaMeasurementSegment> _buildAgendaMeasurementSegments({
           _AgendaMeasurementSegment(
             startMinutes: cursor,
             endMinutes: session.breakStartedMinutes!,
-            label: '${_formatHoursInput(workMinutes)} lavoro',
+            label: '${formatHoursInput(workMinutes)} lavoro',
             kind: _AgendaMeasurementSegmentKind.work,
           ),
         );
@@ -19743,7 +19325,7 @@ List<_AgendaMeasurementSegment> _buildAgendaMeasurementSegments({
         _AgendaMeasurementSegment(
           startMinutes: session.breakStartedMinutes!,
           endMinutes: resolvedEndMinutes,
-          label: '${_formatHoursInput(activePauseMinutes)} pausa',
+          label: '${formatHoursInput(activePauseMinutes)} pausa',
           kind: _AgendaMeasurementSegmentKind.pause,
         ),
       );
@@ -19758,7 +19340,7 @@ List<_AgendaMeasurementSegment> _buildAgendaMeasurementSegments({
         _AgendaMeasurementSegment(
           startMinutes: cursor,
           endMinutes: resolvedEndMinutes,
-          label: '${_formatHoursInput(workMinutes)} lavoro',
+          label: '${formatHoursInput(workMinutes)} lavoro',
           kind: _AgendaMeasurementSegmentKind.work,
         ),
       );
@@ -19788,7 +19370,7 @@ String? _buildAgendaWorkedSummary({
         (total, segment) => total + (segment.endMinutes - segment.startMinutes),
       );
 
-  return 'Totale: ${_formatHoursInput(workedMinutes)} lavorate | ${_formatHoursInput(totalBreakMinutes)} pausa';
+  return 'Totale: ${formatHoursInput(workedMinutes)} lavorate | ${formatHoursInput(totalBreakMinutes)} pausa';
 }
 
 String? _validateScheduleDraft({
@@ -19877,7 +19459,7 @@ String _formatDayScheduleDetails(DaySchedule schedule) {
     scheduleParts.add('${schedule.startTime} - ${schedule.endTime}');
   }
   if (schedule.breakMinutes > 0) {
-    scheduleParts.add('pausa ${_formatHoursInput(schedule.breakMinutes)}');
+    scheduleParts.add('pausa ${formatHoursInput(schedule.breakMinutes)}');
   }
   if (scheduleParts.isEmpty) {
     return 'Orari da definire';
@@ -19896,7 +19478,7 @@ String _compactWeekScheduleLabel(DaySchedule schedule) {
   if (schedule.targetMinutes <= 0) {
     return 'Nessun turno';
   }
-  return '${_formatHoursInput(schedule.targetMinutes)} previste';
+  return '${formatHoursInput(schedule.targetMinutes)} previste';
 }
 
 String _formatBreakInput(int minutes) {
@@ -19931,7 +19513,7 @@ _WorkdaySessionStatus _resolveWorkdaySessionStatus(WorkdaySession? session) {
 String _workdaySessionDescription({
   required WorkdaySession? session,
   required DaySchedule schedule,
-  required _CalendarPauseWindow? pauseWindow,
+  required CalendarPauseWindow? pauseWindow,
   required _WorkdaySessionStatus status,
   required int currentBreakMinutes,
 }) {
@@ -19993,7 +19575,7 @@ String? _resolveExpectedEndInfo({
 String? _resolveWorkedSessionInfo({
   required WorkdaySession? session,
   required DaySchedule schedule,
-  required _CalendarPauseWindow? pauseWindow,
+  required CalendarPauseWindow? pauseWindow,
   required int nowMinutes,
 }) {
   if (session == null &&
@@ -20023,7 +19605,7 @@ String? _resolveWorkedSessionInfo({
         0,
         (total, segment) => total + (segment.endMinutes - segment.startMinutes),
       );
-  return 'Lavoro ${_formatHoursInput(workedMinutes)} | Pausa ${_formatHoursInput(totalBreakMinutes)}.';
+  return 'Lavoro ${formatHoursInput(workedMinutes)} | Pausa ${formatHoursInput(totalBreakMinutes)}.';
 }
 
 Color _balanceColor(BuildContext context, int balanceMinutes) {
@@ -20263,11 +19845,11 @@ class _OverviewCard extends StatelessWidget {
   });
 
   final DateTime selectedDate;
-  final _DayMetrics todayMetrics;
-  final _TodayStatus todayStatus;
+  final DayMetrics todayMetrics;
+  final TodayStatus todayStatus;
   final DaySchedule effectiveSchedule;
   final ScheduleOverride? todayOverride;
-  final List<_ActivityItem> todayActivities;
+  final List<ActivityItem> todayActivities;
   final List<({IconData icon, String title, String description})> reminders;
   final VoidCallback onOpenWorkEntry;
   final VoidCallback onOpenLeaveEntry;
@@ -20297,7 +19879,7 @@ class _OverviewCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _InlineInfoPanel(
-            title: _formatLongDate(selectedDate),
+            title: formatLongDate(selectedDate),
             description: _formatDayScheduleDetails(effectiveSchedule),
             statusText: todayOverride == null
                 ? 'Programma standard di oggi'
@@ -20461,32 +20043,32 @@ class _OverviewCard extends StatelessWidget {
 
   ({String label, IconData icon, VoidCallback onPressed}) _primaryAction() {
     return switch (todayStatus) {
-      _TodayStatus.dayOff => (
+      TodayStatus.dayOff => (
         label: 'Controlla il giorno',
         icon: Icons.calendar_month_outlined,
         onPressed: () => unawaited(onOpenTodayCalendar()),
       ),
-      _TodayStatus.planned => (
+      TodayStatus.planned => (
         label: 'Registra la giornata di oggi',
         icon: Icons.play_arrow_outlined,
         onPressed: onOpenWorkEntry,
       ),
-      _TodayStatus.needsAttention => (
+      TodayStatus.needsAttention => (
         label: 'Completa la giornata',
         icon: Icons.task_alt_outlined,
         onPressed: onOpenWorkEntry,
       ),
-      _TodayStatus.inProgress => (
+      TodayStatus.inProgress => (
         label: 'Aggiorna le ore di oggi',
         icon: Icons.schedule_send_outlined,
         onPressed: onOpenWorkEntry,
       ),
-      _TodayStatus.completed => (
+      TodayStatus.completed => (
         label: 'Rivedi la giornata',
         icon: Icons.visibility_outlined,
         onPressed: () => unawaited(onOpenTodayCalendar()),
       ),
-      _TodayStatus.absent => (
+      TodayStatus.absent => (
         label: 'Gestisci l assenza di oggi',
         icon: Icons.event_note_outlined,
         onPressed: onOpenLeaveEntry,
@@ -20610,35 +20192,35 @@ class _TodayReminderCard extends StatelessWidget {
 
 ({String label, IconData icon, Color color}) _todayStatusMeta(
   BuildContext context,
-  _TodayStatus status,
+  TodayStatus status,
 ) {
   return switch (status) {
-    _TodayStatus.dayOff => (
+    TodayStatus.dayOff => (
       label: 'Libero',
       icon: Icons.free_breakfast_outlined,
       color: Theme.of(context).colorScheme.secondary,
     ),
-    _TodayStatus.planned => (
+    TodayStatus.planned => (
       label: 'Pianificata',
       icon: Icons.schedule_outlined,
       color: Theme.of(context).colorScheme.primary,
     ),
-    _TodayStatus.needsAttention => (
+    TodayStatus.needsAttention => (
       label: 'Da completare',
       icon: Icons.priority_high_outlined,
       color: const Color(0xFF9D3D2F),
     ),
-    _TodayStatus.inProgress => (
+    TodayStatus.inProgress => (
       label: 'In corso',
       icon: Icons.play_circle_outline,
       color: const Color(0xFF0B6E69),
     ),
-    _TodayStatus.completed => (
+    TodayStatus.completed => (
       label: 'Completata',
       icon: Icons.check_circle_outline,
       color: const Color(0xFF0B6E69),
     ),
-    _TodayStatus.absent => (
+    TodayStatus.absent => (
       label: 'Assenza registrata',
       icon: Icons.event_busy_outlined,
       color: Theme.of(context).colorScheme.secondary,
