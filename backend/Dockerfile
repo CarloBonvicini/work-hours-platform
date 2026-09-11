@@ -19,8 +19,11 @@ COPY --from=builder /app/package.json ./package.json
 
 EXPOSE 8080
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-  CMD node -e "fetch('http://127.0.0.1:8080/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+# wget di busybox invece di un processo node: parte in millisecondi, cosi' un
+# picco di carico sul portatile non fa scattare autoheal. Timeout/retries larghi:
+# unhealthy solo dopo ~2.5 min di fallimenti consecutivi.
+HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=5 \
+  CMD wget -qO- --timeout=8 http://127.0.0.1:8080/health >/dev/null || exit 1
 
 CMD ["node", "dist/index.js"]
 

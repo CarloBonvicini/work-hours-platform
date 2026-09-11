@@ -184,11 +184,14 @@ jobs:
           compose "${compose_files[@]}" stop api || true
           compose "${compose_files[@]}" rm -f api || true
 
+          # Include anche i container fermi (-a): un container di un vecchio
+          # progetto compose con restart policy puo' ripartire in loop e
+          # contendere la porta all'api (successo con work-hours-platform_api_1).
           release_port() {
             port="$1"
-            port_holders="$(docker ps -q --filter publish="$port")"
+            port_holders="$(docker ps -aq --filter publish="$port")"
             if [ -n "$port_holders" ]; then
-              docker ps --filter publish="$port" --format "Libero porta ${port} da {{.ID}} {{.Names}} {{.Ports}}"
+              docker ps -a --filter publish="$port" --format "Libero porta ${port} da {{.ID}} {{.Names}} ({{.Status}})"
               docker rm -f $port_holders || true
             fi
           }
