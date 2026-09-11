@@ -32,6 +32,18 @@ services:
       - "8080:8080"
     expose:
       - "8080"
+    labels:
+      - autoheal=true
+    restart: unless-stopped
+
+  # Docker segna i container unhealthy ma non li riavvia da solo:
+  # autoheal riavvia i container etichettati quando l'healthcheck fallisce.
+  autoheal:
+    image: willfarrell/autoheal:1.2.0
+    environment:
+      AUTOHEAL_CONTAINER_LABEL: autoheal
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
     restart: unless-stopped
 
 volumes:
