@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:work_hours_mobile/application/services/app_update_service.dart';
 import 'package:work_hours_mobile/application/services/dashboard_service.dart';
+import 'package:work_hours_mobile/application/services/hour_input_parser.dart';
 import 'package:work_hours_mobile/application/services/onboarding_preference_store.dart';
 import 'package:work_hours_mobile/application/services/support_ticket_store.dart';
 import 'package:work_hours_mobile/application/services/theme_preference_store.dart';
+import 'package:work_hours_mobile/application/services/time_input_parser.dart';
 import 'package:work_hours_mobile/application/services/update_launcher.dart';
 import 'package:work_hours_mobile/application/services/update_reminder_store.dart';
 import 'package:work_hours_mobile/application/services/workday_start_store.dart';
@@ -1138,6 +1140,89 @@ void main() {
     expect(find.text('Nessuna registrazione.'), findsOneWidget);
   });
 
+  testWidgets('finishing the workday records the hours and the real times', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(1400, 2600));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final now = DateTime.now();
+    final nowMinutes = now.hour * 60 + now.minute;
+    final startMinutes = (nowMinutes - 480).clamp(0, nowMinutes);
+    final todayIsoDate = DashboardService.defaultEntryDateOf(now);
+    final repository = _FakeDashboardRepository(
+      initialWorkEntries: const [],
+      initialLeaveEntries: const [],
+    );
+    final workdayStartStore = _FakeWorkdayStartStore(
+      initialValues: {
+        todayIsoDate: WorkdaySession(
+          startMinutes: startMinutes,
+          accumulatedBreakMinutes: 0,
+        ),
+      },
+    );
+
+    await tester.pumpWidget(
+      WorkHoursApp(
+        dashboardService: DashboardService(repository: repository),
+        appUpdateService: _FakeAppUpdateService(),
+        updateReminderStore: _FakeUpdateReminderStore(),
+        onboardingPreferenceStore: _FakeOnboardingPreferenceStore(
+          hasCompleted: true,
+        ),
+        themePreferenceStore: _FakeThemePreferenceStore(),
+        workdayStartStore: workdayStartStore,
+        supportTicketStore: _FakeSupportTicketStore(),
+        hasCompletedInitialSetup: true,
+      ),
+    );
+    await tester.pumpAndSettle();
+    if (find.text('Ricordamelo piu tardi').evaluate().isNotEmpty) {
+      await tester.tap(find.text('Ricordamelo piu tardi'));
+      await tester.pumpAndSettle();
+    }
+    await tester.tap(find.byKey(const ValueKey('navigation-menu-button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('navigation-option-day')));
+    await tester.pumpAndSettle();
+
+    final finishFinder = find.byKey(
+      const ValueKey('calendar-end-workday-button'),
+    );
+    await tester.ensureVisible(finishFinder);
+    await tester.tap(finishFinder);
+    await tester.pumpAndSettle();
+
+    final session = await workdayStartStore.loadSession(todayIsoDate);
+    expect(session!.isCompleted, isTrue);
+
+    final override = repository.savedScheduleOverrides[todayIsoDate];
+    final elapsedMinutes = session.endMinutes! - startMinutes;
+    final expectedWorkedMinutes = override == null
+        ? 0
+        : elapsedMinutes - override.breakMinutes;
+    if (expectedWorkedMinutes > 0) {
+      // Orari reali salvati come override, obiettivo del giorno invariato.
+      expect(override!.startTime, formatTimeInput(startMinutes));
+      expect(override.endTime, formatTimeInput(session.endMinutes!));
+      // Ore del giorno registrate come voce "Ore lavorate".
+      final entry = repository.workEntries.singleWhere(
+        (entry) => entry.date == todayIsoDate,
+      );
+      expect(entry.minutes, expectedWorkedMinutes);
+      expect(entry.note, 'Timbratura');
+      expect(
+        find.textContaining(
+          'Ore del giorno: ${formatHoursInput(entry.minutes)}',
+        ),
+        findsOneWidget,
+      );
+    } else {
+      // Test avviato a ridosso della mezzanotte: nessuna ora da registrare.
+      expect(repository.workEntries, isEmpty);
+    }
+  });
+
   testWidgets('persists collapsed state for the today workday card', (
     tester,
   ) async {
@@ -1923,6 +2008,9 @@ class _FakeSupportTicketStore implements SupportTicketStore {
 }
 
 class _FakeDashboardRepository implements DashboardRepository {
+  Map<String, ScheduleOverride> get savedScheduleOverrides =>
+      Map.unmodifiable(_scheduleOverridesByDate);
+
   _FakeDashboardRepository({
     Map<String, ScheduleOverride>? initialScheduleOverrides,
     List<WorkEntry>? initialWorkEntries,

@@ -318,6 +318,7 @@ mixin _WorkdaySessionState on _HomeScreenStateBase {
         _isSavingWorkdaySession = false;
       });
       _cancelWorkdayReminders();
+      await _registerWorkedHoursForSession(updatedSession, isoDate);
       unawaited(_queueCloudBackup());
     } catch (error) {
       if (!mounted) {
@@ -329,6 +330,105 @@ mixin _WorkdaySessionState on _HomeScreenStateBase {
         _errorMessage = 'Impossibile registrare l uscita in questo momento.';
       });
     }
+  }
+
+  /// All'uscita la timbratura diventa un dato durevole: l'orario reale del
+  /// giorno (override con entrata, uscita e pausa effettiva, obiettivo
+  /// invariato) e la voce "Ore lavorate", creata o aggiornata.
+  Future<void> _registerWorkedHoursForSession(
+    WorkdaySession session,
+    String isoDate,
+  ) async {
+    final endMinutes = session.endMinutes;
+    final snapshot =
+        _snapshotForMonth(DashboardService.formatMonth(_todayDate)) ??
+        _snapshot;
+    if (endMinutes == null || snapshot == null) {
+      return;
+    }
+
+    final schedule = _resolveEffectiveDayScheduleForDate(snapshot, _todayDate);
+    final breakMinutes = math.max(
+      schedule.breakMinutes,
+      session.accumulatedBreakMinutes,
+    );
+    final workedMinutes = endMinutes - session.startMinutes - breakMinutes;
+    if (workedMinutes <= 0) {
+      _showWorkdaySnackBar(
+        'Uscita registrata alle ${formatTimeInput(endMinutes)}. '
+        'Nessuna ora da registrare.',
+      );
+      return;
+    }
+
+    try {
+      await widget.dashboardService.saveScheduleOverride(
+        date: isoDate,
+        targetMinutes: schedule.targetMinutes,
+        startTime: formatTimeInput(session.startMinutes),
+        endTime: formatTimeInput(endMinutes),
+        breakMinutes: breakMinutes,
+        note: _findScheduleOverrideForDate(snapshot, _todayDate)?.note,
+      );
+      final nextSnapshot = await _upsertWorkedHoursEntry(
+        snapshot: snapshot,
+        isoDate: isoDate,
+        workedMinutes: workedMinutes,
+      );
+      if (!mounted) {
+        return;
+      }
+      _hydrateControllers(nextSnapshot, _selectedDate);
+      await _cacheSnapshot(nextSnapshot);
+      setState(() {
+        _snapshot = nextSnapshot;
+        _snapshotCache[nextSnapshot.summary.month] = nextSnapshot;
+      });
+      _showWorkdaySnackBar(
+        'Uscita registrata alle ${formatTimeInput(endMinutes)}. '
+        'Ore del giorno: ${formatHoursInput(workedMinutes)}.',
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _errorMessage = _humanizeError(error);
+      });
+    }
+  }
+
+  /// Aggiorna la prima voce "Ore lavorate" del giorno oppure ne crea una.
+  Future<DashboardSnapshot> _upsertWorkedHoursEntry({
+    required DashboardSnapshot snapshot,
+    required String isoDate,
+    required int workedMinutes,
+  }) {
+    final existing = snapshot.workEntries
+        .where((entry) => entry.date == isoDate)
+        .firstOrNull;
+    if (existing == null) {
+      return widget.dashboardService.addWorkEntry(
+        date: isoDate,
+        minutes: workedMinutes,
+        note: 'Timbratura',
+      );
+    }
+    return widget.dashboardService.updateWorkEntry(
+      id: existing.id,
+      date: isoDate,
+      minutes: workedMinutes,
+      note: existing.note,
+    );
+  }
+
+  void _showWorkdaySnackBar(String message) {
+    if (!mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override
