@@ -1053,6 +1053,91 @@ void main() {
     expect(find.text('Dentro'), findsWidgets);
   });
 
+  testWidgets('edits and deletes a registered entry from the day view', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(1400, 2600));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final todayIsoDate = DashboardService.defaultEntryDateOf(DateTime.now());
+    final repository = _FakeDashboardRepository(
+      initialWorkEntries: [
+        WorkEntry(
+          id: 'w-today',
+          date: todayIsoDate,
+          minutes: 480,
+          note: 'Giornata intera',
+        ),
+      ],
+      initialLeaveEntries: const [],
+    );
+
+    await tester.pumpWidget(
+      WorkHoursApp(
+        dashboardService: DashboardService(repository: repository),
+        appUpdateService: _FakeAppUpdateService(),
+        updateReminderStore: _FakeUpdateReminderStore(),
+        onboardingPreferenceStore: _FakeOnboardingPreferenceStore(
+          hasCompleted: true,
+        ),
+        themePreferenceStore: _FakeThemePreferenceStore(),
+        workdayStartStore: _FakeWorkdayStartStore(),
+        supportTicketStore: _FakeSupportTicketStore(),
+        hasCompletedInitialSetup: true,
+      ),
+    );
+    await tester.pumpAndSettle();
+    if (find.text('Ricordamelo piu tardi').evaluate().isNotEmpty) {
+      await tester.tap(find.text('Ricordamelo piu tardi'));
+      await tester.pumpAndSettle();
+    }
+    await tester.tap(find.byKey(const ValueKey('navigation-menu-button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('navigation-option-day')));
+    await tester.pumpAndSettle();
+
+    // La registrazione del giorno e' elencata con il suo menu azioni.
+    final menuFinder = find.byKey(const ValueKey('activity-menu-work-w-today'));
+    await tester.ensureVisible(menuFinder);
+    await tester.tap(menuFinder);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('activity-edit-work-w-today')));
+    await tester.pumpAndSettle();
+
+    // Il modulo rapido si apre in modalita' modifica, precompilato in minuti.
+    expect(find.text('Modifica registrazione'), findsOneWidget);
+    final minutesField = find.widgetWithText(TextFormField, 'Minuti lavorati');
+    expect(
+      (tester.widget<TextFormField>(minutesField)).controller?.text,
+      '480',
+    );
+    await tester.enterText(minutesField, '420');
+    await tester.tap(find.byKey(const ValueKey('quick-entry-submit-button')));
+    await tester.pumpAndSettle();
+
+    expect(repository.workEntries.single.minutes, 420);
+    expect(repository.workEntries.single.note, 'Giornata intera');
+    expect(find.text('Registrazione aggiornata.'), findsOneWidget);
+
+    // Eliminazione con conferma dalla vista giorno.
+    await tester.tap(find.byKey(const ValueKey('navigation-menu-button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('navigation-option-day')));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(menuFinder);
+    await tester.tap(menuFinder);
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('activity-delete-work-w-today')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Eliminare questa registrazione?'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('activity-delete-confirm')));
+    await tester.pumpAndSettle();
+
+    expect(repository.workEntries, isEmpty);
+    expect(find.text('Nessuna registrazione.'), findsOneWidget);
+  });
+
   testWidgets('persists collapsed state for the today workday card', (
     tester,
   ) async {

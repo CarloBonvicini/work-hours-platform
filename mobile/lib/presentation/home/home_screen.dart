@@ -222,6 +222,7 @@ abstract class _HomeScreenStateBase extends State<HomeScreen>
   List<WorkPermissionRule> _rulesLeaveBanks = const [];
   LeaveType _selectedLeaveType = LeaveType.vacation;
   QuickEntryMode _selectedEntryMode = QuickEntryMode.work;
+  EditingEntryRef? _editingEntry;
   String? _errorMessage;
   bool _isLoading = true;
   bool _isCheckingForUpdate = true;
@@ -446,6 +447,12 @@ abstract class _HomeScreenStateBase extends State<HomeScreen>
   Future<void> _pickEntryDate();
 
   Future<void> _submitQuickEntry();
+
+  void _startEditingActivity(ActivityItem item);
+
+  void _cancelEntryEditing();
+
+  Future<void> _confirmDeleteActivity(ActivityItem item);
 
   int _sumLeaveMinutesForDate(DashboardSnapshot snapshot, String isoDate);
 

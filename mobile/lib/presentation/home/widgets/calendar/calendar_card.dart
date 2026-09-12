@@ -7,7 +7,7 @@ import 'package:work_hours_mobile/application/services/theme_preference_store.da
 import 'package:work_hours_mobile/application/services/time_input_parser.dart';
 import 'package:work_hours_mobile/application/services/workday_start_store.dart';
 import 'package:work_hours_mobile/domain/models/day_schedule.dart';
-import 'package:work_hours_mobile/domain/models/leave_entry.dart';
+import 'package:work_hours_mobile/presentation/home/models/activity_item.dart';
 import 'package:work_hours_mobile/domain/models/user_work_rules.dart';
 import 'package:work_hours_mobile/presentation/home/logic/calendar_dates.dart';
 import 'package:work_hours_mobile/presentation/home/logic/day_balance.dart';
@@ -57,8 +57,11 @@ class CalendarCard extends StatelessWidget {
     required this.onSelectDate,
     required this.onOpenDay,
     required this.isSelectedDateToday,
-    required this.dayLeaveEntries,
+    required this.dayActivities,
+    required this.onOpenWorkQuickEntry,
     required this.onOpenLeaveQuickEntry,
+    required this.onEditActivity,
+    required this.onDeleteActivity,
     required this.workdaySession,
     required this.isSavingWorkdaySession,
     required this.onRecordWorkdayStartNow,
@@ -117,8 +120,11 @@ class CalendarCard extends StatelessWidget {
   final ValueChanged<DateTime> onSelectDate;
   final Future<void> Function(DateTime date) onOpenDay;
   final bool isSelectedDateToday;
-  final List<LeaveEntry> dayLeaveEntries;
+  final List<ActivityItem> dayActivities;
+  final VoidCallback onOpenWorkQuickEntry;
   final VoidCallback onOpenLeaveQuickEntry;
+  final ValueChanged<ActivityItem> onEditActivity;
+  final ValueChanged<ActivityItem> onDeleteActivity;
   final WorkdaySession? workdaySession;
   final bool isSavingWorkdaySession;
   final Future<void> Function() onRecordWorkdayStartNow;
@@ -625,7 +631,7 @@ class CalendarCard extends StatelessWidget {
             SizedBox(height: quickEditorSpacing),
             TodayExtrasCard(
               isToday: isSelectedDateToday,
-              dayLeaveEntries: dayLeaveEntries,
+              dayActivities: dayActivities,
               allowances: buildLeaveAllowanceSummaries(workRules),
               expectedMinutes: liveExpectedMinutes,
               workedMinutes: displayedWorkedMinutes,
@@ -637,7 +643,10 @@ class CalendarCard extends StatelessWidget {
                     (displayedWorkedMinutes + dayMetrics.leaveMinutes) -
                     liveExpectedMinutes,
               ),
+              onAddWork: onOpenWorkQuickEntry,
               onAddLeave: onOpenLeaveQuickEntry,
+              onEditActivity: onEditActivity,
+              onDeleteActivity: onDeleteActivity,
             ),
             SizedBox(height: quickEditorSpacing),
             if (appearanceSettings.dayCalendarLayoutMode ==

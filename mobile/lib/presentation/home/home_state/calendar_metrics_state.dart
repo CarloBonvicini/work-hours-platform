@@ -174,7 +174,8 @@ mixin _CalendarMetricsState on _HomeScreenStateBase {
     DateTime date,
   ) {
     final selectedIsoDate = DashboardService.defaultEntryDateOf(date);
-    return _buildActivities(
+    // Tutte le voci del giorno, non solo le piu' recenti del mese.
+    return _buildAllActivities(
       snapshot,
     ).where((item) => item.date == selectedIsoDate).toList(growable: false);
   }
@@ -345,10 +346,12 @@ mixin _CalendarMetricsState on _HomeScreenStateBase {
     }, growable: false);
   }
 
-  List<ActivityItem> _buildActivities(DashboardSnapshot snapshot) {
+  List<ActivityItem> _buildAllActivities(DashboardSnapshot snapshot) {
     final workItems = snapshot.workEntries.map(
       (entry) => ActivityItem(
         key: 'work-${entry.id}',
+        entryId: entry.id,
+        kind: ActivityEntryKind.work,
         date: entry.date,
         title: 'Ore lavorate',
         subtitle: entry.note?.isNotEmpty == true
@@ -363,6 +366,8 @@ mixin _CalendarMetricsState on _HomeScreenStateBase {
     final leaveItems = snapshot.leaveEntries.map(
       (entry) => ActivityItem(
         key: 'leave-${entry.id}',
+        entryId: entry.id,
+        kind: ActivityEntryKind.leave,
         date: entry.date,
         title: entry.type.label,
         subtitle: entry.note?.isNotEmpty == true
@@ -378,6 +383,6 @@ mixin _CalendarMetricsState on _HomeScreenStateBase {
 
     final items = [...workItems, ...leaveItems];
     items.sort((left, right) => right.date.compareTo(left.date));
-    return items.take(8).toList(growable: false);
+    return items;
   }
 }
