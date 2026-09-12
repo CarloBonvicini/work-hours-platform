@@ -11,10 +11,11 @@ abstract class DashboardSnapshotStore {
   Future<void> removeSnapshot(String month);
 }
 
+/// Cache volatile per istanza: ogni app (o test) parte da zero.
 class InMemoryDashboardSnapshotStore implements DashboardSnapshotStore {
-  const InMemoryDashboardSnapshotStore();
+  InMemoryDashboardSnapshotStore();
 
-  static final Map<String, DashboardSnapshot> _snapshots = {};
+  final Map<String, DashboardSnapshot> _snapshots = {};
 
   @override
   Future<DashboardSnapshot?> loadSnapshot(String month) async {

@@ -81,8 +81,12 @@ export interface AppStore {
   getProfile(): Promise<Profile> | Profile;
   saveProfile(profile: Profile): Promise<Profile> | Profile;
   addWorkEntry(entry: WorkEntry): Promise<WorkEntry> | WorkEntry;
+  updateWorkEntry(entry: WorkEntry): Promise<WorkEntry | null> | WorkEntry | null;
+  deleteWorkEntry(id: string): Promise<boolean> | boolean;
   listWorkEntries(month?: string): Promise<WorkEntry[]> | WorkEntry[];
   addLeaveEntry(entry: LeaveEntry): Promise<LeaveEntry> | LeaveEntry;
+  updateLeaveEntry(entry: LeaveEntry): Promise<LeaveEntry | null> | LeaveEntry | null;
+  deleteLeaveEntry(id: string): Promise<boolean> | boolean;
   listLeaveEntries(month?: string): Promise<LeaveEntry[]> | LeaveEntry[];
   saveScheduleOverride(
     entry: ScheduleOverride

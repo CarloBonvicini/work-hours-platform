@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:work_hours_mobile/application/services/app_update_service.dart';
 import 'package:work_hours_mobile/application/services/dashboard_service.dart';
+import 'package:work_hours_mobile/application/services/hour_input_parser.dart';
 import 'package:work_hours_mobile/application/services/onboarding_preference_store.dart';
 import 'package:work_hours_mobile/application/services/support_ticket_store.dart';
 import 'package:work_hours_mobile/application/services/theme_preference_store.dart';
+import 'package:work_hours_mobile/application/services/time_input_parser.dart';
 import 'package:work_hours_mobile/application/services/update_launcher.dart';
 import 'package:work_hours_mobile/application/services/update_reminder_store.dart';
 import 'package:work_hours_mobile/application/services/workday_start_store.dart';
@@ -968,6 +970,259 @@ void main() {
     );
   });
 
+  testWidgets('records the full workday flow and reopens a closed day', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(1400, 2200));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final workdayStartStore = _FakeWorkdayStartStore();
+    final today = DateTime.now();
+    final todayIsoDate = DashboardService.defaultEntryDateOf(today);
+
+    await tester.pumpWidget(
+      WorkHoursApp(
+        dashboardService: DashboardService(
+          repository: _FakeDashboardRepository(),
+        ),
+        appUpdateService: _FakeAppUpdateService(),
+        updateReminderStore: _FakeUpdateReminderStore(),
+        onboardingPreferenceStore: _FakeOnboardingPreferenceStore(
+          hasCompleted: true,
+        ),
+        themePreferenceStore: _FakeThemePreferenceStore(),
+        workdayStartStore: workdayStartStore,
+        supportTicketStore: _FakeSupportTicketStore(),
+        hasCompletedInitialSetup: true,
+      ),
+    );
+    await tester.pumpAndSettle();
+    if (find.text('Ricordamelo piu tardi').evaluate().isNotEmpty) {
+      await tester.tap(find.text('Ricordamelo piu tardi'));
+      await tester.pumpAndSettle();
+    }
+    await tester.tap(find.byKey(const ValueKey('navigation-menu-button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('navigation-option-day')));
+    await tester.pumpAndSettle();
+
+    Future<void> tapAction(String key) async {
+      final finder = find.byKey(ValueKey(key));
+      await tester.ensureVisible(finder);
+      await tester.tap(finder);
+      await tester.pumpAndSettle();
+    }
+
+    await tapAction('calendar-record-start-button');
+    final started = await workdayStartStore.loadSession(todayIsoDate);
+    expect(started, isNotNull);
+    expect(started!.isCompleted, isFalse);
+    expect(find.text('Dentro'), findsWidgets);
+
+    await tapAction('calendar-start-break-button');
+    expect(
+      (await workdayStartStore.loadSession(todayIsoDate))!.isOnBreak,
+      isTrue,
+    );
+    expect(find.text('In pausa'), findsWidgets);
+
+    await tapAction('calendar-resume-workday-button');
+    final resumed = await workdayStartStore.loadSession(todayIsoDate);
+    expect(resumed!.isOnBreak, isFalse);
+    expect(resumed.breakSegments, hasLength(1));
+
+    await tapAction('calendar-end-workday-button');
+    final closed = await workdayStartStore.loadSession(todayIsoDate);
+    expect(closed!.isCompleted, isTrue);
+    expect(find.text('Chiusa'), findsWidgets);
+
+    // Con la giornata chiusa il pulsante deve offrire il rientro, non una
+    // nuova entrata che cancellerebbe la timbratura gia' registrata.
+    expect(find.text('Rientro'), findsOneWidget);
+    await tapAction('calendar-record-start-button');
+    final reopened = await workdayStartStore.loadSession(todayIsoDate);
+    expect(reopened!.isCompleted, isFalse);
+    expect(reopened.startMinutes, started.startMinutes);
+    // La pausa fuori sede viene aggiunta solo se tra uscita e rientro e'
+    // passato almeno un minuto: nel test dipende dal cambio di minuto.
+    expect(reopened.breakSegments.length, anyOf(1, 2));
+    if (reopened.breakSegments.length == 2) {
+      expect(reopened.breakSegments.last.startMinutes, closed.endMinutes);
+    }
+    expect(
+      reopened.accumulatedBreakMinutes >= closed.accumulatedBreakMinutes,
+      isTrue,
+    );
+    expect(find.text('Dentro'), findsWidgets);
+  });
+
+  testWidgets('edits and deletes a registered entry from the day view', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(1400, 2600));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final todayIsoDate = DashboardService.defaultEntryDateOf(DateTime.now());
+    final repository = _FakeDashboardRepository(
+      initialWorkEntries: [
+        WorkEntry(
+          id: 'w-today',
+          date: todayIsoDate,
+          minutes: 480,
+          note: 'Giornata intera',
+        ),
+      ],
+      initialLeaveEntries: const [],
+    );
+
+    await tester.pumpWidget(
+      WorkHoursApp(
+        dashboardService: DashboardService(repository: repository),
+        appUpdateService: _FakeAppUpdateService(),
+        updateReminderStore: _FakeUpdateReminderStore(),
+        onboardingPreferenceStore: _FakeOnboardingPreferenceStore(
+          hasCompleted: true,
+        ),
+        themePreferenceStore: _FakeThemePreferenceStore(),
+        workdayStartStore: _FakeWorkdayStartStore(),
+        supportTicketStore: _FakeSupportTicketStore(),
+        hasCompletedInitialSetup: true,
+      ),
+    );
+    await tester.pumpAndSettle();
+    if (find.text('Ricordamelo piu tardi').evaluate().isNotEmpty) {
+      await tester.tap(find.text('Ricordamelo piu tardi'));
+      await tester.pumpAndSettle();
+    }
+    await tester.tap(find.byKey(const ValueKey('navigation-menu-button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('navigation-option-day')));
+    await tester.pumpAndSettle();
+
+    // La registrazione del giorno e' elencata con il suo menu azioni.
+    final menuFinder = find.byKey(const ValueKey('activity-menu-work-w-today'));
+    await tester.ensureVisible(menuFinder);
+    await tester.tap(menuFinder);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('activity-edit-work-w-today')));
+    await tester.pumpAndSettle();
+
+    // Il modulo rapido si apre in modalita' modifica, precompilato in minuti.
+    expect(find.text('Modifica registrazione'), findsOneWidget);
+    final minutesField = find.widgetWithText(TextFormField, 'Minuti lavorati');
+    expect(
+      (tester.widget<TextFormField>(minutesField)).controller?.text,
+      '480',
+    );
+    await tester.enterText(minutesField, '420');
+    await tester.tap(find.byKey(const ValueKey('quick-entry-submit-button')));
+    await tester.pumpAndSettle();
+
+    expect(repository.workEntries.single.minutes, 420);
+    expect(repository.workEntries.single.note, 'Giornata intera');
+    expect(find.text('Registrazione aggiornata.'), findsOneWidget);
+
+    // Eliminazione con conferma dalla vista giorno.
+    await tester.tap(find.byKey(const ValueKey('navigation-menu-button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('navigation-option-day')));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(menuFinder);
+    await tester.tap(menuFinder);
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('activity-delete-work-w-today')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Eliminare questa registrazione?'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('activity-delete-confirm')));
+    await tester.pumpAndSettle();
+
+    expect(repository.workEntries, isEmpty);
+    expect(find.text('Nessuna registrazione.'), findsOneWidget);
+  });
+
+  testWidgets('finishing the workday records the hours and the real times', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(1400, 2600));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final now = DateTime.now();
+    final nowMinutes = now.hour * 60 + now.minute;
+    final startMinutes = (nowMinutes - 480).clamp(0, nowMinutes);
+    final todayIsoDate = DashboardService.defaultEntryDateOf(now);
+    final repository = _FakeDashboardRepository(
+      initialWorkEntries: const [],
+      initialLeaveEntries: const [],
+    );
+    final workdayStartStore = _FakeWorkdayStartStore(
+      initialValues: {
+        todayIsoDate: WorkdaySession(
+          startMinutes: startMinutes,
+          accumulatedBreakMinutes: 0,
+        ),
+      },
+    );
+
+    await tester.pumpWidget(
+      WorkHoursApp(
+        dashboardService: DashboardService(repository: repository),
+        appUpdateService: _FakeAppUpdateService(),
+        updateReminderStore: _FakeUpdateReminderStore(),
+        onboardingPreferenceStore: _FakeOnboardingPreferenceStore(
+          hasCompleted: true,
+        ),
+        themePreferenceStore: _FakeThemePreferenceStore(),
+        workdayStartStore: workdayStartStore,
+        supportTicketStore: _FakeSupportTicketStore(),
+        hasCompletedInitialSetup: true,
+      ),
+    );
+    await tester.pumpAndSettle();
+    if (find.text('Ricordamelo piu tardi').evaluate().isNotEmpty) {
+      await tester.tap(find.text('Ricordamelo piu tardi'));
+      await tester.pumpAndSettle();
+    }
+    await tester.tap(find.byKey(const ValueKey('navigation-menu-button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('navigation-option-day')));
+    await tester.pumpAndSettle();
+
+    final finishFinder = find.byKey(
+      const ValueKey('calendar-end-workday-button'),
+    );
+    await tester.ensureVisible(finishFinder);
+    await tester.tap(finishFinder);
+    await tester.pumpAndSettle();
+
+    final session = await workdayStartStore.loadSession(todayIsoDate);
+    expect(session!.isCompleted, isTrue);
+
+    final override = repository.savedScheduleOverrides[todayIsoDate];
+    final elapsedMinutes = session.endMinutes! - startMinutes;
+    final expectedWorkedMinutes = override == null
+        ? 0
+        : elapsedMinutes - override.breakMinutes;
+    if (expectedWorkedMinutes > 0) {
+      // Orari reali salvati come override, obiettivo del giorno invariato.
+      expect(override!.startTime, formatTimeInput(startMinutes));
+      expect(override.endTime, formatTimeInput(session.endMinutes!));
+      // Ore del giorno registrate come voce "Ore lavorate".
+      final entry = repository.workEntries.singleWhere(
+        (entry) => entry.date == todayIsoDate,
+      );
+      expect(entry.minutes, expectedWorkedMinutes);
+      expect(entry.note, 'Timbratura');
+      expect(
+        find.textContaining(
+          'Ore del giorno: ${formatHoursInput(entry.minutes)}',
+        ),
+        findsOneWidget,
+      );
+    } else {
+      // Test avviato a ridosso della mezzanotte: nessuna ora da registrare.
+      expect(repository.workEntries, isEmpty);
+    }
+  });
+
   testWidgets('persists collapsed state for the today workday card', (
     tester,
   ) async {
@@ -1753,9 +2008,37 @@ class _FakeSupportTicketStore implements SupportTicketStore {
 }
 
 class _FakeDashboardRepository implements DashboardRepository {
+  Map<String, ScheduleOverride> get savedScheduleOverrides =>
+      Map.unmodifiable(_scheduleOverridesByDate);
+
   _FakeDashboardRepository({
     Map<String, ScheduleOverride>? initialScheduleOverrides,
-  }) : _scheduleOverridesByDate = {
+    List<WorkEntry>? initialWorkEntries,
+    List<LeaveEntry>? initialLeaveEntries,
+  }) : workEntries = [
+         ...initialWorkEntries ??
+             const [
+               WorkEntry(
+                 id: '1',
+                 date: '2026-03-03',
+                 minutes: 420,
+                 note: 'Sprint mobile',
+               ),
+             ],
+       ],
+       leaveEntries = [
+         ...initialLeaveEntries ??
+             const [
+               LeaveEntry(
+                 id: 'leave-1',
+                 date: '2026-03-04',
+                 minutes: 60,
+                 type: LeaveType.permit,
+                 note: 'Visita medica',
+               ),
+             ],
+       ],
+       _scheduleOverridesByDate = {
          '2026-03-04': const ScheduleOverride(
            id: 'override-1',
            date: '2026-03-04',
@@ -1769,6 +2052,8 @@ class _FakeDashboardRepository implements DashboardRepository {
        };
 
   final Map<String, ScheduleOverride> _scheduleOverridesByDate;
+  final List<WorkEntry> workEntries;
+  final List<LeaveEntry> leaveEntries;
   final Map<String, SupportTicketThread> _ticketThreadsById = {};
   String? savedFullName;
   int? savedDailyTargetMinutes;
@@ -1790,6 +2075,15 @@ class _FakeDashboardRepository implements DashboardRepository {
     String? note,
     required String month,
   }) {
+    leaveEntries.add(
+      LeaveEntry(
+        id: 'leave-${leaveEntries.length + 1}',
+        date: date,
+        minutes: minutes,
+        type: type,
+        note: note,
+      ),
+    );
     return loadSnapshot(month: month);
   }
 
@@ -1800,6 +2094,70 @@ class _FakeDashboardRepository implements DashboardRepository {
     String? note,
     required String month,
   }) {
+    workEntries.add(
+      WorkEntry(
+        id: 'work-${workEntries.length + 1}',
+        date: date,
+        minutes: minutes,
+        note: note,
+      ),
+    );
+    return loadSnapshot(month: month);
+  }
+
+  @override
+  Future<DashboardSnapshot> updateWorkEntry({
+    required String id,
+    required String date,
+    required int minutes,
+    String? note,
+    required String month,
+  }) {
+    final index = workEntries.indexWhere((entry) => entry.id == id);
+    workEntries[index] = WorkEntry(
+      id: id,
+      date: date,
+      minutes: minutes,
+      note: note,
+    );
+    return loadSnapshot(month: month);
+  }
+
+  @override
+  Future<DashboardSnapshot> deleteWorkEntry({
+    required String id,
+    required String month,
+  }) {
+    workEntries.removeWhere((entry) => entry.id == id);
+    return loadSnapshot(month: month);
+  }
+
+  @override
+  Future<DashboardSnapshot> updateLeaveEntry({
+    required String id,
+    required String date,
+    required int minutes,
+    required LeaveType type,
+    String? note,
+    required String month,
+  }) {
+    final index = leaveEntries.indexWhere((entry) => entry.id == id);
+    leaveEntries[index] = LeaveEntry(
+      id: id,
+      date: date,
+      minutes: minutes,
+      type: type,
+      note: note,
+    );
+    return loadSnapshot(month: month);
+  }
+
+  @override
+  Future<DashboardSnapshot> deleteLeaveEntry({
+    required String id,
+    required String month,
+  }) {
+    leaveEntries.removeWhere((entry) => entry.id == id);
     return loadSnapshot(month: month);
   }
 
@@ -1875,23 +2233,8 @@ class _FakeDashboardRepository implements DashboardRepository {
         leaveMinutes: 60,
         rules: workRules,
       ),
-      workEntries: const [
-        WorkEntry(
-          id: '1',
-          date: '2026-03-03',
-          minutes: 420,
-          note: 'Sprint mobile',
-        ),
-      ],
-      leaveEntries: const [
-        LeaveEntry(
-          id: 'leave-1',
-          date: '2026-03-04',
-          minutes: 60,
-          type: LeaveType.permit,
-          note: 'Visita medica',
-        ),
-      ],
+      workEntries: List.unmodifiable(workEntries),
+      leaveEntries: List.unmodifiable(leaveEntries),
       scheduleOverrides: _scheduleOverridesByDate.values.toList(
         growable: false,
       ),

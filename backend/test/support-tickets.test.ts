@@ -155,6 +155,37 @@ describe("Support tickets", () => {
     expect(attachmentResponse.headers["content-type"]).toContain("image/png");
   });
 
+  it("accepts the maximum number of attachments at the maximum size", async () => {
+    tempDirectory = await mkdtemp(path.join(os.tmpdir(), "work-hours-tickets-"));
+    process.env.TICKETS_DIR = tempDirectory;
+    app = buildApp();
+
+    // 3 allegati da 4 MiB: in base64 superano i 16 MB, il body limit deve reggere.
+    const largeBase64 = Buffer.alloc(4 * 1024 * 1024, 7).toString("base64");
+    const response = await app.inject({
+      method: "POST",
+      url: "/tickets",
+      headers: {
+        "content-type": "application/json"
+      },
+      payload: {
+        category: "bug",
+        subject: "Tre allegati grandi",
+        message: "Allego tre registrazioni della giornata.",
+        attachments: [1, 2, 3].map((index) => ({
+          fileName: `registrazione-${index}.wav`,
+          contentType: "audio/wav",
+          base64Data: largeBase64
+        }))
+      }
+    });
+
+    expect(response.statusCode).toBe(201);
+    const ticket = response.json() as { attachments: Array<{ sizeBytes: number }> };
+    expect(ticket.attachments).toHaveLength(3);
+    expect(ticket.attachments[0]?.sizeBytes).toBe(4 * 1024 * 1024);
+  });
+
   it("stores voice attachments and serves them back", async () => {
     tempDirectory = await mkdtemp(path.join(os.tmpdir(), "work-hours-tickets-"));
     process.env.TICKETS_DIR = tempDirectory;

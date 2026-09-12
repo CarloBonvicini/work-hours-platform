@@ -150,6 +150,103 @@ class SharedPreferencesLocalDashboardRepository implements DashboardRepository {
   }
 
   @override
+  Future<DashboardSnapshot> updateWorkEntry({
+    required String id,
+    required String date,
+    required int minutes,
+    String? note,
+    required String month,
+  }) async {
+    final currentBundle = await exportBundle();
+    if (!currentBundle.workEntries.any((entry) => entry.id == id)) {
+      throw StateError('Voce di lavoro non trovata.');
+    }
+    final nextBundle = LocalDashboardDataBundle(
+      profile: currentBundle.profile,
+      workEntries: [
+        for (final entry in currentBundle.workEntries)
+          entry.id == id
+              ? WorkEntry(id: id, date: date, minutes: minutes, note: note)
+              : entry,
+      ],
+      leaveEntries: currentBundle.leaveEntries,
+      scheduleOverrides: currentBundle.scheduleOverrides,
+    );
+    await _saveBundle(nextBundle);
+    return _buildSnapshot(bundle: nextBundle, month: month);
+  }
+
+  @override
+  Future<DashboardSnapshot> deleteWorkEntry({
+    required String id,
+    required String month,
+  }) async {
+    final currentBundle = await exportBundle();
+    final nextBundle = LocalDashboardDataBundle(
+      profile: currentBundle.profile,
+      workEntries: currentBundle.workEntries
+          .where((entry) => entry.id != id)
+          .toList(growable: false),
+      leaveEntries: currentBundle.leaveEntries,
+      scheduleOverrides: currentBundle.scheduleOverrides,
+    );
+    await _saveBundle(nextBundle);
+    return _buildSnapshot(bundle: nextBundle, month: month);
+  }
+
+  @override
+  Future<DashboardSnapshot> updateLeaveEntry({
+    required String id,
+    required String date,
+    required int minutes,
+    required LeaveType type,
+    String? note,
+    required String month,
+  }) async {
+    final currentBundle = await exportBundle();
+    if (!currentBundle.leaveEntries.any((entry) => entry.id == id)) {
+      throw StateError('Causale non trovata.');
+    }
+    final nextBundle = LocalDashboardDataBundle(
+      profile: currentBundle.profile,
+      workEntries: currentBundle.workEntries,
+      leaveEntries: [
+        for (final entry in currentBundle.leaveEntries)
+          entry.id == id
+              ? LeaveEntry(
+                  id: id,
+                  date: date,
+                  minutes: minutes,
+                  type: type,
+                  note: note,
+                )
+              : entry,
+      ],
+      scheduleOverrides: currentBundle.scheduleOverrides,
+    );
+    await _saveBundle(nextBundle);
+    return _buildSnapshot(bundle: nextBundle, month: month);
+  }
+
+  @override
+  Future<DashboardSnapshot> deleteLeaveEntry({
+    required String id,
+    required String month,
+  }) async {
+    final currentBundle = await exportBundle();
+    final nextBundle = LocalDashboardDataBundle(
+      profile: currentBundle.profile,
+      workEntries: currentBundle.workEntries,
+      leaveEntries: currentBundle.leaveEntries
+          .where((entry) => entry.id != id)
+          .toList(growable: false),
+      scheduleOverrides: currentBundle.scheduleOverrides,
+    );
+    await _saveBundle(nextBundle);
+    return _buildSnapshot(bundle: nextBundle, month: month);
+  }
+
+  @override
   Future<DashboardSnapshot> saveScheduleOverride({
     required String date,
     required int targetMinutes,

@@ -244,8 +244,20 @@ class WorkdaySessionCard extends StatelessWidget {
                                 'calendar-record-start-button',
                               ),
                               onPressed: isBusy ? null : onRecordNow,
-                              icon: const Icon(Icons.play_arrow_rounded),
-                              label: Text(isBusy ? 'Salvo...' : 'Entrata'),
+                              icon: Icon(
+                                session?.isCompleted == true
+                                    ? Icons.login_rounded
+                                    : Icons.play_arrow_rounded,
+                              ),
+                              // Giornata gia' chiusa: si rientra riaprendola,
+                              // senza perdere entrata e pause registrate.
+                              label: Text(
+                                isBusy
+                                    ? 'Salvo...'
+                                    : session?.isCompleted == true
+                                    ? 'Rientro'
+                                    : 'Entrata',
+                              ),
                             ),
                           if (session != null &&
                               !session!.isCompleted &&

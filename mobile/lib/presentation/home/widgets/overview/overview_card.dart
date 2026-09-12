@@ -31,6 +31,8 @@ class OverviewCard extends StatelessWidget {
     required this.onOpenTodayCalendar,
     required this.onApplyPreset,
     this.onRemoveTodayOverride,
+    this.onEditActivity,
+    this.onDeleteActivity,
   });
 
   final DateTime selectedDate;
@@ -39,6 +41,8 @@ class OverviewCard extends StatelessWidget {
   final DaySchedule effectiveSchedule;
   final ScheduleOverride? todayOverride;
   final List<ActivityItem> todayActivities;
+  final ValueChanged<ActivityItem>? onEditActivity;
+  final ValueChanged<ActivityItem>? onDeleteActivity;
   final List<({IconData icon, String title, String description})> reminders;
   final VoidCallback onOpenWorkEntry;
   final VoidCallback onOpenLeaveEntry;
@@ -215,7 +219,15 @@ class OverviewCard extends StatelessWidget {
                   index < todayActivities.length;
                   index += 1
                 ) ...[
-                  ActivityRow(item: todayActivities[index]),
+                  ActivityRow(
+                    item: todayActivities[index],
+                    onEdit: onEditActivity == null
+                        ? null
+                        : () => onEditActivity!(todayActivities[index]),
+                    onDelete: onDeleteActivity == null
+                        ? null
+                        : () => onDeleteActivity!(todayActivities[index]),
+                  ),
                   if (index < todayActivities.length - 1)
                     const Divider(height: 22),
                 ],

@@ -64,6 +64,53 @@ class DashboardService {
     );
   }
 
+  Future<DashboardSnapshot> updateWorkEntry({
+    required String id,
+    required String date,
+    required int minutes,
+    String? note,
+  }) {
+    return _repository.updateWorkEntry(
+      id: id,
+      date: date,
+      minutes: minutes,
+      note: note,
+      month: date.substring(0, 7),
+    );
+  }
+
+  /// [month] e' il mese della voce eliminata, per ricaricare lo snapshot giusto.
+  Future<DashboardSnapshot> deleteWorkEntry({
+    required String id,
+    required String month,
+  }) {
+    return _repository.deleteWorkEntry(id: id, month: month);
+  }
+
+  Future<DashboardSnapshot> updateLeaveEntry({
+    required String id,
+    required String date,
+    required int minutes,
+    required LeaveType type,
+    String? note,
+  }) {
+    return _repository.updateLeaveEntry(
+      id: id,
+      date: date,
+      minutes: minutes,
+      type: type,
+      note: note,
+      month: date.substring(0, 7),
+    );
+  }
+
+  Future<DashboardSnapshot> deleteLeaveEntry({
+    required String id,
+    required String month,
+  }) {
+    return _repository.deleteLeaveEntry(id: id, month: month);
+  }
+
   Future<DashboardSnapshot> saveScheduleOverride({
     required String date,
     required int targetMinutes,

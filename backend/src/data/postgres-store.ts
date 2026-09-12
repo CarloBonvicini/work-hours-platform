@@ -600,6 +600,42 @@ export class PostgresStore implements AppStore {
     }));
   }
 
+  async updateWorkEntry(entry: WorkEntry): Promise<WorkEntry | null> {
+    const result = await this.pool.query<WorkEntryRow>(
+      `
+        UPDATE work_entries
+        SET date = $2, minutes = $3, note = $4
+        WHERE id = $1
+        RETURNING id, TO_CHAR(date, 'YYYY-MM-DD') AS date, minutes, note
+      `,
+      [entry.id, entry.date, entry.minutes, entry.note ?? null]
+    );
+
+    const row = result.rows[0];
+    if (!row) {
+      return null;
+    }
+
+    return {
+      id: row.id,
+      date: row.date,
+      minutes: row.minutes,
+      note: row.note ?? undefined
+    };
+  }
+
+  async deleteWorkEntry(id: string): Promise<boolean> {
+    const result = await this.pool.query(
+      `
+        DELETE FROM work_entries
+        WHERE id = $1
+      `,
+      [id]
+    );
+
+    return (result.rowCount ?? 0) > 0;
+  }
+
   async addLeaveEntry(entry: LeaveEntry): Promise<LeaveEntry> {
     const result = await this.pool.query<LeaveEntryRow>(
       `
@@ -618,6 +654,43 @@ export class PostgresStore implements AppStore {
       type: row.type,
       note: row.note ?? undefined
     };
+  }
+
+  async updateLeaveEntry(entry: LeaveEntry): Promise<LeaveEntry | null> {
+    const result = await this.pool.query<LeaveEntryRow>(
+      `
+        UPDATE leave_entries
+        SET date = $2, minutes = $3, type = $4, note = $5
+        WHERE id = $1
+        RETURNING id, TO_CHAR(date, 'YYYY-MM-DD') AS date, minutes, type, note
+      `,
+      [entry.id, entry.date, entry.minutes, entry.type, entry.note ?? null]
+    );
+
+    const row = result.rows[0];
+    if (!row) {
+      return null;
+    }
+
+    return {
+      id: row.id,
+      date: row.date,
+      minutes: row.minutes,
+      type: row.type,
+      note: row.note ?? undefined
+    };
+  }
+
+  async deleteLeaveEntry(id: string): Promise<boolean> {
+    const result = await this.pool.query(
+      `
+        DELETE FROM leave_entries
+        WHERE id = $1
+      `,
+      [id]
+    );
+
+    return (result.rowCount ?? 0) > 0;
   }
 
   async listLeaveEntries(month?: string): Promise<LeaveEntry[]> {

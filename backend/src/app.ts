@@ -5,6 +5,7 @@ import cors from "@fastify/cors";
 import Fastify from "fastify";
 import type { FastifyRequest } from "fastify";
 import { InMemoryStore } from "./data/in-memory-store.js";
+import { registerEntryMutationRoutes } from "./routes/entry-mutations.js";
 import type {
   AppStore,
   AppearanceSettingsRecord,
@@ -50,6 +51,7 @@ import {
   syncConfiguredSuperAdmin,
   isValidEmail
 } from "./domain/auth.js";
+import { isLeaveType, isPositiveInteger } from "./domain/entry-payloads.js";
 import { normalizeRuntimeEnvValue } from "./domain/env-value.js";
 import {
   parseAdminRolePayload,
@@ -64,7 +66,6 @@ import {
 import type {
   DaySchedule,
   LeaveEntry,
-  LeaveType,
   Profile,
   ScheduleOverride,
   WeekdaySchedule,
@@ -104,6 +105,11 @@ const MOBILE_PUSH_UPDATE_CHANNEL_ID = "work_hours_updates";
 const MOBILE_PUSH_TICKET_CHANNEL_ID = "work_hours_ticket_replies";
 const SUPPORT_TICKET_MAX_ATTACHMENTS = 3;
 const SUPPORT_TICKET_MAX_ATTACHMENT_BYTES = 4 * 1024 * 1024;
+// Gli allegati viaggiano in JSON come base64 (+33%): il limite del body deve
+// contenere il caso peggiore piu' testo, log diagnostici e struttura JSON.
+const SUPPORT_TICKET_MAX_BASE64_ATTACHMENTS_BYTES =
+  SUPPORT_TICKET_MAX_ATTACHMENTS * Math.ceil((SUPPORT_TICKET_MAX_ATTACHMENT_BYTES * 4) / 3);
+const REQUEST_BODY_LIMIT_BYTES = SUPPORT_TICKET_MAX_BASE64_ATTACHMENTS_BYTES + 2 * 1024 * 1024;
 const SUPPORT_TICKET_ATTACHMENT_EXTENSIONS = {
   "image/png": ".png",
   "image/jpeg": ".jpg",
@@ -230,16 +236,8 @@ function parseMonthQuery(query: unknown): string | null | undefined {
   return monthValue;
 }
 
-function isPositiveInteger(value: unknown): value is number {
-  return typeof value === "number" && Number.isInteger(value) && value > 0;
-}
-
 function isNonNegativeInteger(value: unknown): value is number {
   return typeof value === "number" && Number.isInteger(value) && value >= 0;
-}
-
-function isLeaveType(value: unknown): value is LeaveType {
-  return value === "vacation" || value === "permit" || value === "sickness";
 }
 
 function parseWeekdayTargetMinutes(
@@ -3942,7 +3940,7 @@ export function buildApp(options: BuildAppOptions = {}) {
 
   const app = Fastify({
     logger: true,
-    bodyLimit: 15 * 1024 * 1024
+    bodyLimit: REQUEST_BODY_LIMIT_BYTES
   });
 
   void app.register(cors, {
@@ -5057,6 +5055,8 @@ export function buildApp(options: BuildAppOptions = {}) {
 
     return reply.code(201).send(entry);
   });
+
+  registerEntryMutationRoutes(app, store);
 
   app.get("/leave-entries", async (request, reply) => {
     const month = parseMonthQuery(request.query);

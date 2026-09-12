@@ -4,9 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:work_hours_mobile/application/services/hour_input_parser.dart';
 import 'package:work_hours_mobile/application/services/time_input_parser.dart';
 import 'package:work_hours_mobile/domain/models/day_schedule.dart';
-import 'package:work_hours_mobile/domain/models/leave_entry.dart';
 import 'package:work_hours_mobile/domain/models/user_work_rules.dart';
 import 'package:work_hours_mobile/domain/models/workday_session.dart';
+import 'package:work_hours_mobile/presentation/home/logic/rule_value_labels.dart';
+import 'package:work_hours_mobile/presentation/home/models/activity_item.dart';
+import 'package:work_hours_mobile/presentation/home/widgets/shared/activity_row.dart';
 
 /// Riepilogo residuo di una regola permessi/banca ore per la schermata Oggi.
 class LeaveAllowanceSummary {
@@ -19,28 +21,14 @@ class LeaveAllowanceSummary {
   final String remainingLabel;
 }
 
-int _ruleRemainingMinutes(WorkPermissionRule rule) {
-  final safeUsed = math.min(rule.usedMinutes, rule.allowanceMinutes);
-  return math.max(rule.allowanceMinutes - safeUsed, 0);
-}
-
-int _ruleRemainingDays(WorkPermissionRule rule) {
-  final safeUsed = math.min(rule.usedDays, rule.allowanceDays);
-  return math.max(rule.allowanceDays - safeUsed, 0);
-}
-
-String _formatDays(int days) {
-  return days == 1 ? '1 g' : '$days gg';
-}
-
 String _ruleRemainingLabel(WorkPermissionRule rule) {
   switch (rule.allowanceType) {
     case WorkPermissionAllowanceType.hours:
-      return formatHoursInput(_ruleRemainingMinutes(rule));
+      return formatHoursInput(ruleRemainingMinutes(rule));
     case WorkPermissionAllowanceType.days:
-      return _formatDays(_ruleRemainingDays(rule));
+      return formatRuleDaysValue(ruleRemainingDays(rule));
     case WorkPermissionAllowanceType.both:
-      return '${_formatDays(_ruleRemainingDays(rule))} + ${formatHoursInput(_ruleRemainingMinutes(rule))}';
+      return '${formatRuleDaysValue(ruleRemainingDays(rule))} + ${formatHoursInput(ruleRemainingMinutes(rule))}';
   }
 }
 
@@ -118,25 +106,31 @@ class TodayExtrasCard extends StatelessWidget {
   const TodayExtrasCard({
     super.key,
     required this.isToday,
-    required this.dayLeaveEntries,
+    required this.dayActivities,
     required this.allowances,
     required this.expectedMinutes,
     required this.workedMinutes,
     required this.leaveMinutes,
     required this.hasProgressContext,
     required this.remainingOvertimeMinutes,
+    required this.onAddWork,
     required this.onAddLeave,
+    required this.onEditActivity,
+    required this.onDeleteActivity,
   });
 
   final bool isToday;
-  final List<LeaveEntry> dayLeaveEntries;
+  final List<ActivityItem> dayActivities;
   final List<LeaveAllowanceSummary> allowances;
   final int expectedMinutes;
   final int workedMinutes;
   final int leaveMinutes;
   final bool hasProgressContext;
   final int? remainingOvertimeMinutes;
+  final VoidCallback onAddWork;
   final VoidCallback onAddLeave;
+  final ValueChanged<ActivityItem> onEditActivity;
+  final ValueChanged<ActivityItem> onDeleteActivity;
 
   bool get _showProgress =>
       expectedMinutes > 0 && (hasProgressContext || leaveMinutes > 0);
@@ -155,43 +149,54 @@ class TodayExtrasCard extends StatelessWidget {
     final sections = <Widget>[];
 
     sections.add(
-      Wrap(
-        spacing: 10,
-        runSpacing: 10,
-        crossAxisAlignment: WrapCrossAlignment.center,
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            isToday ? 'Causali di oggi' : 'Causali del giorno',
-            style: theme.textTheme.titleSmall?.copyWith(
-              fontWeight: FontWeight.w800,
-            ),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              Text(
+                isToday ? 'Registrazioni di oggi' : 'Registrazioni del giorno',
+                style: theme.textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              ActionChip(
+                key: const ValueKey('today-add-work-chip'),
+                avatar: const Icon(Icons.add_rounded, size: 18),
+                label: const Text('Aggiungi ore'),
+                onPressed: onAddWork,
+              ),
+              ActionChip(
+                key: const ValueKey('today-add-leave-chip'),
+                avatar: const Icon(Icons.add_rounded, size: 18),
+                label: const Text('Aggiungi causale'),
+                onPressed: onAddLeave,
+              ),
+            ],
           ),
-          if (dayLeaveEntries.isEmpty)
+          const SizedBox(height: 10),
+          if (dayActivities.isEmpty)
             Text(
-              'Nessuna',
+              'Nessuna registrazione.',
               style: theme.textTheme.bodyMedium?.copyWith(
                 color: colorScheme.onSurfaceVariant,
               ),
             )
           else
-            for (final entry in dayLeaveEntries)
-              Chip(
-                key: ValueKey('today-leave-chip-${entry.id}'),
-                avatar: Icon(switch (entry.type) {
-                  LeaveType.vacation => Icons.beach_access_outlined,
-                  LeaveType.permit => Icons.timer_outlined,
-                  LeaveType.sickness => Icons.sick_outlined,
-                }, size: 18),
-                label: Text(
-                  '${entry.type.label} ${formatHoursInput(entry.minutes)}',
-                ),
+            for (final (index, item) in dayActivities.indexed) ...[
+              if (index > 0) const Divider(height: 18),
+              // Ogni riga offre Modifica/Elimina: un errore si corregge qui.
+              ActivityRow(
+                key: ValueKey('today-activity-${item.key}'),
+                item: item,
+                showDate: false,
+                onEdit: () => onEditActivity(item),
+                onDelete: () => onDeleteActivity(item),
               ),
-          ActionChip(
-            key: const ValueKey('today-add-leave-chip'),
-            avatar: const Icon(Icons.add_rounded, size: 18),
-            label: const Text('Aggiungi causale'),
-            onPressed: onAddLeave,
-          ),
+            ],
         ],
       ),
     );

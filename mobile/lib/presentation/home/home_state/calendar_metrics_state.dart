@@ -42,7 +42,7 @@ mixin _CalendarMetricsState on _HomeScreenStateBase {
     final firstDay = _firstDayOfWeek(_selectedDate);
     return List.generate(
       7,
-      (index) => _buildDayMetrics(firstDay.add(Duration(days: index))),
+      (index) => _buildDayMetrics(addCalendarDays(firstDay, index)),
       growable: false,
     );
   }
@@ -174,7 +174,8 @@ mixin _CalendarMetricsState on _HomeScreenStateBase {
     DateTime date,
   ) {
     final selectedIsoDate = DashboardService.defaultEntryDateOf(date);
-    return _buildActivities(
+    // Tutte le voci del giorno, non solo le piu' recenti del mese.
+    return _buildAllActivities(
       snapshot,
     ).where((item) => item.date == selectedIsoDate).toList(growable: false);
   }
@@ -259,7 +260,7 @@ mixin _CalendarMetricsState on _HomeScreenStateBase {
       ));
     }
 
-    final tomorrow = _todayDate.add(const Duration(days: 1));
+    final tomorrow = addCalendarDays(_todayDate, 1);
     final tomorrowSnapshot =
         _snapshotForMonth(DashboardService.formatMonth(tomorrow)) ??
         (isSameMonth(tomorrow, monthToDate(snapshot.summary.month))
@@ -293,7 +294,7 @@ mixin _CalendarMetricsState on _HomeScreenStateBase {
   Future<void> _ensureUpcomingWeekData() async {
     final days = List.generate(
       7,
-      (index) => _todayDate.add(Duration(days: index)),
+      (index) => addCalendarDays(_todayDate, index),
       growable: false,
     );
     final missingMonths = days
@@ -327,7 +328,7 @@ mixin _CalendarMetricsState on _HomeScreenStateBase {
   @override
   List<WeekPlanDay> _buildUpcomingWeekPlan() {
     return List.generate(7, (index) {
-      final date = _todayDate.add(Duration(days: index));
+      final date = addCalendarDays(_todayDate, index);
       final month = DashboardService.formatMonth(date);
       final monthSnapshot = _snapshotForMonth(month);
       if (monthSnapshot == null) {
@@ -345,10 +346,12 @@ mixin _CalendarMetricsState on _HomeScreenStateBase {
     }, growable: false);
   }
 
-  List<ActivityItem> _buildActivities(DashboardSnapshot snapshot) {
+  List<ActivityItem> _buildAllActivities(DashboardSnapshot snapshot) {
     final workItems = snapshot.workEntries.map(
       (entry) => ActivityItem(
         key: 'work-${entry.id}',
+        entryId: entry.id,
+        kind: ActivityEntryKind.work,
         date: entry.date,
         title: 'Ore lavorate',
         subtitle: entry.note?.isNotEmpty == true
@@ -363,6 +366,8 @@ mixin _CalendarMetricsState on _HomeScreenStateBase {
     final leaveItems = snapshot.leaveEntries.map(
       (entry) => ActivityItem(
         key: 'leave-${entry.id}',
+        entryId: entry.id,
+        kind: ActivityEntryKind.leave,
         date: entry.date,
         title: entry.type.label,
         subtitle: entry.note?.isNotEmpty == true
@@ -378,6 +383,6 @@ mixin _CalendarMetricsState on _HomeScreenStateBase {
 
     final items = [...workItems, ...leaveItems];
     items.sort((left, right) => right.date.compareTo(left.date));
-    return items.take(8).toList(growable: false);
+    return items;
   }
 }

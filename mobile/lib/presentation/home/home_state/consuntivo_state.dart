@@ -341,7 +341,7 @@ mixin _ConsuntivoState on _HomeScreenStateBase {
         }
       }
 
-      cursor = cursor.subtract(const Duration(days: 1));
+      cursor = addCalendarDays(cursor, -1);
     }
 
     const maxVisibleRows = 90;

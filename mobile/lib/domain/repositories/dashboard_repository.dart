@@ -33,6 +33,33 @@ abstract class DashboardRepository {
     required String month,
   });
 
+  Future<DashboardSnapshot> updateWorkEntry({
+    required String id,
+    required String date,
+    required int minutes,
+    String? note,
+    required String month,
+  });
+
+  Future<DashboardSnapshot> deleteWorkEntry({
+    required String id,
+    required String month,
+  });
+
+  Future<DashboardSnapshot> updateLeaveEntry({
+    required String id,
+    required String date,
+    required int minutes,
+    required LeaveType type,
+    String? note,
+    required String month,
+  });
+
+  Future<DashboardSnapshot> deleteLeaveEntry({
+    required String id,
+    required String month,
+  });
+
   Future<DashboardSnapshot> saveScheduleOverride({
     required String date,
     required int targetMinutes,

@@ -25,6 +25,8 @@ class QuickEntryCard extends StatelessWidget {
     required this.isBusy,
     required this.onPickDate,
     required this.onSubmit,
+    this.isEditing = false,
+    this.onCancelEdit,
   });
 
   final GlobalKey<FormState> formKey;
@@ -41,13 +43,20 @@ class QuickEntryCard extends StatelessWidget {
   final Future<void> Function() onPickDate;
   final Future<void> Function() onSubmit;
 
+  /// Quando si modifica una registrazione esistente il modulo salva al posto
+  /// di aggiungere e offre l'annullamento.
+  final bool isEditing;
+  final VoidCallback? onCancelEdit;
+
   @override
   Widget build(BuildContext context) {
     final isWorkMode = selectedEntryMode == QuickEntryMode.work;
 
     return SectionCard(
-      title: 'Inserimento rapido',
-      subtitle: isWorkMode
+      title: isEditing ? 'Modifica registrazione' : 'Inserimento rapido',
+      subtitle: isEditing
+          ? 'Correggi i dati e salva: la registrazione originale viene aggiornata.'
+          : isWorkMode
           ? 'Registra le ore di oggi in pochi tocchi.'
           : 'Registra subito ferie o permessi.',
       child: Form(
@@ -122,20 +131,38 @@ class QuickEntryCard extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 18),
-            FilledButton.icon(
-              onPressed: isBusy ? null : () => onSubmit(),
-              icon: Icon(
-                isWorkMode
-                    ? Icons.add_task_outlined
-                    : Icons.event_available_outlined,
-              ),
-              label: Text(
-                isBusy
-                    ? 'Invio...'
-                    : isWorkMode
-                    ? 'Registra ore'
-                    : 'Registra assenza',
-              ),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                FilledButton.icon(
+                  key: const ValueKey('quick-entry-submit-button'),
+                  onPressed: isBusy ? null : () => onSubmit(),
+                  icon: Icon(
+                    isEditing
+                        ? Icons.save_outlined
+                        : isWorkMode
+                        ? Icons.add_task_outlined
+                        : Icons.event_available_outlined,
+                  ),
+                  label: Text(
+                    isBusy
+                        ? 'Invio...'
+                        : isEditing
+                        ? 'Salva modifica'
+                        : isWorkMode
+                        ? 'Registra ore'
+                        : 'Registra assenza',
+                  ),
+                ),
+                if (isEditing && onCancelEdit != null)
+                  OutlinedButton.icon(
+                    key: const ValueKey('quick-entry-cancel-edit-button'),
+                    onPressed: isBusy ? null : onCancelEdit,
+                    icon: const Icon(Icons.close_rounded),
+                    label: const Text('Annulla'),
+                  ),
+              ],
             ),
           ],
         ),

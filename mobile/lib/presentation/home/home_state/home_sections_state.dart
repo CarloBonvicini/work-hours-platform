@@ -86,14 +86,11 @@ mixin _HomeSectionsState on _HomeScreenStateBase {
       onSelectDate: _selectDate,
       onOpenDay: _openDayForDate,
       isSelectedDateToday: isSameDay(_selectedDate, _todayDate),
-      dayLeaveEntries: monthSnapshot.leaveEntries
-          .where(
-            (entry) =>
-                entry.date ==
-                DashboardService.defaultEntryDateOf(_selectedDate),
-          )
-          .toList(growable: false),
+      dayActivities: _buildActivitiesForDate(monthSnapshot, _selectedDate),
+      onOpenWorkQuickEntry: () => _openWorkQuickEntryForDate(_selectedDate),
       onOpenLeaveQuickEntry: () => _openLeaveQuickEntryForDate(_selectedDate),
+      onEditActivity: _startEditingActivity,
+      onDeleteActivity: _confirmDeleteActivity,
       workdaySession: _workdaySession,
       isSavingWorkdaySession: _isSavingWorkdaySession,
       onRecordWorkdayStartNow: _recordWorkdayStartNow,
@@ -182,6 +179,8 @@ mixin _HomeSectionsState on _HomeScreenStateBase {
           ),
           todayOverride: _findScheduleOverrideForDate(todaySnapshot, today),
           todayActivities: _buildActivitiesForDate(todaySnapshot, today),
+          onEditActivity: _startEditingActivity,
+          onDeleteActivity: _confirmDeleteActivity,
           reminders: _buildTodayReminders(todaySnapshot, todayMetrics),
           onOpenWorkEntry: () => _openWorkQuickEntryForDate(
             today,
@@ -230,6 +229,8 @@ mixin _HomeSectionsState on _HomeScreenStateBase {
           isBusy: _isSubmittingEntry,
           onPickDate: _pickEntryDate,
           onSubmit: _submitQuickEntry,
+          isEditing: _editingEntry != null,
+          onCancelEdit: _cancelEntryEditing,
         );
       case HomeSection.calendar:
         return _buildPlannerSectionCard(

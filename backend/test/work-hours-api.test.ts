@@ -910,6 +910,120 @@ describe("Work and leave entries API", () => {
     });
   });
 
+  it("updates and deletes work entries, keeping the monthly summary in sync", async () => {
+    const created = await app.inject({
+      method: "POST",
+      url: "/work-entries",
+      payload: { date: "2026-04-10", minutes: 480, note: "Giornata piena" }
+    });
+    expect(created.statusCode).toBe(201);
+    const entry = created.json() as { id: string };
+
+    const updated = await app.inject({
+      method: "PUT",
+      url: `/work-entries/${entry.id}`,
+      payload: { date: "2026-04-10", minutes: 420, note: "Uscito prima" }
+    });
+    expect(updated.statusCode).toBe(200);
+    expect(updated.json()).toEqual({
+      id: entry.id,
+      date: "2026-04-10",
+      minutes: 420,
+      note: "Uscito prima"
+    });
+
+    const summaryAfterUpdate = await app.inject({
+      method: "GET",
+      url: "/monthly-summary/2026-04"
+    });
+    expect((summaryAfterUpdate.json() as { workedMinutes: number }).workedMinutes).toBe(420);
+
+    const deleted = await app.inject({
+      method: "DELETE",
+      url: `/work-entries/${entry.id}`
+    });
+    expect(deleted.statusCode).toBe(204);
+
+    const listed = await app.inject({
+      method: "GET",
+      url: "/work-entries?month=2026-04"
+    });
+    expect((listed.json() as { items: unknown[] }).items).toHaveLength(0);
+  });
+
+  it("validates work entry updates and reports missing entries", async () => {
+    const invalidMinutes = await app.inject({
+      method: "PUT",
+      url: "/work-entries/any-id",
+      payload: { date: "2026-04-10", minutes: -5 }
+    });
+    expect(invalidMinutes.statusCode).toBe(400);
+    expect(invalidMinutes.json()).toEqual({ error: "minutes must be a positive integer" });
+
+    const invalidDate = await app.inject({
+      method: "PUT",
+      url: "/work-entries/any-id",
+      payload: { date: "10/04/2026", minutes: 60 }
+    });
+    expect(invalidDate.statusCode).toBe(400);
+
+    const missing = await app.inject({
+      method: "PUT",
+      url: "/work-entries/missing-id",
+      payload: { date: "2026-04-10", minutes: 60 }
+    });
+    expect(missing.statusCode).toBe(404);
+
+    const missingDelete = await app.inject({
+      method: "DELETE",
+      url: "/work-entries/missing-id"
+    });
+    expect(missingDelete.statusCode).toBe(404);
+  });
+
+  it("updates and deletes leave entries", async () => {
+    const created = await app.inject({
+      method: "POST",
+      url: "/leave-entries",
+      payload: { date: "2026-04-11", minutes: 120, type: "permit" }
+    });
+    expect(created.statusCode).toBe(201);
+    const entry = created.json() as { id: string };
+
+    const invalidType = await app.inject({
+      method: "PUT",
+      url: `/leave-entries/${entry.id}`,
+      payload: { date: "2026-04-11", minutes: 120, type: "holiday" }
+    });
+    expect(invalidType.statusCode).toBe(400);
+
+    const updated = await app.inject({
+      method: "PUT",
+      url: `/leave-entries/${entry.id}`,
+      payload: { date: "2026-04-12", minutes: 480, type: "vacation", note: "Ponte" }
+    });
+    expect(updated.statusCode).toBe(200);
+    expect(updated.json()).toEqual({
+      id: entry.id,
+      date: "2026-04-12",
+      minutes: 480,
+      type: "vacation",
+      note: "Ponte"
+    });
+
+    const deleted = await app.inject({
+      method: "DELETE",
+      url: `/leave-entries/${entry.id}`
+    });
+    expect(deleted.statusCode).toBe(204);
+
+    const missing = await app.inject({
+      method: "DELETE",
+      url: `/leave-entries/${entry.id}`
+    });
+    expect(missing.statusCode).toBe(404);
+  });
+
   it("removes a schedule override by date", async () => {
     await app.inject({
       method: "POST",
