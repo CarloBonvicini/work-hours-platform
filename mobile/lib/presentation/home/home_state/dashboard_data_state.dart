@@ -4,7 +4,11 @@ part of '../home_screen.dart';
 
 mixin _DashboardDataState on _HomeScreenStateBase {
   @override
-  Future<void> _loadSnapshot({String? month, DateTime? selectedDate}) async {
+  Future<void> _loadSnapshot({
+    String? month,
+    DateTime? selectedDate,
+    bool forceReload = false,
+  }) async {
     final requestedMonth = month ?? _selectedMonth;
 
     setState(() {
@@ -13,7 +17,14 @@ mixin _DashboardDataState on _HomeScreenStateBase {
     });
 
     try {
-      final snapshot = await _fetchSnapshotForMonth(requestedMonth);
+      if (forceReload) {
+        // Gli altri mesi in cache potrebbero essere cambiati allo stesso modo.
+        _snapshotCache.clear();
+      }
+      final snapshot = await _fetchSnapshotForMonth(
+        requestedMonth,
+        forceReload: forceReload,
+      );
       if (!mounted) {
         return;
       }
@@ -80,7 +91,11 @@ mixin _DashboardDataState on _HomeScreenStateBase {
 
   Future<void> _refreshAll() async {
     await Future.wait<void>([
-      _loadSnapshot(month: _selectedMonth, selectedDate: _selectedDate),
+      _loadSnapshot(
+        month: _selectedMonth,
+        selectedDate: _selectedDate,
+        forceReload: true,
+      ),
       _checkForUpdate(),
       _refreshTrackedSupportTickets(),
     ]);

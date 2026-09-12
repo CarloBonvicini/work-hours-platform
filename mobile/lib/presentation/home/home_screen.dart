@@ -110,7 +110,7 @@ class HomeScreen extends StatefulWidget {
     required this.dashboardService,
     required this.appUpdateService,
     required this.updateReminderStore,
-    this.dashboardSnapshotStore = const InMemoryDashboardSnapshotStore(),
+    required this.dashboardSnapshotStore,
     required this.onboardingPreferenceStore,
     required this.workdayStartStore,
     this.supportTicketStore = const SharedPreferencesSupportTicketStore(),
@@ -361,7 +361,10 @@ abstract class _HomeScreenStateBase extends State<HomeScreen>
 
   Future<void> _ensureCalendarDataForCurrentView();
 
-  Future<DashboardSnapshot> _fetchSnapshotForMonth(String month);
+  Future<DashboardSnapshot> _fetchSnapshotForMonth(
+    String month, {
+    bool forceReload = false,
+  });
 
   DateTime _firstDayOfWeek(DateTime date);
 
@@ -427,7 +430,11 @@ abstract class _HomeScreenStateBase extends State<HomeScreen>
     bool isTicketRequest = false,
   });
 
-  Future<void> _loadSnapshot({String? month, DateTime? selectedDate});
+  Future<void> _loadSnapshot({
+    String? month,
+    DateTime? selectedDate,
+    bool forceReload = false,
+  });
 
   void _openLeaveQuickEntryForDate(
     DateTime date, {

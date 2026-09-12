@@ -26,24 +26,30 @@ mixin _CalendarNavigationState on _HomeScreenStateBase {
   }
 
   @override
-  Future<DashboardSnapshot> _fetchSnapshotForMonth(String month) async {
-    final currentSnapshot = _snapshot;
-    if (currentSnapshot != null && currentSnapshot.summary.month == month) {
-      _snapshotCache[month] = currentSnapshot;
-      return currentSnapshot;
-    }
+  Future<DashboardSnapshot> _fetchSnapshotForMonth(
+    String month, {
+    bool forceReload = false,
+  }) async {
+    // Con forceReload si ignorano memoria e cache persistita: serve quando i
+    // dati sono cambiati fuori dal flusso normale (ripristino cloud, riprova).
+    if (!forceReload) {
+      final currentSnapshot = _snapshot;
+      if (currentSnapshot != null && currentSnapshot.summary.month == month) {
+        _snapshotCache[month] = currentSnapshot;
+        return currentSnapshot;
+      }
 
-    final cachedSnapshot = _snapshotCache[month];
-    if (cachedSnapshot != null) {
-      return cachedSnapshot;
-    }
+      final cachedSnapshot = _snapshotCache[month];
+      if (cachedSnapshot != null) {
+        return cachedSnapshot;
+      }
 
-    final persistedSnapshot = await widget.dashboardSnapshotStore.loadSnapshot(
-      month,
-    );
-    if (persistedSnapshot != null) {
-      _snapshotCache[month] = persistedSnapshot;
-      return persistedSnapshot;
+      final persistedSnapshot = await widget.dashboardSnapshotStore
+          .loadSnapshot(month);
+      if (persistedSnapshot != null) {
+        _snapshotCache[month] = persistedSnapshot;
+        return persistedSnapshot;
+      }
     }
 
     final snapshot = await widget.dashboardService.loadSnapshot(month: month);

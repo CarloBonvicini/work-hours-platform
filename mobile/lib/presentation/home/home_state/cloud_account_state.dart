@@ -941,7 +941,11 @@ mixin _CloudAccountState on _HomeScreenStateBase {
         await widget.onAppearanceSettingsChanged(
           restoreResult.bundle!.appearanceSettings,
         );
-        await _loadSnapshot(month: _selectedMonth, selectedDate: _selectedDate);
+        await _loadSnapshot(
+          month: _selectedMonth,
+          selectedDate: _selectedDate,
+          forceReload: true,
+        );
         await _loadWorkdaySessionForDate(_selectedDate);
       }
 

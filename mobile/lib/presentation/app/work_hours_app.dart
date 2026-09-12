@@ -16,12 +16,12 @@ import 'package:work_hours_mobile/domain/models/account_session.dart';
 import 'package:work_hours_mobile/presentation/home/home_screen.dart';
 
 class WorkHoursApp extends StatefulWidget {
-  const WorkHoursApp({
+  WorkHoursApp({
     super.key,
     required this.dashboardService,
     required this.appUpdateService,
     required this.updateReminderStore,
-    this.dashboardSnapshotStore = const InMemoryDashboardSnapshotStore(),
+    DashboardSnapshotStore? dashboardSnapshotStore,
     required this.themePreferenceStore,
     required this.onboardingPreferenceStore,
     required this.workdayStartStore,
@@ -31,7 +31,8 @@ class WorkHoursApp extends StatefulWidget {
     this.initialAccountSession,
     this.initialAppearanceSettings = AppAppearanceSettings.defaults,
     this.hasCompletedInitialSetup = false,
-  });
+  }) : dashboardSnapshotStore =
+           dashboardSnapshotStore ?? InMemoryDashboardSnapshotStore();
 
   final DashboardService dashboardService;
   final AppUpdateService appUpdateService;
@@ -154,7 +155,9 @@ class _WorkHoursAppState extends State<WorkHoursApp> {
       primaryColor,
       0.28,
     )!;
-    final resolvedFontFamily = _platformFontFamily(_appearanceSettings.fontFamily);
+    final resolvedFontFamily = _platformFontFamily(
+      _appearanceSettings.fontFamily,
+    );
     final baseTextTheme = _applyAppearanceToTextTheme(
       ThemeData(brightness: brightness).textTheme,
       inkColor: inkColor,
@@ -270,10 +273,7 @@ class _WorkHoursAppState extends State<WorkHoursApp> {
         return null;
       }
 
-      return style.copyWith(
-        color: inkColor,
-        fontFamily: fontFamily,
-      );
+      return style.copyWith(color: inkColor, fontFamily: fontFamily);
     }
 
     return textTheme.copyWith(
