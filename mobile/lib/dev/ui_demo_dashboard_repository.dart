@@ -209,6 +209,71 @@ class UiDemoDashboardRepository implements DashboardRepository {
   }
 
   @override
+  Future<DashboardSnapshot> updateWorkEntry({
+    required String id,
+    required String date,
+    required int minutes,
+    String? note,
+    required String month,
+  }) async {
+    for (final entries in _workEntriesByMonth.values) {
+      entries.removeWhere((entry) => entry.id == id);
+    }
+    _workEntriesByMonth
+        .putIfAbsent(month, () => [])
+        .add(WorkEntry(id: id, date: date, minutes: minutes, note: note));
+    return _buildSnapshot(month);
+  }
+
+  @override
+  Future<DashboardSnapshot> deleteWorkEntry({
+    required String id,
+    required String month,
+  }) async {
+    for (final entries in _workEntriesByMonth.values) {
+      entries.removeWhere((entry) => entry.id == id);
+    }
+    return _buildSnapshot(month);
+  }
+
+  @override
+  Future<DashboardSnapshot> updateLeaveEntry({
+    required String id,
+    required String date,
+    required int minutes,
+    required LeaveType type,
+    String? note,
+    required String month,
+  }) async {
+    for (final entries in _leaveEntriesByMonth.values) {
+      entries.removeWhere((entry) => entry.id == id);
+    }
+    _leaveEntriesByMonth
+        .putIfAbsent(month, () => [])
+        .add(
+          LeaveEntry(
+            id: id,
+            date: date,
+            minutes: minutes,
+            type: type,
+            note: note,
+          ),
+        );
+    return _buildSnapshot(month);
+  }
+
+  @override
+  Future<DashboardSnapshot> deleteLeaveEntry({
+    required String id,
+    required String month,
+  }) async {
+    for (final entries in _leaveEntriesByMonth.values) {
+      entries.removeWhere((entry) => entry.id == id);
+    }
+    return _buildSnapshot(month);
+  }
+
+  @override
   Future<DashboardSnapshot> addLeaveEntry({
     required String date,
     required int minutes,

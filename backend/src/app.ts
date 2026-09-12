@@ -5,6 +5,7 @@ import cors from "@fastify/cors";
 import Fastify from "fastify";
 import type { FastifyRequest } from "fastify";
 import { InMemoryStore } from "./data/in-memory-store.js";
+import { registerEntryMutationRoutes } from "./routes/entry-mutations.js";
 import type {
   AppStore,
   AppearanceSettingsRecord,
@@ -50,6 +51,7 @@ import {
   syncConfiguredSuperAdmin,
   isValidEmail
 } from "./domain/auth.js";
+import { isLeaveType, isPositiveInteger } from "./domain/entry-payloads.js";
 import { normalizeRuntimeEnvValue } from "./domain/env-value.js";
 import {
   parseAdminRolePayload,
@@ -64,7 +66,6 @@ import {
 import type {
   DaySchedule,
   LeaveEntry,
-  LeaveType,
   Profile,
   ScheduleOverride,
   WeekdaySchedule,
@@ -235,16 +236,8 @@ function parseMonthQuery(query: unknown): string | null | undefined {
   return monthValue;
 }
 
-function isPositiveInteger(value: unknown): value is number {
-  return typeof value === "number" && Number.isInteger(value) && value > 0;
-}
-
 function isNonNegativeInteger(value: unknown): value is number {
   return typeof value === "number" && Number.isInteger(value) && value >= 0;
-}
-
-function isLeaveType(value: unknown): value is LeaveType {
-  return value === "vacation" || value === "permit" || value === "sickness";
 }
 
 function parseWeekdayTargetMinutes(
@@ -5062,6 +5055,8 @@ export function buildApp(options: BuildAppOptions = {}) {
 
     return reply.code(201).send(entry);
   });
+
+  registerEntryMutationRoutes(app, store);
 
   app.get("/leave-entries", async (request, reply) => {
     const month = parseMonthQuery(request.query);

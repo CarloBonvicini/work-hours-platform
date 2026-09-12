@@ -112,6 +112,62 @@ class WorkHoursApiClient {
     return WorkEntry.fromJson(_decodeObject(response));
   }
 
+  Future<WorkEntry> updateWorkEntry({
+    required String id,
+    required String date,
+    required int minutes,
+    String? note,
+  }) async {
+    final response = await _httpClient.put(
+      _buildUri('work-entries/$id'),
+      headers: _headers(json: true),
+      body: jsonEncode({
+        'date': date,
+        'minutes': minutes,
+        if (note != null && note.isNotEmpty) 'note': note,
+      }),
+    );
+
+    return WorkEntry.fromJson(_decodeObject(response));
+  }
+
+  Future<void> deleteWorkEntry({required String id}) async {
+    final response = await _httpClient.delete(
+      _buildUri('work-entries/$id'),
+      headers: _headers(),
+    );
+    _decodeResponse(response);
+  }
+
+  Future<LeaveEntry> updateLeaveEntry({
+    required String id,
+    required String date,
+    required int minutes,
+    required LeaveType type,
+    String? note,
+  }) async {
+    final response = await _httpClient.put(
+      _buildUri('leave-entries/$id'),
+      headers: _headers(json: true),
+      body: jsonEncode({
+        'date': date,
+        'minutes': minutes,
+        'type': type.apiValue,
+        if (note != null && note.isNotEmpty) 'note': note,
+      }),
+    );
+
+    return LeaveEntry.fromJson(_decodeObject(response));
+  }
+
+  Future<void> deleteLeaveEntry({required String id}) async {
+    final response = await _httpClient.delete(
+      _buildUri('leave-entries/$id'),
+      headers: _headers(),
+    );
+    _decodeResponse(response);
+  }
+
   Future<List<LeaveEntry>> fetchLeaveEntries({String? month}) async {
     final response = await _httpClient.get(
       _buildUri(

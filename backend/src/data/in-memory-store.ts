@@ -71,6 +71,23 @@ export class InMemoryStore implements AppStore {
     return saved;
   }
 
+  updateWorkEntry(entry: WorkEntry): WorkEntry | null {
+    const index = this.workEntries.findIndex((item) => item.id === entry.id);
+    if (index === -1) {
+      return null;
+    }
+
+    const saved = { ...entry };
+    this.workEntries[index] = saved;
+    return { ...saved };
+  }
+
+  deleteWorkEntry(id: string): boolean {
+    const previousLength = this.workEntries.length;
+    this.workEntries = this.workEntries.filter((entry) => entry.id !== id);
+    return this.workEntries.length < previousLength;
+  }
+
   listWorkEntries(month?: string): WorkEntry[] {
     const filtered = month
       ? this.workEntries.filter((entry) => entry.date.startsWith(month))
@@ -85,6 +102,23 @@ export class InMemoryStore implements AppStore {
     const saved = { ...entry };
     this.leaveEntries.push(saved);
     return saved;
+  }
+
+  updateLeaveEntry(entry: LeaveEntry): LeaveEntry | null {
+    const index = this.leaveEntries.findIndex((item) => item.id === entry.id);
+    if (index === -1) {
+      return null;
+    }
+
+    const saved = { ...entry };
+    this.leaveEntries[index] = saved;
+    return { ...saved };
+  }
+
+  deleteLeaveEntry(id: string): boolean {
+    const previousLength = this.leaveEntries.length;
+    this.leaveEntries = this.leaveEntries.filter((entry) => entry.id !== id);
+    return this.leaveEntries.length < previousLength;
   }
 
   listLeaveEntries(month?: string): LeaveEntry[] {

@@ -1840,7 +1840,32 @@ class _FakeSupportTicketStore implements SupportTicketStore {
 class _FakeDashboardRepository implements DashboardRepository {
   _FakeDashboardRepository({
     Map<String, ScheduleOverride>? initialScheduleOverrides,
-  }) : _scheduleOverridesByDate = {
+    List<WorkEntry>? initialWorkEntries,
+    List<LeaveEntry>? initialLeaveEntries,
+  }) : workEntries = [
+         ...initialWorkEntries ??
+             const [
+               WorkEntry(
+                 id: '1',
+                 date: '2026-03-03',
+                 minutes: 420,
+                 note: 'Sprint mobile',
+               ),
+             ],
+       ],
+       leaveEntries = [
+         ...initialLeaveEntries ??
+             const [
+               LeaveEntry(
+                 id: 'leave-1',
+                 date: '2026-03-04',
+                 minutes: 60,
+                 type: LeaveType.permit,
+                 note: 'Visita medica',
+               ),
+             ],
+       ],
+       _scheduleOverridesByDate = {
          '2026-03-04': const ScheduleOverride(
            id: 'override-1',
            date: '2026-03-04',
@@ -1854,6 +1879,8 @@ class _FakeDashboardRepository implements DashboardRepository {
        };
 
   final Map<String, ScheduleOverride> _scheduleOverridesByDate;
+  final List<WorkEntry> workEntries;
+  final List<LeaveEntry> leaveEntries;
   final Map<String, SupportTicketThread> _ticketThreadsById = {};
   String? savedFullName;
   int? savedDailyTargetMinutes;
@@ -1875,6 +1902,15 @@ class _FakeDashboardRepository implements DashboardRepository {
     String? note,
     required String month,
   }) {
+    leaveEntries.add(
+      LeaveEntry(
+        id: 'leave-${leaveEntries.length + 1}',
+        date: date,
+        minutes: minutes,
+        type: type,
+        note: note,
+      ),
+    );
     return loadSnapshot(month: month);
   }
 
@@ -1885,6 +1921,70 @@ class _FakeDashboardRepository implements DashboardRepository {
     String? note,
     required String month,
   }) {
+    workEntries.add(
+      WorkEntry(
+        id: 'work-${workEntries.length + 1}',
+        date: date,
+        minutes: minutes,
+        note: note,
+      ),
+    );
+    return loadSnapshot(month: month);
+  }
+
+  @override
+  Future<DashboardSnapshot> updateWorkEntry({
+    required String id,
+    required String date,
+    required int minutes,
+    String? note,
+    required String month,
+  }) {
+    final index = workEntries.indexWhere((entry) => entry.id == id);
+    workEntries[index] = WorkEntry(
+      id: id,
+      date: date,
+      minutes: minutes,
+      note: note,
+    );
+    return loadSnapshot(month: month);
+  }
+
+  @override
+  Future<DashboardSnapshot> deleteWorkEntry({
+    required String id,
+    required String month,
+  }) {
+    workEntries.removeWhere((entry) => entry.id == id);
+    return loadSnapshot(month: month);
+  }
+
+  @override
+  Future<DashboardSnapshot> updateLeaveEntry({
+    required String id,
+    required String date,
+    required int minutes,
+    required LeaveType type,
+    String? note,
+    required String month,
+  }) {
+    final index = leaveEntries.indexWhere((entry) => entry.id == id);
+    leaveEntries[index] = LeaveEntry(
+      id: id,
+      date: date,
+      minutes: minutes,
+      type: type,
+      note: note,
+    );
+    return loadSnapshot(month: month);
+  }
+
+  @override
+  Future<DashboardSnapshot> deleteLeaveEntry({
+    required String id,
+    required String month,
+  }) {
+    leaveEntries.removeWhere((entry) => entry.id == id);
     return loadSnapshot(month: month);
   }
 
@@ -1960,23 +2060,8 @@ class _FakeDashboardRepository implements DashboardRepository {
         leaveMinutes: 60,
         rules: workRules,
       ),
-      workEntries: const [
-        WorkEntry(
-          id: '1',
-          date: '2026-03-03',
-          minutes: 420,
-          note: 'Sprint mobile',
-        ),
-      ],
-      leaveEntries: const [
-        LeaveEntry(
-          id: 'leave-1',
-          date: '2026-03-04',
-          minutes: 60,
-          type: LeaveType.permit,
-          note: 'Visita medica',
-        ),
-      ],
+      workEntries: List.unmodifiable(workEntries),
+      leaveEntries: List.unmodifiable(leaveEntries),
       scheduleOverrides: _scheduleOverridesByDate.values.toList(
         growable: false,
       ),
