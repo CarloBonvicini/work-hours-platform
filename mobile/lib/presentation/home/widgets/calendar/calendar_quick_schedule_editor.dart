@@ -36,6 +36,7 @@ class CalendarQuickScheduleEditor extends StatelessWidget {
     required this.onRestoreWorkingDay,
     required this.isDayOff,
     required this.canRestoreWorkingDay,
+    required this.canRestoreStandardSchedule,
     required this.workedMinutes,
     required this.todayBalanceMinutes,
     required this.overtimeMinutes,
@@ -90,6 +91,9 @@ class CalendarQuickScheduleEditor extends StatelessWidget {
   final Future<void> Function() onRestoreWorkingDay;
   final bool isDayOff;
   final bool canRestoreWorkingDay;
+
+  /// Il giorno ha un'eccezione salvata che si puo' riportare allo standard.
+  final bool canRestoreStandardSchedule;
   final int workedMinutes;
   final int todayBalanceMinutes;
   final int overtimeMinutes;
@@ -229,6 +233,15 @@ class CalendarQuickScheduleEditor extends StatelessWidget {
                             }
                           },
                         ),
+                        if (canRestoreStandardSchedule)
+                          ActionChip(
+                            key: const ValueKey(
+                              'quick-day-restore-standard-chip',
+                            ),
+                            avatar: const Icon(Icons.restart_alt, size: 18),
+                            label: const Text('Ripristina standard'),
+                            onPressed: () => unawaited(onRestoreWorkingDay()),
+                          ),
                         ActionChip(
                           key: const ValueKey('quick-day-add-work-chip'),
                           avatar: const Icon(Icons.more_time_rounded, size: 18),

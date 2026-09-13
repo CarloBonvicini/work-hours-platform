@@ -324,6 +324,66 @@ void main() {
     },
   );
 
+  testWidgets('restores the standard schedule from the day view', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(390, 1800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final today = DateTime.now();
+    final todayIsoDate =
+        '${today.year.toString().padLeft(4, '0')}-'
+        '${today.month.toString().padLeft(2, '0')}-'
+        '${today.day.toString().padLeft(2, '0')}';
+    final repository = _FakeDashboardRepository(
+      initialScheduleOverrides: {
+        todayIsoDate: ScheduleOverride(
+          id: 'override-da-ripristinare',
+          date: todayIsoDate,
+          targetMinutes: 300,
+          startTime: '10:00',
+          endTime: '15:00',
+        ),
+      },
+    );
+
+    await tester.pumpWidget(
+      WorkHoursApp(
+        dashboardService: DashboardService(repository: repository),
+        appUpdateService: _FakeAppUpdateService(),
+        updateReminderStore: _FakeUpdateReminderStore(),
+        onboardingPreferenceStore: _FakeOnboardingPreferenceStore(
+          hasCompleted: true,
+        ),
+        themePreferenceStore: _FakeThemePreferenceStore(),
+        workdayStartStore: _FakeWorkdayStartStore(),
+        supportTicketStore: _FakeSupportTicketStore(),
+        hasCompletedInitialSetup: true,
+      ),
+    );
+    await tester.pumpAndSettle();
+    if (find.text('Ricordamelo piu tardi').evaluate().isNotEmpty) {
+      await tester.tap(find.text('Ricordamelo piu tardi'));
+      await tester.pumpAndSettle();
+    }
+    await tester.tap(find.byKey(const ValueKey('navigation-menu-button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('navigation-option-day')));
+    await tester.pumpAndSettle();
+
+    // L'eccezione del giorno non e' una giornata libera: deve restare
+    // possibile tornare all'orario standard.
+    final restoreFinder = find.byKey(
+      const ValueKey('quick-day-restore-standard-chip'),
+    );
+    await tester.ensureVisible(restoreFinder);
+    await tester.tap(restoreFinder);
+    await tester.pumpAndSettle();
+
+    expect(repository.savedScheduleOverrides.containsKey(todayIsoDate), isFalse);
+    expect(restoreFinder, findsNothing);
+  });
+
   testWidgets('uses a compact week layout on narrow screens', (tester) async {
     await tester.binding.setSurfaceSize(const Size(390, 1800));
     addTearDown(() => tester.binding.setSurfaceSize(null));

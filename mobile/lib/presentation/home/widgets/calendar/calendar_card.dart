@@ -354,6 +354,10 @@ class CalendarCard extends StatelessWidget {
         : candidateConfirmableExitMinutes;
     final canRestoreWorkingDay =
         isQuickEditorDayOff && !isUsingStandardSchedule;
+    // Tornare all'orario standard deve essere possibile anche quando
+    // l'eccezione del giorno non e' una giornata libera.
+    final canRestoreStandardSchedule =
+        dayMetrics.hasOverride && !isUsingStandardSchedule;
     final selectedDayInfo = switch (compareDateToToday(selectedDate)) {
       0 => (
         label: 'Oggi',
@@ -413,6 +417,7 @@ class CalendarCard extends StatelessWidget {
             onRestoreWorkingDay: onRestoreWorkingDay,
             isDayOff: isQuickEditorDayOff,
             canRestoreWorkingDay: canRestoreWorkingDay,
+            canRestoreStandardSchedule: canRestoreStandardSchedule,
             workedMinutes: displayedWorkedMinutes,
             todayBalanceMinutes: liveDayBalanceMinutes,
             overtimeMinutes: controlInsights.todayOvertimeMinutes,

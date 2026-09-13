@@ -55,8 +55,6 @@ import 'package:work_hours_mobile/presentation/home/models/support_ticket_limits
 import 'package:work_hours_mobile/presentation/home/widgets/calendar/calendar_card.dart';
 import 'package:work_hours_mobile/presentation/home/widgets/calendar/quick_entry_card.dart';
 import 'package:work_hours_mobile/presentation/home/widgets/home_header.dart';
-import 'package:work_hours_mobile/presentation/home/widgets/overview/overview_card.dart';
-import 'package:work_hours_mobile/presentation/home/widgets/overview/recent_activity_card.dart';
 import 'package:work_hours_mobile/presentation/home/widgets/settings/cloud_backup_account_card.dart';
 import 'package:work_hours_mobile/presentation/home/widgets/settings/profile_card.dart';
 import 'package:work_hours_mobile/presentation/home/widgets/settings/work_settings_card.dart';
@@ -342,18 +340,11 @@ abstract class _HomeScreenStateBase extends State<HomeScreen>
 
   DayMetrics _buildDayMetrics(DateTime date);
 
-  List<({IconData icon, String title, String description})>
-  _buildTodayReminders(DashboardSnapshot snapshot, DayMetrics metrics);
-
-  List<WeekPlanDay> _buildUpcomingWeekPlan();
-
   List<DayMetrics> _buildWeekMetrics();
 
   List<MonthMetrics> _buildYearMetrics();
 
   Future<void> _ensureUpcomingWeekData();
-
-  TodayStatus _resolveTodayStatus(DayMetrics metrics);
 
   // Implementati in Navigazione di calendario: data/mese/vista selezionati e caricamento mesi (calendar_navigation_state.dart).
   String _calendarPeriodLabel();
@@ -383,8 +374,6 @@ abstract class _HomeScreenStateBase extends State<HomeScreen>
   });
 
   void _selectDate(DateTime date);
-
-  Future<void> _setSelectedDate(DateTime date);
 
   Future<void> _shiftCalendarPeriod(int step);
 
@@ -437,18 +426,9 @@ abstract class _HomeScreenStateBase extends State<HomeScreen>
     bool forceReload = false,
   });
 
-  void _openLeaveQuickEntryForDate(
-    DateTime date, {
-    int? prefilledMinutes,
-    LeaveType leaveType = LeaveType.permit,
-    String? note,
-  });
+  void _openLeaveQuickEntryForDate(DateTime date, {int? prefilledMinutes});
 
-  void _openWorkQuickEntryForDate(
-    DateTime date, {
-    int? prefilledMinutes,
-    String? note,
-  });
+  void _openWorkQuickEntryForDate(DateTime date, {int? prefilledMinutes});
 
   int _overrideCountForMonth(DashboardSnapshot snapshot);
 
@@ -548,11 +528,7 @@ abstract class _HomeScreenStateBase extends State<HomeScreen>
 
   Future<void> _pickScheduleOverrideTime(CalendarTimeField field);
 
-  Future<void> _prepareTodayOverridePreset(TodayOverridePreset preset);
-
   Future<void> _removeScheduleOverride();
-
-  Future<void> _removeTodayOverride();
 
   DaySchedule _resolveBaseDayScheduleForDate(
     DashboardSnapshot snapshot,

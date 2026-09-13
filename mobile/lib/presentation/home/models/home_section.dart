@@ -5,10 +5,8 @@ import 'package:flutter/material.dart';
 enum HomeSection {
   day,
   consuntivo,
-  overview,
   quickEntry,
   calendar,
-  recentActivity,
   workSettings,
   profile,
   ticket,
@@ -31,9 +29,7 @@ String legacyNavigationOptionKey(HomeSection section) {
     HomeSection.workSettings => 'navigation-option-workSettings',
     HomeSection.profile => 'navigation-option-profile',
     HomeSection.ticket => 'navigation-option-ticket',
-    HomeSection.overview => 'top-nav-overview',
     HomeSection.quickEntry => 'top-nav-quickEntry',
-    HomeSection.recentActivity => 'top-nav-recentActivity',
   };
 }
 
@@ -45,14 +41,10 @@ extension HomeSectionPresentation on HomeSection {
         return 'Oggi';
       case HomeSection.consuntivo:
         return 'Consuntivo';
-      case HomeSection.overview:
-        return 'Oggi';
       case HomeSection.quickEntry:
         return 'Registra';
       case HomeSection.calendar:
         return 'Calendario';
-      case HomeSection.recentActivity:
-        return 'Settimana';
       case HomeSection.workSettings:
         return 'Orari e permessi';
       case HomeSection.profile:
@@ -68,14 +60,10 @@ extension HomeSectionPresentation on HomeSection {
         return Icons.view_day_outlined;
       case HomeSection.consuntivo:
         return Icons.analytics_outlined;
-      case HomeSection.overview:
-        return Icons.today_outlined;
       case HomeSection.quickEntry:
         return Icons.edit_calendar_outlined;
       case HomeSection.calendar:
         return Icons.calendar_month_outlined;
-      case HomeSection.recentActivity:
-        return Icons.view_week_outlined;
       case HomeSection.workSettings:
         return Icons.schedule_outlined;
       case HomeSection.profile:

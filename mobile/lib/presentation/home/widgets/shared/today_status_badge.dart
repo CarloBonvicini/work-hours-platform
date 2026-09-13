@@ -1,7 +1,6 @@
 // Badge dello stato della giornata.
 
 import 'package:flutter/material.dart';
-import 'package:work_hours_mobile/presentation/home/models/day_metrics.dart';
 
 class TodayStatusBadge extends StatelessWidget {
   const TodayStatusBadge({
@@ -39,42 +38,4 @@ class TodayStatusBadge extends StatelessWidget {
       ),
     );
   }
-}
-
-({String label, IconData icon, Color color}) todayStatusMeta(
-  BuildContext context,
-  TodayStatus status,
-) {
-  return switch (status) {
-    TodayStatus.dayOff => (
-      label: 'Libero',
-      icon: Icons.free_breakfast_outlined,
-      color: Theme.of(context).colorScheme.secondary,
-    ),
-    TodayStatus.planned => (
-      label: 'Pianificata',
-      icon: Icons.schedule_outlined,
-      color: Theme.of(context).colorScheme.primary,
-    ),
-    TodayStatus.needsAttention => (
-      label: 'Da completare',
-      icon: Icons.priority_high_outlined,
-      color: const Color(0xFF9D3D2F),
-    ),
-    TodayStatus.inProgress => (
-      label: 'In corso',
-      icon: Icons.play_circle_outline,
-      color: const Color(0xFF0B6E69),
-    ),
-    TodayStatus.completed => (
-      label: 'Completata',
-      icon: Icons.check_circle_outline,
-      color: const Color(0xFF0B6E69),
-    ),
-    TodayStatus.absent => (
-      label: 'Assenza registrata',
-      icon: Icons.event_busy_outlined,
-      color: Theme.of(context).colorScheme.secondary,
-    ),
-  };
 }
