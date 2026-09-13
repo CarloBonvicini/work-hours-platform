@@ -5,10 +5,7 @@ void main() {
   test('toJson omits empty start and end times', () {
     const schedule = DaySchedule(targetMinutes: 480, breakMinutes: 30);
 
-    expect(schedule.toJson(), {
-      'targetMinutes': 480,
-      'breakMinutes': 30,
-    });
+    expect(schedule.toJson(), {'targetMinutes': 480, 'breakMinutes': 30});
   });
 
   test('toJson keeps start and end times when present', () {

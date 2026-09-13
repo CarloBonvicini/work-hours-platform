@@ -20,45 +20,44 @@ class WeekdaySchedule {
   final DaySchedule saturday;
   final DaySchedule sunday;
 
+  /// Giorni lavorativi predefiniti quando l'orario e' unico per tutti.
+  static const defaultUniformWorkingDays = <WeekdayKey>{
+    WeekdayKey.monday,
+    WeekdayKey.tuesday,
+    WeekdayKey.wednesday,
+    WeekdayKey.thursday,
+    WeekdayKey.friday,
+  };
+
+  /// Stesso orario su tutti i giorni lavorativi indicati, zero sugli altri.
   factory WeekdaySchedule.uniform(
     int dailyTargetMinutes, {
     String? startTime,
     String? endTime,
     int breakMinutes = 0,
+    Set<WeekdayKey> workingDays = defaultUniformWorkingDays,
   }) {
+    DaySchedule scheduleFor(WeekdayKey weekday) {
+      if (!workingDays.contains(weekday)) {
+        return const DaySchedule(targetMinutes: 0);
+      }
+
+      return DaySchedule(
+        targetMinutes: dailyTargetMinutes,
+        startTime: startTime,
+        endTime: endTime,
+        breakMinutes: breakMinutes,
+      );
+    }
+
     return WeekdaySchedule(
-      monday: DaySchedule(
-        targetMinutes: dailyTargetMinutes,
-        startTime: startTime,
-        endTime: endTime,
-        breakMinutes: breakMinutes,
-      ),
-      tuesday: DaySchedule(
-        targetMinutes: dailyTargetMinutes,
-        startTime: startTime,
-        endTime: endTime,
-        breakMinutes: breakMinutes,
-      ),
-      wednesday: DaySchedule(
-        targetMinutes: dailyTargetMinutes,
-        startTime: startTime,
-        endTime: endTime,
-        breakMinutes: breakMinutes,
-      ),
-      thursday: DaySchedule(
-        targetMinutes: dailyTargetMinutes,
-        startTime: startTime,
-        endTime: endTime,
-        breakMinutes: breakMinutes,
-      ),
-      friday: DaySchedule(
-        targetMinutes: dailyTargetMinutes,
-        startTime: startTime,
-        endTime: endTime,
-        breakMinutes: breakMinutes,
-      ),
-      saturday: const DaySchedule(targetMinutes: 0),
-      sunday: const DaySchedule(targetMinutes: 0),
+      monday: scheduleFor(WeekdayKey.monday),
+      tuesday: scheduleFor(WeekdayKey.tuesday),
+      wednesday: scheduleFor(WeekdayKey.wednesday),
+      thursday: scheduleFor(WeekdayKey.thursday),
+      friday: scheduleFor(WeekdayKey.friday),
+      saturday: scheduleFor(WeekdayKey.saturday),
+      sunday: scheduleFor(WeekdayKey.sunday),
     );
   }
 

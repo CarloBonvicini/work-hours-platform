@@ -5,6 +5,7 @@ import 'package:work_hours_mobile/application/services/hour_input_parser.dart';
 import 'package:work_hours_mobile/application/services/time_input_parser.dart';
 import 'package:work_hours_mobile/application/services/workday_start_store.dart';
 import 'package:work_hours_mobile/domain/models/day_schedule.dart';
+import 'package:work_hours_mobile/domain/models/user_work_rules.dart';
 import 'package:work_hours_mobile/presentation/home/logic/agenda_segments.dart';
 import 'package:work_hours_mobile/presentation/home/models/calendar_day.dart';
 
@@ -103,8 +104,9 @@ String? resolveWorkedSessionInfo({
   required CalendarPauseWindow? pauseWindow,
   required int nowMinutes,
 }) {
-  if (session == null &&
-      (schedule.startTime == null || schedule.endTime == null)) {
+  // Senza timbratura non c'e' nulla di lavorato: l'orario previsto del giorno
+  // non va scambiato per ore gia' fatte.
+  if (session == null) {
     return null;
   }
 
@@ -131,4 +133,45 @@ String? resolveWorkedSessionInfo({
         (total, segment) => total + (segment.endMinutes - segment.startMinutes),
       );
   return 'Lavoro ${formatHoursInput(workedMinutes)} | Pausa ${formatHoursInput(totalBreakMinutes)}.';
+}
+
+/// Elenco leggibile dei segmenti pausa registrati, inclusa quella in corso.
+String? formatWorkdayBreakSegments(WorkdaySession? session) {
+  if (session == null) {
+    return null;
+  }
+
+  final parts = <String>[
+    for (final segment in session.breakSegments)
+      '${formatTimeInput(segment.startMinutes)}-${formatTimeInput(segment.endMinutes)}',
+    if (session.isOnBreak)
+      '${formatTimeInput(session.breakStartedMinutes!)}-in corso',
+  ];
+
+  if (parts.isEmpty) {
+    return null;
+  }
+
+  return 'Pause: ${parts.join(' · ')}';
+}
+
+/// Fascia d'ingresso consentita quando la flessibilita in entrata e attiva.
+String? resolveFlexibleEntryWindowLabel({
+  required UserWorkRules workRules,
+  required DaySchedule schedule,
+}) {
+  if (!workRules.fixedScheduleEnabled ||
+      !workRules.flexibleStartEnabled ||
+      workRules.flexibleStartWindowMinutes <= 0) {
+    return null;
+  }
+
+  final startMinutes = parseTimeInput(schedule.startTime);
+  if (startMinutes == null) {
+    return null;
+  }
+
+  final latestStart = startMinutes + workRules.flexibleStartWindowMinutes;
+  final normalizedLatest = latestStart % (24 * 60);
+  return 'Fascia d ingresso: ${formatTimeInput(startMinutes)} - ${formatTimeInput(normalizedLatest)}';
 }

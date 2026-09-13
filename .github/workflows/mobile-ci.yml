@@ -95,6 +95,11 @@ jobs:
         working-directory: mobile
         run: flutter pub get
 
+      - name: Dimensione dei file toccati
+        if: ${{ github.event_name == 'pull_request' && steps.changes.outputs.has_mobile_changes == 'true' }}
+        shell: bash
+        run: ./scripts/check-dart-file-size.sh "${{ github.event.pull_request.base.sha }}"
+
       - name: Analyze
         if: ${{ steps.changes.outputs.has_mobile_changes == 'true' && steps.detect.outputs.has_flutter == 'true' }}
         working-directory: mobile

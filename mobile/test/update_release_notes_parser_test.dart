@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:work_hours_mobile/presentation/home/update_release_notes_parser.dart';
+import 'package:work_hours_mobile/presentation/home/logic/update_release_notes_parser.dart';
 
 void main() {
   test('preferisce la sezione novita per l utente quando presente', () {

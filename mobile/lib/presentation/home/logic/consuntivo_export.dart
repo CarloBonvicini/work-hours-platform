@@ -2,7 +2,7 @@ import 'dart:typed_data';
 
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
-import 'package:work_hours_mobile/presentation/home/consuntivo_section.dart';
+import 'package:work_hours_mobile/presentation/home/models/consuntivo_summary.dart';
 
 String formatConsuntivoHours(int minutes) {
   final hours = minutes ~/ 60;

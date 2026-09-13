@@ -134,11 +134,7 @@ mixin _DashboardDataState on _HomeScreenStateBase {
   }
 
   @override
-  void _openWorkQuickEntryForDate(
-    DateTime date, {
-    int? prefilledMinutes,
-    String? note,
-  }) {
+  void _openWorkQuickEntryForDate(DateTime date, {int? prefilledMinutes}) {
     setState(() {
       _selectedSection = HomeSection.quickEntry;
       _selectedEntryMode = QuickEntryMode.work;
@@ -146,26 +142,21 @@ mixin _DashboardDataState on _HomeScreenStateBase {
       _entryMinutesController.text = prefilledMinutes == null
           ? ''
           : prefilledMinutes.toString();
-      _entryNoteController.text = note ?? '';
+      _entryNoteController.text = '';
     });
   }
 
   @override
-  void _openLeaveQuickEntryForDate(
-    DateTime date, {
-    int? prefilledMinutes,
-    LeaveType leaveType = LeaveType.permit,
-    String? note,
-  }) {
+  void _openLeaveQuickEntryForDate(DateTime date, {int? prefilledMinutes}) {
     setState(() {
       _selectedSection = HomeSection.quickEntry;
       _selectedEntryMode = QuickEntryMode.leave;
-      _selectedLeaveType = leaveType;
+      _selectedLeaveType = LeaveType.permit;
       _entryDateController.text = DashboardService.defaultEntryDateOf(date);
       _entryMinutesController.text = prefilledMinutes == null
           ? ''
           : prefilledMinutes.toString();
-      _entryNoteController.text = note ?? '';
+      _entryNoteController.text = '';
     });
   }
 

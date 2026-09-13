@@ -2,15 +2,6 @@
 
 import 'package:work_hours_mobile/domain/models/day_schedule.dart';
 
-enum TodayStatus {
-  dayOff,
-  planned,
-  needsAttention,
-  inProgress,
-  completed,
-  absent,
-}
-
 class DayMetrics {
   const DayMetrics({
     required this.date,
@@ -78,26 +69,4 @@ class MonthMetrics {
   final int rawBalanceMinutes;
   final int balanceMinutes;
   final int overrideCount;
-}
-
-class WeekPlanDay {
-  const WeekPlanDay({
-    required this.date,
-    required this.status,
-    required this.metrics,
-    this.overrideNote,
-  });
-
-  factory WeekPlanDay.empty(DateTime date) {
-    return WeekPlanDay(
-      date: date,
-      status: TodayStatus.planned,
-      metrics: DayMetrics.empty(date),
-    );
-  }
-
-  final DateTime date;
-  final TodayStatus status;
-  final DayMetrics metrics;
-  final String? overrideNote;
 }

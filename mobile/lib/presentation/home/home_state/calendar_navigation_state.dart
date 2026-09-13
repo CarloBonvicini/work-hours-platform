@@ -116,7 +116,6 @@ mixin _CalendarNavigationState on _HomeScreenStateBase {
     await _setSelectedDate(nextDate, alignToPeriod: true);
   }
 
-  @override
   Future<void> _setSelectedDate(
     DateTime date, {
     bool alignToPeriod = false,

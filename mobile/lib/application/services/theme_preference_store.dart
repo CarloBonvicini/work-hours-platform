@@ -67,7 +67,7 @@ class AppAppearanceSettings {
     dayCalendarLayoutMode: DayCalendarLayoutMode.quickEditorFirst,
     showDayWorkdayCard: true,
     expandDayWorkdayCard: true,
-    expandDayQuickEditor: true,
+    expandDayQuickEditor: false,
     expandDayAgenda: false,
     expandWorkSettingsSchedule: true,
     expandWorkSettingsRules: true,

@@ -4,96 +4,6 @@ part of '../home_screen.dart';
 
 mixin _ScheduleOverridesState on _HomeScreenStateBase {
   @override
-  Future<void> _prepareTodayOverridePreset(TodayOverridePreset preset) async {
-    final today = _todayDate;
-    final todayMonth = DashboardService.formatMonth(today);
-    if (todayMonth != _selectedMonth) {
-      await _loadSnapshot(month: todayMonth, selectedDate: today);
-    }
-
-    final snapshot = _snapshotForMonth(todayMonth) ?? _snapshot;
-    if (snapshot == null) {
-      return;
-    }
-
-    final baseSchedule = _resolveBaseDayScheduleForDate(snapshot, today);
-    final preparedSchedule = _buildPresetSchedule(preset, baseSchedule);
-
-    await _setSelectedDate(today);
-    _scheduleOverrideTargetController.text = formatHoursInput(
-      preparedSchedule.targetMinutes,
-    );
-    _scheduleOverrideStartTimeController.text =
-        preparedSchedule.startTime ?? '';
-    _scheduleOverrideEndTimeController.text = preparedSchedule.endTime ?? '';
-    _scheduleOverrideBreakController.text = formatBreakInput(
-      preparedSchedule.breakMinutes,
-    );
-    setState(() {
-      _selectedSection = HomeSection.day;
-    });
-  }
-
-  @override
-  Future<void> _removeTodayOverride() async {
-    await _setSelectedDate(_todayDate);
-    await _removeScheduleOverride();
-  }
-
-  DaySchedule _buildPresetSchedule(
-    TodayOverridePreset preset,
-    DaySchedule baseSchedule,
-  ) {
-    final startMinutes = parseTimeInput(baseSchedule.startTime);
-    final endMinutes = parseTimeInput(baseSchedule.endTime);
-
-    switch (preset) {
-      case TodayOverridePreset.startLater:
-        if (startMinutes != null && endMinutes != null) {
-          return DaySchedule(
-            targetMinutes: baseSchedule.targetMinutes,
-            startTime: formatTimeInput(startMinutes + 60),
-            endTime: formatTimeInput(endMinutes + 60),
-            breakMinutes: baseSchedule.breakMinutes,
-          );
-        }
-        return DaySchedule(
-          targetMinutes: baseSchedule.targetMinutes,
-          breakMinutes: baseSchedule.breakMinutes,
-        );
-      case TodayOverridePreset.finishEarlier:
-        final nextTarget = (baseSchedule.targetMinutes - 60).clamp(0, 24 * 60);
-        if (startMinutes != null && endMinutes != null) {
-          return DaySchedule(
-            targetMinutes: nextTarget,
-            startTime: baseSchedule.startTime,
-            endTime: formatTimeInput((endMinutes - 60).clamp(0, 24 * 60)),
-            breakMinutes: baseSchedule.breakMinutes,
-          );
-        }
-        return DaySchedule(
-          targetMinutes: nextTarget,
-          breakMinutes: baseSchedule.breakMinutes,
-        );
-      case TodayOverridePreset.longerBreak:
-        if (startMinutes != null && endMinutes != null) {
-          return DaySchedule(
-            targetMinutes: baseSchedule.targetMinutes,
-            startTime: baseSchedule.startTime,
-            endTime: formatTimeInput((endMinutes + 30).clamp(0, 24 * 60)),
-            breakMinutes: baseSchedule.breakMinutes + 30,
-          );
-        }
-        return DaySchedule(
-          targetMinutes: baseSchedule.targetMinutes,
-          breakMinutes: baseSchedule.breakMinutes + 30,
-        );
-      case TodayOverridePreset.dayOff:
-        return const DaySchedule(targetMinutes: 0);
-    }
-  }
-
-  @override
   Future<void> _removeScheduleOverride() async {
     setState(() {
       _isSavingScheduleOverride = true;
@@ -845,6 +755,24 @@ mixin _ScheduleOverridesState on _HomeScreenStateBase {
       startTime: scheduleOverride.startTime,
       endTime: scheduleOverride.endTime,
       breakMinutes: scheduleOverride.breakMinutes,
+    );
+  }
+
+  /// Orario previsto del giorno, completo di entrata e uscita anche quando il
+  /// piano dichiara solo le ore.
+  ///
+  /// Serve solo a mostrare valori gia' impostati: non entra nei calcoli di ore
+  /// lavorate e saldi, che devono restare legati a cio' che e' successo davvero.
+  @override
+  DaySchedule _resolvePlannedDayScheduleForDate(
+    DashboardSnapshot snapshot,
+    DateTime date,
+  ) {
+    return completePlannedDaySchedule(
+      _resolveEffectiveDayScheduleForDate(snapshot, date),
+      referenceStartMinutes: resolvePlannedStartMinutes(
+        snapshot.profile.weekdaySchedule,
+      ),
     );
   }
 }

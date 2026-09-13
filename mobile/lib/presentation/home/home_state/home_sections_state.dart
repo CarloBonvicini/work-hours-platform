@@ -43,6 +43,15 @@ mixin _HomeSectionsState on _HomeScreenStateBase {
     );
     final pendingExitConfirmationMinutes =
         _pendingExitConfirmationForSelectedDate;
+    // Inserimento manuale precompilato con cio' che manca per coprire la
+    // giornata: si usa quando ci si dimentica di timbrare.
+    final remainingDayMinutes =
+        dayMetrics.expectedMinutes -
+        dayMetrics.workedMinutes -
+        dayMetrics.leaveMinutes;
+    final prefilledEntryMinutes = remainingDayMinutes > 0
+        ? remainingDayMinutes
+        : null;
 
     return CalendarCard(
       title: title,
@@ -55,6 +64,10 @@ mixin _HomeSectionsState on _HomeScreenStateBase {
       workRules: monthSnapshot.profile.workRules,
       days: _buildCalendarDays(monthSnapshot),
       baseDaySchedule: baseDaySchedule,
+      plannedDaySchedule: _resolvePlannedDayScheduleForDate(
+        monthSnapshot,
+        _selectedDate,
+      ),
       effectiveDaySchedule: displayedDaySchedule,
       draftDaySchedule: displayedDaySchedule,
       quickEditorDaySchedule: previewDaySchedule,
@@ -87,8 +100,14 @@ mixin _HomeSectionsState on _HomeScreenStateBase {
       onOpenDay: _openDayForDate,
       isSelectedDateToday: isSameDay(_selectedDate, _todayDate),
       dayActivities: _buildActivitiesForDate(monthSnapshot, _selectedDate),
-      onOpenWorkQuickEntry: () => _openWorkQuickEntryForDate(_selectedDate),
-      onOpenLeaveQuickEntry: () => _openLeaveQuickEntryForDate(_selectedDate),
+      onOpenWorkQuickEntry: () => _openWorkQuickEntryForDate(
+        _selectedDate,
+        prefilledMinutes: prefilledEntryMinutes,
+      ),
+      onOpenLeaveQuickEntry: () => _openLeaveQuickEntryForDate(
+        _selectedDate,
+        prefilledMinutes: prefilledEntryMinutes,
+      ),
       onEditActivity: _startEditingActivity,
       onDeleteActivity: _confirmDeleteActivity,
       workdaySession: _workdaySession,
@@ -163,49 +182,6 @@ mixin _HomeSectionsState on _HomeScreenStateBase {
           onPreviousMonth: () => _shiftConsuntivoAnchorMonth(-1),
           onNextMonth: () => _shiftConsuntivoAnchorMonth(1),
         );
-      case HomeSection.overview:
-        final today = _todayDate;
-        final todaySnapshot =
-            _snapshotForMonth(DashboardService.formatMonth(today)) ?? snapshot;
-        final todayMetrics = _buildDayMetrics(today);
-        final todayStatus = _resolveTodayStatus(todayMetrics);
-        return OverviewCard(
-          selectedDate: today,
-          todayMetrics: todayMetrics,
-          todayStatus: todayStatus,
-          effectiveSchedule: _resolveEffectiveDayScheduleForDate(
-            todaySnapshot,
-            today,
-          ),
-          todayOverride: _findScheduleOverrideForDate(todaySnapshot, today),
-          todayActivities: _buildActivitiesForDate(todaySnapshot, today),
-          onEditActivity: _startEditingActivity,
-          onDeleteActivity: _confirmDeleteActivity,
-          reminders: _buildTodayReminders(todaySnapshot, todayMetrics),
-          onOpenWorkEntry: () => _openWorkQuickEntryForDate(
-            today,
-            prefilledMinutes:
-                (todayMetrics.expectedMinutes -
-                        todayMetrics.workedMinutes -
-                        todayMetrics.leaveMinutes)
-                    .clamp(0, 24 * 60),
-          ),
-          onOpenLeaveEntry: () => _openLeaveQuickEntryForDate(
-            today,
-            prefilledMinutes: todayMetrics.expectedMinutes == 0
-                ? null
-                : (todayMetrics.expectedMinutes -
-                          todayMetrics.workedMinutes -
-                          todayMetrics.leaveMinutes)
-                      .clamp(60, 24 * 60),
-            leaveType: LeaveType.permit,
-          ),
-          onOpenTodayCalendar: () => _openDayForDate(today),
-          onApplyPreset: _prepareTodayOverridePreset,
-          onRemoveTodayOverride: todayMetrics.hasOverride
-              ? _removeTodayOverride
-              : null,
-        );
       case HomeSection.quickEntry:
         return QuickEntryCard(
           formKey: _quickEntryFormKey,
@@ -241,13 +217,6 @@ mixin _HomeSectionsState on _HomeScreenStateBase {
           showViewSelector: true,
           onPreviousPeriod: () => _shiftCalendarPeriod(-1),
           onNextPeriod: () => _shiftCalendarPeriod(1),
-        );
-      case HomeSection.recentActivity:
-        return RecentActivityCard(
-          weekPlan: _buildUpcomingWeekPlan(),
-          onOpenDay: _openDayForDate,
-          onOpenWorkEntry: _openWorkQuickEntryForDate,
-          onOpenLeaveEntry: _openLeaveQuickEntryForDate,
         );
       case HomeSection.workSettings:
         return WorkSettingsCard(

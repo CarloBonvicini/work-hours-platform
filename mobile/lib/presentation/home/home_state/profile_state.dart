@@ -4,13 +4,72 @@ part of '../home_screen.dart';
 
 mixin _ProfileState on _HomeScreenStateBase {
   @override
-  Future<void> _maybeShowInitialSetup(DashboardSnapshot _) async {
-    if (_hasCompletedInitialSetup) {
+  Future<void> _maybeShowInitialSetup(DashboardSnapshot snapshot) async {
+    if (_hasCompletedInitialSetup || !mounted) {
       return;
     }
 
+    // Segnato subito: se la configurazione si interrompe, al riavvio non si
+    // riparte da capo. Chi rimanda configura dalle impostazioni.
     _hasCompletedInitialSetup = true;
     await widget.onboardingPreferenceStore.markInitialSetupCompleted();
+    if (!mounted) {
+      return;
+    }
+
+    final answers = await showInitialSetupSheet(context);
+    if (answers == null || !mounted) {
+      return;
+    }
+
+    await _applyInitialSetupAnswers(answers, snapshot);
+  }
+
+  Future<void> _applyInitialSetupAnswers(
+    InitialSetupAnswers answers,
+    DashboardSnapshot snapshot,
+  ) async {
+    setState(() {
+      _isSavingProfile = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final nextSnapshot = await widget.dashboardService.saveProfile(
+        fullName: snapshot.profile.fullName,
+        useUniformDailyTarget: true,
+        dailyTargetMinutes: answers.dailyTargetMinutes,
+        weekdayTargetMinutes: answers.buildWeekdayTargetMinutes(),
+        weekdaySchedule: answers.buildWeekdaySchedule(),
+        workRules: answers.buildWorkRules(),
+        month: snapshot.summary.month,
+      );
+
+      if (!mounted) {
+        return;
+      }
+
+      await _cacheSnapshot(nextSnapshot);
+      if (!mounted) {
+        return;
+      }
+
+      _hydrateControllers(nextSnapshot, _selectedDate);
+      setState(() {
+        _snapshot = nextSnapshot;
+        _isSavingProfile = false;
+      });
+      await _queueCloudBackup();
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _errorMessage = _humanizeError(error);
+        _isSavingProfile = false;
+      });
+    }
   }
 
   @override

@@ -35,12 +35,13 @@ import 'package:work_hours_mobile/domain/models/user_work_rules.dart';
 import 'package:work_hours_mobile/domain/models/weekday_schedule.dart';
 import 'package:work_hours_mobile/domain/models/weekday_target_minutes.dart';
 import 'package:work_hours_mobile/domain/models/work_entry.dart';
-import 'package:work_hours_mobile/presentation/home/consuntivo_section.dart';
 import 'package:work_hours_mobile/presentation/home/logic/agenda_segments.dart';
 import 'package:work_hours_mobile/presentation/home/logic/calendar_dates.dart';
 import 'package:work_hours_mobile/presentation/home/logic/calendar_day_labels.dart';
 import 'package:work_hours_mobile/presentation/home/logic/day_balance.dart';
 import 'package:work_hours_mobile/presentation/home/logic/hours_labels.dart';
+import 'package:work_hours_mobile/presentation/home/logic/initial_setup_answers.dart';
+import 'package:work_hours_mobile/presentation/home/logic/planned_day_schedule.dart';
 import 'package:work_hours_mobile/presentation/home/logic/rule_value_labels.dart';
 import 'package:work_hours_mobile/presentation/home/logic/schedule_draft.dart';
 import 'package:work_hours_mobile/presentation/home/logic/ticket_labels.dart';
@@ -48,17 +49,18 @@ import 'package:work_hours_mobile/presentation/home/logic/workday_session_info.d
 import 'package:work_hours_mobile/presentation/home/models/activity_item.dart';
 import 'package:work_hours_mobile/presentation/home/models/calendar_day.dart';
 import 'package:work_hours_mobile/presentation/home/models/calendar_view.dart';
+import 'package:work_hours_mobile/presentation/home/models/consuntivo_summary.dart';
 import 'package:work_hours_mobile/presentation/home/models/day_metrics.dart';
 import 'package:work_hours_mobile/presentation/home/models/home_section.dart';
 import 'package:work_hours_mobile/presentation/home/models/support_ticket_limits.dart';
 import 'package:work_hours_mobile/presentation/home/widgets/calendar/calendar_card.dart';
 import 'package:work_hours_mobile/presentation/home/widgets/calendar/quick_entry_card.dart';
+import 'package:work_hours_mobile/presentation/home/widgets/consuntivo/consuntivo_section.dart';
 import 'package:work_hours_mobile/presentation/home/widgets/home_header.dart';
-import 'package:work_hours_mobile/presentation/home/widgets/overview/overview_card.dart';
-import 'package:work_hours_mobile/presentation/home/widgets/overview/recent_activity_card.dart';
 import 'package:work_hours_mobile/presentation/home/widgets/settings/cloud_backup_account_card.dart';
 import 'package:work_hours_mobile/presentation/home/widgets/settings/profile_card.dart';
 import 'package:work_hours_mobile/presentation/home/widgets/settings/work_settings_card.dart';
+import 'package:work_hours_mobile/presentation/home/widgets/setup/initial_setup_sheet.dart';
 import 'package:work_hours_mobile/presentation/home/widgets/shared/section_cards.dart';
 import 'package:work_hours_mobile/presentation/home/widgets/shared/wheel_picker_bottom_sheet.dart';
 import 'package:work_hours_mobile/presentation/home/widgets/support/support_ticket_card.dart';
@@ -77,6 +79,7 @@ part 'home_state/schedule_override_history_state.dart';
 part 'home_state/agenda_interaction_state.dart';
 part 'home_state/schedule_overrides_state.dart';
 part 'home_state/work_schedule_settings_state.dart';
+part 'home_state/work_rules_settings_state.dart';
 part 'home_state/profile_state.dart';
 part 'home_state/consuntivo_state.dart';
 part 'home_state/calendar_metrics_state.dart';
@@ -341,18 +344,11 @@ abstract class _HomeScreenStateBase extends State<HomeScreen>
 
   DayMetrics _buildDayMetrics(DateTime date);
 
-  List<({IconData icon, String title, String description})>
-  _buildTodayReminders(DashboardSnapshot snapshot, DayMetrics metrics);
-
-  List<WeekPlanDay> _buildUpcomingWeekPlan();
-
   List<DayMetrics> _buildWeekMetrics();
 
   List<MonthMetrics> _buildYearMetrics();
 
   Future<void> _ensureUpcomingWeekData();
-
-  TodayStatus _resolveTodayStatus(DayMetrics metrics);
 
   // Implementati in Navigazione di calendario: data/mese/vista selezionati e caricamento mesi (calendar_navigation_state.dart).
   String _calendarPeriodLabel();
@@ -382,8 +378,6 @@ abstract class _HomeScreenStateBase extends State<HomeScreen>
   });
 
   void _selectDate(DateTime date);
-
-  Future<void> _setSelectedDate(DateTime date);
 
   Future<void> _shiftCalendarPeriod(int step);
 
@@ -436,18 +430,9 @@ abstract class _HomeScreenStateBase extends State<HomeScreen>
     bool forceReload = false,
   });
 
-  void _openLeaveQuickEntryForDate(
-    DateTime date, {
-    int? prefilledMinutes,
-    LeaveType leaveType = LeaveType.permit,
-    String? note,
-  });
+  void _openLeaveQuickEntryForDate(DateTime date, {int? prefilledMinutes});
 
-  void _openWorkQuickEntryForDate(
-    DateTime date, {
-    int? prefilledMinutes,
-    String? note,
-  });
+  void _openWorkQuickEntryForDate(DateTime date, {int? prefilledMinutes});
 
   int _overrideCountForMonth(DashboardSnapshot snapshot);
 
@@ -547,11 +532,7 @@ abstract class _HomeScreenStateBase extends State<HomeScreen>
 
   Future<void> _pickScheduleOverrideTime(CalendarTimeField field);
 
-  Future<void> _prepareTodayOverridePreset(TodayOverridePreset preset);
-
   Future<void> _removeScheduleOverride();
-
-  Future<void> _removeTodayOverride();
 
   DaySchedule _resolveBaseDayScheduleForDate(
     DashboardSnapshot snapshot,
@@ -573,6 +554,11 @@ abstract class _HomeScreenStateBase extends State<HomeScreen>
   );
 
   DaySchedule _resolveEffectiveDayScheduleForDate(
+    DashboardSnapshot snapshot,
+    DateTime date,
+  );
+
+  DaySchedule _resolvePlannedDayScheduleForDate(
     DashboardSnapshot snapshot,
     DateTime date,
   );
@@ -777,6 +763,7 @@ class _HomeScreenState extends _HomeScreenStateBase
         _AgendaInteractionState,
         _ScheduleOverridesState,
         _WorkScheduleSettingsState,
+        _WorkRulesSettingsState,
         _ProfileState,
         _ConsuntivoState,
         _CalendarMetricsState,

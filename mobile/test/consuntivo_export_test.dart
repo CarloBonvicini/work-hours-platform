@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:work_hours_mobile/presentation/home/consuntivo_export.dart';
-import 'package:work_hours_mobile/presentation/home/consuntivo_section.dart';
+import 'package:work_hours_mobile/presentation/home/logic/consuntivo_export.dart';
+import 'package:work_hours_mobile/presentation/home/models/consuntivo_summary.dart';
 
 ConsuntivoSectionData _sampleData() {
   return const ConsuntivoSectionData(
