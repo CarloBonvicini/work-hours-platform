@@ -4,7 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:work_hours_mobile/presentation/home/widgets/calendar/quick_day_summary.dart';
 
-/// Arancio delle uscite ancora da confermare (programmata o teorica).
+/// Arancio dell'uscita prevista che aspetta una conferma.
 const Color quickDayPendingExitColor = Color(0xFFBF7A24);
 
 class QuickDayScheduleFields extends StatelessWidget {
@@ -57,13 +57,24 @@ class QuickDayScheduleFields extends StatelessWidget {
   bool get _isPlannedStart =>
       startTimeText.isEmpty && !isDayOff && plannedStartTimeText.isNotEmpty;
 
-  /// Uscita prevista: vale solo se non c'e' gia' un'uscita calcolata o salvata.
+  /// Uscita presa dal piano: vale solo se non ce n'e' una calcolata o salvata.
   bool get _isPlannedEnd =>
       endTimeText.isEmpty &&
       !isDayOff &&
       !hasPendingExitConfirmation &&
       !hasTheoreticalExit &&
       plannedEndTimeText.isNotEmpty;
+
+  /// L'uscita ha due soli nomi: quella che l'app prevede e quella registrata.
+  ///
+  /// Da dove arriva la previsione (piano settimanale, entrata piu' ore attese,
+  /// conferma in sospeso) lo dicono il colore e l'azione Conferma, non un
+  /// nome diverso da imparare.
+  bool get _isForecastExit =>
+      hasPendingExitConfirmation ||
+      hasTheoreticalExit ||
+      _isPlannedEnd ||
+      hasProgrammedExit;
 
   Widget _startField(Color plannedColor) {
     final displayedText = _isPlannedStart
@@ -86,13 +97,7 @@ class QuickDayScheduleFields extends StatelessWidget {
   Widget _endField(Color plannedColor) {
     final isConfirmable = hasPendingExitConfirmation || hasTheoreticalExit;
     return QuickScheduleValue(
-      label: hasPendingExitConfirmation
-          ? 'Uscita programmata'
-          : hasTheoreticalExit
-          ? 'Uscita teorica'
-          : _isPlannedEnd
-          ? 'Uscita prevista'
-          : (hasProgrammedExit ? 'Uscita programmata' : 'Uscita'),
+      label: _isForecastExit ? 'Uscita prevista' : 'Uscita',
       value: hasPendingExitConfirmation
           ? (endTimeText.isEmpty ? suggestedExitLabel : endTimeText)
           : hasTheoreticalExit
@@ -108,12 +113,14 @@ class QuickDayScheduleFields extends StatelessWidget {
           : _isPlannedEnd
           ? 'Previsto: conferma o cambia'
           : (endTimeText.isEmpty && !isDayOff ? 'Dopo l\'entrata' : null),
+      // Ogni previsione si vede che e' tale: arancio se aspetta una conferma,
+      // altrimenti attenuata come gli altri valori previsti.
       labelColorOverride: isConfirmable
           ? quickDayPendingExitColor
-          : (_isPlannedEnd ? plannedColor : null),
+          : (_isForecastExit ? plannedColor : null),
       valueColorOverride: isConfirmable
           ? quickDayPendingExitColor
-          : (_isPlannedEnd ? plannedColor : null),
+          : (_isForecastExit ? plannedColor : null),
       secondaryActionLabel: isConfirmable ? 'Conferma' : null,
       secondaryActionKey: const ValueKey(
         'calendar-override-confirm-theoretical-end-button',

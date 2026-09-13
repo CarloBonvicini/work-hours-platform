@@ -320,8 +320,8 @@ class CalendarCard extends StatelessWidget {
         remainingToProgrammedExitMinutes == null
         ? null
         : remainingToProgrammedExitMinutes > 0
-        ? 'Mancano ${formatHoursInput(remainingToProgrammedExitMinutes)} all\'uscita programmata'
-        : 'Uscita programmata raggiunta';
+        ? 'Mancano ${formatHoursInput(remainingToProgrammedExitMinutes)} all\'uscita prevista'
+        : 'Uscita prevista raggiunta';
     final workedMinutesAtProgrammedExit =
         remainingToProgrammedExitMinutes == null
         ? null
