@@ -1,13 +1,15 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:timezone/data/latest.dart' as tzdata;
 import 'package:timezone/timezone.dart' as tz;
-import 'package:work_hours_mobile/domain/models/app_update.dart';
+import 'package:work_hours_mobile/application/services/update_announcement_store.dart';
 
 class LocalNotificationService {
-  LocalNotificationService({FlutterLocalNotificationsPlugin? plugin})
-    : _plugin = plugin ?? FlutterLocalNotificationsPlugin();
+  LocalNotificationService({
+    FlutterLocalNotificationsPlugin? plugin,
+    UpdateAnnouncementStore announcementStore = const UpdateAnnouncementStore(),
+  }) : _plugin = plugin ?? FlutterLocalNotificationsPlugin(),
+       _announcementStore = announcementStore;
 
   static const _updateChannelId = 'work_hours_updates';
   static const _updateChannelName = 'Aggiornamenti app';
@@ -34,10 +36,8 @@ class LocalNotificationService {
 
   static bool _timeZonesInitialized = false;
 
-  static const _lastNotifiedUpdateVersionKey =
-      'local_notifications.last_notified_update_version';
-
   final FlutterLocalNotificationsPlugin _plugin;
+  final UpdateAnnouncementStore _announcementStore;
   bool _isInitialized = false;
   bool _isAvailable = true;
 
@@ -140,52 +140,6 @@ class LocalNotificationService {
     }
   }
 
-  Future<void> notifyUpdateAvailable(AppUpdate update) async {
-    if (kIsWeb || !_isAvailable) {
-      return;
-    }
-    await initialize();
-    if (!_isAvailable) {
-      return;
-    }
-
-    try {
-      final preferences = await SharedPreferences.getInstance();
-      final lastNotifiedVersion = preferences.getString(
-        _lastNotifiedUpdateVersionKey,
-      );
-      if (lastNotifiedVersion == update.latestVersion) {
-        return;
-      }
-
-      const details = NotificationDetails(
-        android: AndroidNotificationDetails(
-          _updateChannelId,
-          _updateChannelName,
-          channelDescription: _updateChannelDescription,
-          importance: Importance.high,
-          priority: Priority.high,
-        ),
-        iOS: DarwinNotificationDetails(),
-        macOS: DarwinNotificationDetails(),
-      );
-
-      await _plugin.show(
-        1001,
-        'Nuovo aggiornamento disponibile',
-        'Versione ${update.latestVersion} pronta da installare.',
-        details,
-        payload: 'update:${update.latestVersion}',
-      );
-      await preferences.setString(
-        _lastNotifiedUpdateVersionKey,
-        update.latestVersion,
-      );
-    } catch (_) {
-      _isAvailable = false;
-    }
-  }
-
   Future<void> notifyUpdateMessage({
     required String message,
     String? title,
@@ -199,16 +153,14 @@ class LocalNotificationService {
       return;
     }
 
-    final normalizedVersion = version?.trim();
+    final normalizedVersion = version == null
+        ? null
+        : normalizeReleaseVersion(version);
     try {
-      final preferences = await SharedPreferences.getInstance();
-      if (normalizedVersion != null && normalizedVersion.isNotEmpty) {
-        final lastNotifiedVersion = preferences.getString(
-          _lastNotifiedUpdateVersionKey,
-        );
-        if (lastNotifiedVersion == normalizedVersion) {
-          return;
-        }
+      if (normalizedVersion != null &&
+          normalizedVersion.isNotEmpty &&
+          await _announcementStore.hasAnnounced(normalizedVersion)) {
+        return;
       }
 
       const details = NotificationDetails(
@@ -236,10 +188,7 @@ class LocalNotificationService {
       );
 
       if (normalizedVersion != null && normalizedVersion.isNotEmpty) {
-        await preferences.setString(
-          _lastNotifiedUpdateVersionKey,
-          normalizedVersion,
-        );
+        await _announcementStore.markAnnounced(normalizedVersion);
       }
     } catch (_) {
       _isAvailable = false;
