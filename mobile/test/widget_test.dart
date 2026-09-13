@@ -494,7 +494,7 @@ void main() {
       ),
       findsOneWidget,
     );
-    expect(find.text('Stesso orario lun-ven'), findsOneWidget);
+    expect(find.text('Stesso orario tutti i giorni'), findsOneWidget);
     expect(find.text('Disattiva per personalizzare i giorni.'), findsOneWidget);
     expect(
       find.byKey(const ValueKey('work-settings-lunch-break-monday')),
@@ -537,6 +537,68 @@ void main() {
     expect(find.text('Ore giornaliere attese'), findsNothing);
     expect(find.text('Carica orari'), findsNothing);
     expect(find.text('Salva orari'), findsNothing);
+  });
+
+  testWidgets('saves weekend work while keeping the uniform schedule', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(900, 2600));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final repository = _FakeDashboardRepository();
+    await tester.pumpWidget(
+      WorkHoursApp(
+        dashboardService: DashboardService(repository: repository),
+        appUpdateService: _FakeAppUpdateService(),
+        updateReminderStore: _FakeUpdateReminderStore(),
+        onboardingPreferenceStore: _FakeOnboardingPreferenceStore(
+          hasCompleted: true,
+        ),
+        themePreferenceStore: _FakeThemePreferenceStore(),
+        workdayStartStore: _FakeWorkdayStartStore(),
+        supportTicketStore: _FakeSupportTicketStore(),
+        hasCompletedInitialSetup: true,
+      ),
+    );
+    await tester.pumpAndSettle();
+    if (find.text('Ricordamelo piu tardi').evaluate().isNotEmpty) {
+      await tester.tap(find.text('Ricordamelo piu tardi'));
+      await tester.pumpAndSettle();
+    }
+    await tester.tap(find.byKey(const ValueKey('navigation-menu-button')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('navigation-option-workSettings')),
+    );
+    await tester.pumpAndSettle();
+
+    // Passa all'orario unico: il selettore dei giorni deve restare disponibile.
+    final uniformSwitch = find.ancestor(
+      of: find.text('Stesso orario tutti i giorni'),
+      matching: find.byType(SwitchListTile),
+    );
+    await tester.ensureVisible(uniformSwitch);
+    await tester.tap(uniformSwitch);
+    await tester.pumpAndSettle();
+
+    final saturdayToggle = find.byKey(
+      const ValueKey('work-settings-working-day-toggle-saturday'),
+    );
+    await tester.ensureVisible(saturdayToggle);
+    await tester.tap(saturdayToggle);
+    await tester.pumpAndSettle();
+
+    final saveButton = find.widgetWithText(FilledButton, 'Salva');
+    await tester.ensureVisible(saveButton);
+    await tester.tap(saveButton);
+    await tester.pumpAndSettle();
+
+    final savedSchedule = repository.savedWeekdaySchedule;
+    expect(savedSchedule, isNotNull);
+    expect(savedSchedule!.saturday.targetMinutes, greaterThan(0));
+    expect(savedSchedule.monday.targetMinutes, greaterThan(0));
+    // La domenica non e' stata scelta: resta libera.
+    expect(savedSchedule.sunday.targetMinutes, 0);
   });
 
   testWidgets('toggles weekday lunch break in work settings', (tester) async {

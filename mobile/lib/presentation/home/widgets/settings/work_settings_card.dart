@@ -256,13 +256,25 @@ class WorkSettingsCard extends StatelessWidget {
                     contentPadding: EdgeInsets.zero,
                     value: useUniformDailyTarget,
                     onChanged: isBusy ? null : onUniformDailyTargetChanged,
-                    title: const Text('Stesso orario lun-ven'),
+                    title: const Text('Stesso orario tutti i giorni'),
                     subtitle: const Text(
                       'Disattiva per personalizzare i giorni.',
                     ),
                   ),
                   const SizedBox(height: 14),
-                  if (useUniformDailyTarget)
+                  if (useUniformDailyTarget) ...[
+                    // Anche con l'orario unico i giorni lavorativi si scelgono
+                    // qui: chi lavora il weekend non deve cambiare modalita'.
+                    Text(
+                      'Seleziona i tuoi giorni lavorativi',
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                    const SizedBox(height: 10),
+                    WorkingWeekdaySelector(
+                      selectedWeekdays: configuredWorkingDays.toSet(),
+                      onChanged: onWeekdayWorkingDayChanged,
+                    ),
+                    const SizedBox(height: 14),
                     SettingsScheduleEditor(
                       title: 'Orario standard',
                       targetText: uniformDailyTargetController.text,
@@ -285,8 +297,8 @@ class WorkSettingsCard extends StatelessWidget {
                       onPickEndTime: () =>
                           onPickUniformScheduleTime(CalendarTimeField.end),
                       onPickBreak: onPickUniformBreakMinutes,
-                    )
-                  else
+                    ),
+                  ] else
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [

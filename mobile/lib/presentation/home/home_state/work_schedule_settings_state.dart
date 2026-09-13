@@ -212,6 +212,22 @@ mixin _WorkScheduleSettingsState on _HomeScreenStateBase {
     );
   }
 
+  /// Giorni marcati come lavorativi nelle bozze per giorno.
+  Set<WeekdayKey> _configuredWorkingWeekdays() {
+    return {
+      for (final weekday in WeekdayKey.values)
+        if ((resolveDraftTargetMinutes(
+                  targetText: _weekdayControllers[weekday]!.text,
+                  startTimeText: _weekdayStartTimeControllers[weekday]!.text,
+                  endTimeText: _weekdayEndTimeControllers[weekday]!.text,
+                  breakText: _weekdayBreakControllers[weekday]!.text,
+                ) ??
+                0) >
+            0)
+          weekday,
+    };
+  }
+
   @override
   void _setWeekdayWorkingEnabled(WeekdayKey weekday, bool enabled) {
     final targetController = _weekdayControllers[weekday]!;
@@ -635,11 +651,14 @@ mixin _WorkScheduleSettingsState on _HomeScreenStateBase {
         return null;
       }
 
+      // L'orario unico vale sui giorni scelti come lavorativi: chi lavora nel
+      // weekend non deve passare al dettaglio per giorno.
       return WeekdaySchedule.uniform(
         uniformSchedule.targetMinutes,
         startTime: uniformSchedule.startTime,
         endTime: uniformSchedule.endTime,
         breakMinutes: uniformSchedule.breakMinutes,
+        workingDays: _configuredWorkingWeekdays(),
       );
     }
 
