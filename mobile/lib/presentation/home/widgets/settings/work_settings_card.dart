@@ -4,15 +4,15 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:work_hours_mobile/application/services/hour_input_parser.dart';
 import 'package:work_hours_mobile/application/services/theme_preference_store.dart';
-import 'package:work_hours_mobile/application/services/time_input_parser.dart';
 import 'package:work_hours_mobile/domain/models/user_work_rules.dart';
 import 'package:work_hours_mobile/domain/models/weekday_target_minutes.dart';
-import 'package:work_hours_mobile/presentation/home/logic/calendar_dates.dart';
+import 'package:work_hours_mobile/presentation/home/logic/flexible_start_hints.dart';
 import 'package:work_hours_mobile/presentation/home/logic/schedule_draft.dart';
 import 'package:work_hours_mobile/presentation/home/models/calendar_view.dart';
 import 'package:work_hours_mobile/presentation/home/widgets/settings/leave_banks_editor.dart';
 import 'package:work_hours_mobile/presentation/home/widgets/settings/permission_rules_editor.dart';
 import 'package:work_hours_mobile/presentation/home/widgets/settings/settings_schedule_editor.dart';
+import 'package:work_hours_mobile/presentation/home/widgets/settings/settings_advanced_group.dart';
 import 'package:work_hours_mobile/presentation/home/widgets/settings/settings_section_panel.dart';
 import 'package:work_hours_mobile/presentation/home/widgets/settings/work_rules_core_editors.dart';
 import 'package:work_hours_mobile/presentation/home/widgets/settings/work_rules_overtime_wallet_editors.dart';
@@ -188,39 +188,15 @@ class WorkSettingsCard extends StatelessWidget {
     final configuredWorkingDays = WeekdayKey.values
         .where(isWorkingWeekday)
         .toList(growable: false);
-    final flexibleStartWindowMinutes =
-        parseHoursInput(rulesFlexibleStartWindowController.text) ?? 0;
-    final flexibleStartRangeHints = <String>[];
-    if (rulesFlexibleStartEnabled && flexibleStartWindowMinutes > 0) {
-      for (final weekday in configuredWorkingDays) {
-        final weekdayStartMinutes = parseTimeInput(
+    final flexibleStartRangeHints = buildFlexibleStartRangeHints(
+      isFlexibleStartEnabled: rulesFlexibleStartEnabled,
+      windowMinutes:
+          parseHoursInput(rulesFlexibleStartWindowController.text) ?? 0,
+      workingDays: configuredWorkingDays,
+      weekdayStartTimeOf: (weekday) =>
           weekdayStartTimeControllers[weekday]!.text,
-        );
-        if (weekdayStartMinutes == null) {
-          continue;
-        }
-        final latestStartMinutes =
-            weekdayStartMinutes + flexibleStartWindowMinutes;
-        final dayLabel = compactWeekdayLabel(weekday);
-        final overflowSuffix = latestStartMinutes >= (24 * 60) ? ' +1g' : '';
-        flexibleStartRangeHints.add(
-          '$dayLabel ${formatTimeInput(weekdayStartMinutes)} - ${formatTimeInput(latestStartMinutes % (24 * 60))}$overflowSuffix',
-        );
-      }
-      if (flexibleStartRangeHints.isEmpty) {
-        final uniformStartMinutes = parseTimeInput(
-          uniformStartTimeController.text,
-        );
-        if (uniformStartMinutes != null) {
-          final latestStartMinutes =
-              uniformStartMinutes + flexibleStartWindowMinutes;
-          final overflowSuffix = latestStartMinutes >= (24 * 60) ? ' +1g' : '';
-          flexibleStartRangeHints.add(
-            'Fascia ${formatTimeInput(uniformStartMinutes)} - ${formatTimeInput(latestStartMinutes % (24 * 60))}$overflowSuffix',
-          );
-        }
-      }
-    }
+      uniformStartTime: uniformStartTimeController.text,
+    );
 
     return SectionCard(
       title: 'Orari e permessi',
@@ -381,128 +357,146 @@ class WorkSettingsCard extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 16),
-            SettingsSectionPanel(
-              icon: Icons.tune_rounded,
-              title: 'Limiti',
+            SettingsAdvancedGroup(
+              title: 'Regole del contratto',
               subtitle:
-                  'Scegli il massimo credito o debito che l app puo conteggiare nel giorno e nel mese. Se non vuoi limiti, lascia Nessun limite.',
-              isExpanded: appearanceSettings.expandWorkSettingsLimits,
+                  'Limiti, straordinario, flessibilita e permessi automatici. '
+                  'Aprile solo se il tuo contratto le prevede.',
               toggleButtonKey: const ValueKey(
-                'work-settings-limits-toggle-button',
+                'work-settings-contract-rules-toggle-button',
               ),
-              onToggleExpanded: (expanded) => unawaited(
-                onAppearanceSettingsChanged(
-                  appearanceSettings.copyWith(
-                    expandWorkSettingsLimits: expanded,
+              children: [
+                SettingsSectionPanel(
+                  icon: Icons.tune_rounded,
+                  title: 'Limiti',
+                  subtitle:
+                      'Scegli il massimo credito o debito che l app puo conteggiare nel giorno e nel mese. Se non vuoi limiti, lascia Nessun limite.',
+                  isExpanded: appearanceSettings.expandWorkSettingsLimits,
+                  toggleButtonKey: const ValueKey(
+                    'work-settings-limits-toggle-button',
+                  ),
+                  onToggleExpanded: (expanded) => unawaited(
+                    onAppearanceSettingsChanged(
+                      appearanceSettings.copyWith(
+                        expandWorkSettingsLimits: expanded,
+                      ),
+                    ),
+                  ),
+                  child: WorkRulesLimitsEditor(
+                    maximumDailyCreditText:
+                        rulesMaximumDailyCreditController.text,
+                    maximumDailyDebitText:
+                        rulesMaximumDailyDebitController.text,
+                    maximumMonthlyCreditText:
+                        rulesMaximumMonthlyCreditController.text,
+                    maximumMonthlyDebitText:
+                        rulesMaximumMonthlyDebitController.text,
+                    onPickMaximumDailyCredit:
+                        onPickRulesMaximumDailyCreditMinutes,
+                    onPickMaximumDailyDebit:
+                        onPickRulesMaximumDailyDebitMinutes,
+                    onPickMaximumMonthlyCredit:
+                        onPickRulesMaximumMonthlyCreditMinutes,
+                    onPickMaximumMonthlyDebit:
+                        onPickRulesMaximumMonthlyDebitMinutes,
                   ),
                 ),
-              ),
-              child: WorkRulesLimitsEditor(
-                maximumDailyCreditText: rulesMaximumDailyCreditController.text,
-                maximumDailyDebitText: rulesMaximumDailyDebitController.text,
-                maximumMonthlyCreditText:
-                    rulesMaximumMonthlyCreditController.text,
-                maximumMonthlyDebitText:
-                    rulesMaximumMonthlyDebitController.text,
-                onPickMaximumDailyCredit: onPickRulesMaximumDailyCreditMinutes,
-                onPickMaximumDailyDebit: onPickRulesMaximumDailyDebitMinutes,
-                onPickMaximumMonthlyCredit:
-                    onPickRulesMaximumMonthlyCreditMinutes,
-                onPickMaximumMonthlyDebit:
-                    onPickRulesMaximumMonthlyDebitMinutes,
-              ),
-            ),
-            const SizedBox(height: 16),
-            SettingsSectionPanel(
-              icon: Icons.bolt_outlined,
-              title: 'Straordinario',
-              subtitle:
-                  'Attiva straordinario e definisci eventuali massimali giornalieri, settimanali o mensili.',
-              isExpanded: appearanceSettings.expandWorkSettingsOvertime,
-              toggleButtonKey: const ValueKey(
-                'work-settings-overtime-toggle-button',
-              ),
-              onToggleExpanded: (expanded) => unawaited(
-                onAppearanceSettingsChanged(
-                  appearanceSettings.copyWith(
-                    expandWorkSettingsOvertime: expanded,
+                const SizedBox(height: 16),
+                SettingsSectionPanel(
+                  icon: Icons.bolt_outlined,
+                  title: 'Straordinario',
+                  subtitle:
+                      'Attiva straordinario e definisci eventuali massimali giornalieri, settimanali o mensili.',
+                  isExpanded: appearanceSettings.expandWorkSettingsOvertime,
+                  toggleButtonKey: const ValueKey(
+                    'work-settings-overtime-toggle-button',
+                  ),
+                  onToggleExpanded: (expanded) => unawaited(
+                    onAppearanceSettingsChanged(
+                      appearanceSettings.copyWith(
+                        expandWorkSettingsOvertime: expanded,
+                      ),
+                    ),
+                  ),
+                  child: WorkRulesOvertimeEditor(
+                    overtimeEnabled: rulesOvertimeEnabled,
+                    overtimeCapEnabled: rulesOvertimeCapEnabled,
+                    overtimeDailyCapText: rulesOvertimeDailyCapController.text,
+                    overtimeWeeklyCapText:
+                        rulesOvertimeWeeklyCapController.text,
+                    overtimeMonthlyCapText:
+                        rulesOvertimeMonthlyCapController.text,
+                    onOvertimeEnabledChanged: onRulesOvertimeEnabledChanged,
+                    onOvertimeCapEnabledChanged:
+                        onRulesOvertimeCapEnabledChanged,
+                    onPickDailyCap: onPickRulesOvertimeDailyCapMinutes,
+                    onPickWeeklyCap: onPickRulesOvertimeWeeklyCapMinutes,
+                    onPickMonthlyCap: onPickRulesOvertimeMonthlyCapMinutes,
                   ),
                 ),
-              ),
-              child: WorkRulesOvertimeEditor(
-                overtimeEnabled: rulesOvertimeEnabled,
-                overtimeCapEnabled: rulesOvertimeCapEnabled,
-                overtimeDailyCapText: rulesOvertimeDailyCapController.text,
-                overtimeWeeklyCapText: rulesOvertimeWeeklyCapController.text,
-                overtimeMonthlyCapText: rulesOvertimeMonthlyCapController.text,
-                onOvertimeEnabledChanged: onRulesOvertimeEnabledChanged,
-                onOvertimeCapEnabledChanged: onRulesOvertimeCapEnabledChanged,
-                onPickDailyCap: onPickRulesOvertimeDailyCapMinutes,
-                onPickWeeklyCap: onPickRulesOvertimeWeeklyCapMinutes,
-                onPickMonthlyCap: onPickRulesOvertimeMonthlyCapMinutes,
-              ),
-            ),
-            const SizedBox(height: 16),
-            SettingsSectionPanel(
-              icon: Icons.login_outlined,
-              title: 'Ingresso e uscita',
-              subtitle:
-                  'Imposta l ingresso fisso e, se ti serve, aggiungi la flessibilita: la fascia viene calcolata in automatico (es. 07:30 + 2:00 = 07:30-09:30).',
-              isExpanded: appearanceSettings.expandWorkSettingsAttendance,
-              toggleButtonKey: const ValueKey(
-                'work-settings-attendance-toggle-button',
-              ),
-              onToggleExpanded: (expanded) => unawaited(
-                onAppearanceSettingsChanged(
-                  appearanceSettings.copyWith(
-                    expandWorkSettingsAttendance: expanded,
+                const SizedBox(height: 16),
+                SettingsSectionPanel(
+                  icon: Icons.login_outlined,
+                  title: 'Ingresso e uscita',
+                  subtitle:
+                      'Imposta l ingresso fisso e, se ti serve, aggiungi la flessibilita: la fascia viene calcolata in automatico (es. 07:30 + 2:00 = 07:30-09:30).',
+                  isExpanded: appearanceSettings.expandWorkSettingsAttendance,
+                  toggleButtonKey: const ValueKey(
+                    'work-settings-attendance-toggle-button',
+                  ),
+                  onToggleExpanded: (expanded) => unawaited(
+                    onAppearanceSettingsChanged(
+                      appearanceSettings.copyWith(
+                        expandWorkSettingsAttendance: expanded,
+                      ),
+                    ),
+                  ),
+                  child: WorkRulesAttendanceEditor(
+                    fixedScheduleEnabled: rulesFixedScheduleEnabled,
+                    flexibleStartEnabled: rulesFlexibleStartEnabled,
+                    flexibleStartWindowText:
+                        rulesFlexibleStartWindowController.text,
+                    flexibleStartRangeHints: flexibleStartRangeHints,
+                    onFixedScheduleChanged: onRulesFixedScheduleEnabledChanged,
+                    onFlexibleStartChanged: onRulesFlexibleStartEnabledChanged,
+                    onPickFlexibleStartWindow:
+                        onPickRulesFlexibleStartWindowMinutes,
                   ),
                 ),
-              ),
-              child: WorkRulesAttendanceEditor(
-                fixedScheduleEnabled: rulesFixedScheduleEnabled,
-                flexibleStartEnabled: rulesFlexibleStartEnabled,
-                flexibleStartWindowText:
-                    rulesFlexibleStartWindowController.text,
-                flexibleStartRangeHints: flexibleStartRangeHints,
-                onFixedScheduleChanged: onRulesFixedScheduleEnabledChanged,
-                onFlexibleStartChanged: onRulesFlexibleStartEnabledChanged,
-                onPickFlexibleStartWindow:
-                    onPickRulesFlexibleStartWindowMinutes,
-              ),
-            ),
-            const SizedBox(height: 16),
-            SettingsSectionPanel(
-              icon: Icons.account_balance_wallet_outlined,
-              title: 'Permessi orari automatici',
-              subtitle:
-                  'Imposta limiti automatici per uscita anticipata e credito extra. Per regole con nomi personalizzati usa Regole permessi.',
-              isExpanded: appearanceSettings.expandWorkSettingsWallet,
-              toggleButtonKey: const ValueKey(
-                'work-settings-wallet-toggle-button',
-              ),
-              onToggleExpanded: (expanded) => unawaited(
-                onAppearanceSettingsChanged(
-                  appearanceSettings.copyWith(
-                    expandWorkSettingsWallet: expanded,
+                const SizedBox(height: 16),
+                SettingsSectionPanel(
+                  icon: Icons.account_balance_wallet_outlined,
+                  title: 'Permessi orari automatici',
+                  subtitle:
+                      'Imposta limiti automatici per uscita anticipata e credito extra. Per regole con nomi personalizzati usa Regole permessi.',
+                  isExpanded: appearanceSettings.expandWorkSettingsWallet,
+                  toggleButtonKey: const ValueKey(
+                    'work-settings-wallet-toggle-button',
+                  ),
+                  onToggleExpanded: (expanded) => unawaited(
+                    onAppearanceSettingsChanged(
+                      appearanceSettings.copyWith(
+                        expandWorkSettingsWallet: expanded,
+                      ),
+                    ),
+                  ),
+                  child: WorkRulesWalletEditor(
+                    walletEnabled: rulesWalletEnabled,
+                    walletDailyExitText: rulesWalletDailyExitController.text,
+                    walletWeeklyExitText: rulesWalletWeeklyExitController.text,
+                    implicitCreditEnabled: rulesImplicitCreditEnabled,
+                    implicitCreditDailyCapText:
+                        rulesImplicitCreditDailyCapController.text,
+                    onWalletEnabledChanged: onRulesWalletEnabledChanged,
+                    onImplicitCreditEnabledChanged:
+                        onRulesImplicitCreditEnabledChanged,
+                    onPickWalletDailyExit: onPickRulesWalletDailyExitMinutes,
+                    onPickWalletWeeklyExit: onPickRulesWalletWeeklyExitMinutes,
+                    onPickImplicitCreditDailyCap:
+                        onPickRulesImplicitCreditDailyCapMinutes,
                   ),
                 ),
-              ),
-              child: WorkRulesWalletEditor(
-                walletEnabled: rulesWalletEnabled,
-                walletDailyExitText: rulesWalletDailyExitController.text,
-                walletWeeklyExitText: rulesWalletWeeklyExitController.text,
-                implicitCreditEnabled: rulesImplicitCreditEnabled,
-                implicitCreditDailyCapText:
-                    rulesImplicitCreditDailyCapController.text,
-                onWalletEnabledChanged: onRulesWalletEnabledChanged,
-                onImplicitCreditEnabledChanged:
-                    onRulesImplicitCreditEnabledChanged,
-                onPickWalletDailyExit: onPickRulesWalletDailyExitMinutes,
-                onPickWalletWeeklyExit: onPickRulesWalletWeeklyExitMinutes,
-                onPickImplicitCreditDailyCap:
-                    onPickRulesImplicitCreditDailyCapMinutes,
-              ),
+              ],
             ),
             const SizedBox(height: 16),
             SettingsSectionPanel(

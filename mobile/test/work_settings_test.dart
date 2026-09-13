@@ -21,6 +21,18 @@ void main() {
 
     expect(find.text('Orario di lavoro'), findsOneWidget);
     expect(find.text('Quanto devi lavorare'), findsNothing);
+
+    // Le regole del contratto restano in un cassetto chiuso: chi apre le
+    // impostazioni vede prima le cose che usa davvero.
+    expect(find.text('Limiti'), findsNothing);
+    expect(find.text('Regole del contratto'), findsOneWidget);
+    final contractRulesToggle = find.byKey(
+      const ValueKey('work-settings-contract-rules-toggle-button'),
+    );
+    await tester.ensureVisible(contractRulesToggle);
+    await tester.pumpAndSettle();
+    await tester.tap(contractRulesToggle);
+    await tester.pumpAndSettle();
     expect(find.text('Limiti'), findsOneWidget);
     expect(
       find.byKey(const ValueKey('work-settings-schedule-toggle-button')),
@@ -151,6 +163,25 @@ void main() {
     addTearDown(() => tester.binding.setSurfaceSize(null));
     final themePreferenceStore = FakeThemePreferenceStore();
 
+    // Le regole del contratto stanno in un gruppo chiuso: qui si verifica che
+    // lo stato dei pannelli dentro venga ricordato, quindi va aperto ogni volta.
+    Future<void> openContractRules() async {
+      final limitsFinder = find.byKey(
+        const ValueKey('work-settings-limits-toggle-button'),
+      );
+      if (limitsFinder.evaluate().isNotEmpty) {
+        return;
+      }
+
+      final groupFinder = find.byKey(
+        const ValueKey('work-settings-contract-rules-toggle-button'),
+      );
+      await tester.ensureVisible(groupFinder);
+      await tester.pumpAndSettle();
+      await tester.tap(groupFinder);
+      await tester.pumpAndSettle();
+    }
+
     Future<void> openWorkSettings() async {
       final workSettingsOptionFinder = find.byKey(
         const ValueKey('navigation-option-workSettings'),
@@ -160,6 +191,7 @@ void main() {
         if (workSettingsOptionFinder.evaluate().isNotEmpty) {
           await tester.tap(workSettingsOptionFinder.first);
           await tester.pumpAndSettle();
+          await openContractRules();
           return;
         }
 
@@ -177,6 +209,7 @@ void main() {
 
       final workSettingsTitle = find.text('Orari e permessi');
       if (workSettingsTitle.evaluate().isNotEmpty) {
+        await openContractRules();
         return;
       }
 
