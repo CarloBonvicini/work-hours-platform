@@ -6,7 +6,7 @@ import 'package:work_hours_mobile/application/services/app_update_service.dart';
 import 'package:work_hours_mobile/application/services/update_launcher.dart';
 import 'package:work_hours_mobile/domain/models/app_update.dart';
 import 'package:work_hours_mobile/presentation/home/logic/download_size_label.dart';
-import 'package:work_hours_mobile/presentation/home/update_release_notes_parser.dart';
+import 'package:work_hours_mobile/presentation/home/logic/update_release_notes_parser.dart';
 
 enum UpdateDownloadState { downloading, readyToInstall, failed, installing }
 
