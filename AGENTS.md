@@ -10,14 +10,24 @@ Mantieni Work Hours Platform modulare, leggibile e facile da evolvere, evitando 
 
 ## Regole strutturali globali
 - Non creare nuovi file monolitici.
-- Se un file supera 400 righe, preferisci split per responsabilita.
-- Se una funzione supera 40 righe, estrai funzioni piu piccole.
 - Evita moduli generici tipo `utils`/`manager` che accentrano logica eterogenea.
 - UI, orchestrazione, business logic e persistenza devono rimanere separate.
+- Si splitta quando un file mescola responsabilita, non quando un contatore supera una soglia.
+
+## Soglie di dimensione
+- Riferimento: 400 righe per file, 40 per funzione (righe vuote e commenti esclusi).
+- Backend: sono bloccanti, le applica il lint (`backend/eslint.config.js`).
+- Mobile: nessun enforcement automatico e molti file sono gia oltre. Valgono come direzione:
+  i file nuovi nascono sotto soglia, quelli che tocchi non devono crescere oltre.
+- Non spendere un task a spezzare un file solo perche ha passato la soglia: se la
+  responsabilita e una sola, lascialo e dillo nel task.
 
 ## Anti-monolite
 - E vietato aggiungere nuove feature in file legacy gia oversize senza valutare prima decomposizione.
-- Eccezioni legacy attuali: `backend/src/app.ts`, `backend/src/data/postgres-store.ts`, `backend/src/domain/monthly-summary.ts`.
+- Eccezioni backend: l'elenco autorevole e `LEGACY_OVERSIZED_FILES` in `backend/eslint.config.js`.
+  Tienilo allineato la', non duplicarlo qui.
+- Mobile: non esiste una lista e diversi file sono oversize. Regola operativa: non peggiorarli.
+  Se ne tocchi uno, o lo lasci come lo hai trovato o lo riduci.
 - Se tocchi file legacy, fai modifiche minime e proponi split incrementale nel task.
 
 ## Modalita di lavoro
