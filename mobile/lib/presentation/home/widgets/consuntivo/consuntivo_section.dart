@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:printing/printing.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:work_hours_mobile/presentation/home/logic/consuntivo_export.dart';
+import 'package:work_hours_mobile/presentation/home/widgets/consuntivo/consuntivo_metrics.dart';
 import 'package:work_hours_mobile/presentation/home/models/consuntivo_summary.dart';
 
 class ConsuntivoSection extends StatelessWidget {
@@ -121,7 +122,7 @@ class ConsuntivoSection extends StatelessWidget {
               const LinearProgressIndicator(minHeight: 3),
             ],
             const SizedBox(height: 16),
-            _MetricGrid(totals: data.totals),
+            ConsuntivoMetricGrid(totals: data.totals),
             const SizedBox(height: 18),
             Text(
               'Mesi inclusi',
@@ -158,15 +159,17 @@ class ConsuntivoSection extends StatelessWidget {
                           ),
                           const SizedBox(height: 8),
                           Text(
-                            'Programmate ${_formatHours(month.expectedMinutes)}',
+                            'Programmate ${formatConsuntivoMetricHours(month.expectedMinutes)}',
                           ),
                           Text(
-                            'Registrate ${_formatHours(month.workedMinutes)}',
+                            'Registrate ${formatConsuntivoMetricHours(month.workedMinutes)}',
                           ),
-                          Text('Causali ${_formatHours(month.leaveMinutes)}'),
+                          Text(
+                            'Causali ${formatConsuntivoMetricHours(month.leaveMinutes)}',
+                          ),
                           const SizedBox(height: 6),
                           Text(
-                            'Saldo ${_formatSignedHours(month.balanceMinutes)}',
+                            'Saldo ${formatConsuntivoMetricSignedHours(month.balanceMinutes)}',
                             style: theme.textTheme.bodyMedium?.copyWith(
                               color: balanceColor,
                               fontWeight: FontWeight.w700,
@@ -298,7 +301,9 @@ class ConsuntivoSection extends StatelessWidget {
                             ],
                           ),
                           trailing: Text(
-                            _formatSignedHours(day.balanceMinutes),
+                            formatConsuntivoMetricSignedHours(
+                              day.balanceMinutes,
+                            ),
                             style: theme.textTheme.titleSmall?.copyWith(
                               color: balanceColor,
                               fontWeight: FontWeight.w800,
@@ -385,102 +390,4 @@ class ConsuntivoSection extends StatelessWidget {
       );
     }
   }
-}
-
-class _MetricGrid extends StatelessWidget {
-  const _MetricGrid({required this.totals});
-
-  final ConsuntivoTotals totals;
-
-  @override
-  Widget build(BuildContext context) {
-    return Wrap(
-      spacing: 10,
-      runSpacing: 10,
-      children: [
-        _MetricTile(
-          label: 'Programmate',
-          value: _formatHours(totals.expectedMinutes),
-        ),
-        _MetricTile(
-          label: 'Lavorate',
-          value: _formatHours(totals.workedMinutes),
-        ),
-        _MetricTile(label: 'Causali', value: _formatHours(totals.leaveMinutes)),
-        _MetricTile(
-          label: 'Saldo reale',
-          value: _formatSignedHours(totals.rawBalanceMinutes),
-        ),
-        _MetricTile(
-          label: 'Saldo controllato',
-          value: _formatSignedHours(totals.clampedBalanceMinutes),
-        ),
-        _MetricTile(
-          label: 'Straordinario maturato',
-          value: _formatHours(totals.overtimeMaturedMinutes),
-          positive: true,
-        ),
-        _MetricTile(
-          label: 'Debito maturato',
-          value: _formatHours(totals.debitMaturedMinutes),
-        ),
-      ],
-    );
-  }
-}
-
-class _MetricTile extends StatelessWidget {
-  const _MetricTile({
-    required this.label,
-    required this.value,
-    this.positive = false,
-  });
-
-  final String label;
-  final String value;
-  final bool positive;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Container(
-      width: 160,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(14),
-        color: theme.colorScheme.surfaceContainerLow,
-        border: Border.all(color: theme.colorScheme.outlineVariant),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(label, style: theme.textTheme.labelMedium),
-          const SizedBox(height: 6),
-          Text(
-            value,
-            style: theme.textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.w800,
-              color: positive ? const Color(0xFF0B6E69) : null,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-String _formatHours(int minutes) {
-  final absoluteMinutes = minutes.abs();
-  final hours = absoluteMinutes ~/ 60;
-  final remainingMinutes = absoluteMinutes % 60;
-  final prefix = minutes < 0 ? '-' : '';
-  return '$prefix$hours:${remainingMinutes.toString().padLeft(2, '0')}';
-}
-
-String _formatSignedHours(int minutes) {
-  if (minutes == 0) {
-    return '0:00';
-  }
-  final prefix = minutes > 0 ? '+' : '-';
-  return '$prefix${_formatHours(minutes.abs())}';
 }
