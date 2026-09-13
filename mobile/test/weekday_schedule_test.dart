@@ -44,10 +44,7 @@ void main() {
     });
 
     test('nessun giorno lavorativo produce una settimana vuota', () {
-      final schedule = WeekdaySchedule.uniform(
-        8 * 60,
-        workingDays: const {},
-      );
+      final schedule = WeekdaySchedule.uniform(8 * 60, workingDays: const {});
 
       for (final weekday in WeekdayKey.values) {
         expect(schedule.forWeekday(weekday).targetMinutes, 0);

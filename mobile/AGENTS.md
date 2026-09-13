@@ -29,6 +29,16 @@ Mantenere UI e logica Flutter coerenti, prevedibili e testabili.
   Non aggiornare il tag per far girare i controlli e non committare `pubspec.lock`
   se a cambiarlo e stato solo `flutter pub get`.
 
+## Struttura dei test (`test/`)
+- `support/`: doppi di test condivisi (`fake_app_services.dart`,
+  `fake_dashboard_repository.dart`) e `app_test_harness.dart`, che monta l'app con
+  `pumpWorkHoursApp` e offre i gesti ricorrenti (chiusura dialogo aggiornamenti,
+  apertura di una sezione).
+- Un file di widget test per area (vista giorno, modifica rapida, timbratura,
+  preferenze di layout, impostazioni orario, regole permessi, avvio app): niente
+  file unico che raccoglie tutto.
+- I test di logica pura restano affiancati al modulo che coprono.
+
 ## UX guardrail
 - Stato vuoto guidato quando in quel punto c'e' davvero un'azione da fare. Se un blocco non
   ha nulla da mostrare e nulla di suo da fare, va tolto, non riempito di "Nessun dato".
