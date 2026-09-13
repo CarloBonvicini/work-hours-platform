@@ -7,7 +7,6 @@ import 'package:work_hours_mobile/application/services/workday_start_store.dart'
 import 'package:work_hours_mobile/domain/models/day_schedule.dart';
 import 'package:work_hours_mobile/presentation/home/logic/workday_session_info.dart';
 import 'package:work_hours_mobile/presentation/home/models/calendar_day.dart';
-import 'package:work_hours_mobile/presentation/home/today_extras.dart';
 import 'package:work_hours_mobile/presentation/home/widgets/shared/today_status_badge.dart';
 
 class WorkdaySessionCard extends StatelessWidget {
@@ -60,8 +59,11 @@ class WorkdaySessionCard extends StatelessWidget {
       nowMinutes: nowMinutes,
     );
     final breakSegmentsInfo = formatWorkdayBreakSegments(session);
-    final displayedEndMinutes =
-        parseTimeInput(schedule.endTime) ?? session?.endMinutes;
+    // L'uscita si annuncia solo a giornata chiusa: l'orario previsto resta una
+    // previsione, non una registrazione.
+    final displayedEndMinutes = session?.isCompleted == true
+        ? (parseTimeInput(schedule.endTime) ?? session?.endMinutes)
+        : null;
     final toggleButtonSize = isExpanded ? 36.0 : 30.0;
     final toggleIconSize = isExpanded ? 20.0 : 18.0;
     final expandedIcon = isExpanded

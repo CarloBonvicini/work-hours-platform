@@ -41,6 +41,7 @@ import 'package:work_hours_mobile/presentation/home/logic/calendar_dates.dart';
 import 'package:work_hours_mobile/presentation/home/logic/calendar_day_labels.dart';
 import 'package:work_hours_mobile/presentation/home/logic/day_balance.dart';
 import 'package:work_hours_mobile/presentation/home/logic/hours_labels.dart';
+import 'package:work_hours_mobile/presentation/home/logic/planned_day_schedule.dart';
 import 'package:work_hours_mobile/presentation/home/logic/rule_value_labels.dart';
 import 'package:work_hours_mobile/presentation/home/logic/schedule_draft.dart';
 import 'package:work_hours_mobile/presentation/home/logic/ticket_labels.dart';
@@ -573,6 +574,11 @@ abstract class _HomeScreenStateBase extends State<HomeScreen>
   );
 
   DaySchedule _resolveEffectiveDayScheduleForDate(
+    DashboardSnapshot snapshot,
+    DateTime date,
+  );
+
+  DaySchedule _resolvePlannedDayScheduleForDate(
     DashboardSnapshot snapshot,
     DateTime date,
   );

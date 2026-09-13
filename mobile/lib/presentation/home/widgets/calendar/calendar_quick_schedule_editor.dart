@@ -1,10 +1,12 @@
 // Editor rapido dell'orario del giorno selezionato.
 
 import 'dart:async';
-import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:work_hours_mobile/application/services/theme_preference_store.dart';
 import 'package:work_hours_mobile/presentation/home/logic/quick_day_insights.dart';
+import 'package:work_hours_mobile/presentation/home/models/activity_item.dart';
+import 'package:work_hours_mobile/presentation/home/widgets/calendar/quick_day_registrations.dart';
+import 'package:work_hours_mobile/presentation/home/widgets/calendar/quick_day_schedule_fields.dart';
 import 'package:work_hours_mobile/presentation/home/widgets/calendar/quick_day_summary.dart';
 
 class CalendarQuickScheduleEditor extends StatelessWidget {
@@ -14,6 +16,8 @@ class CalendarQuickScheduleEditor extends StatelessWidget {
     required this.targetText,
     required this.startTimeText,
     required this.endTimeText,
+    required this.plannedStartTimeText,
+    required this.plannedEndTimeText,
     required this.suggestedExitLabel,
     required this.hasExitSuggestionContext,
     required this.breakMinutes,
@@ -51,6 +55,11 @@ class CalendarQuickScheduleEditor extends StatelessWidget {
     required this.hasPendingExitConfirmation,
     required this.isUsingStandardWorkTarget,
     required this.isEndTimeFinalized,
+    required this.dayActivities,
+    required this.onAddWork,
+    required this.onAddLeave,
+    required this.onEditActivity,
+    required this.onDeleteActivity,
     this.onConfirmTheoreticalExit,
   });
 
@@ -58,6 +67,11 @@ class CalendarQuickScheduleEditor extends StatelessWidget {
   final String targetText;
   final String startTimeText;
   final String endTimeText;
+
+  /// Entrata e uscita previste dal piano del giorno, gia' pronte nei campi
+  /// finche' non viene registrato o modificato nulla.
+  final String plannedStartTimeText;
+  final String plannedEndTimeText;
   final String suggestedExitLabel;
   final bool hasExitSuggestionContext;
   final int breakMinutes;
@@ -95,6 +109,11 @@ class CalendarQuickScheduleEditor extends StatelessWidget {
   final bool hasPendingExitConfirmation;
   final bool isUsingStandardWorkTarget;
   final bool isEndTimeFinalized;
+  final List<ActivityItem> dayActivities;
+  final VoidCallback onAddWork;
+  final VoidCallback onAddLeave;
+  final ValueChanged<ActivityItem> onEditActivity;
+  final ValueChanged<ActivityItem> onDeleteActivity;
   final Future<void> Function()? onConfirmTheoreticalExit;
 
   @override
@@ -109,8 +128,6 @@ class CalendarQuickScheduleEditor extends StatelessWidget {
         endTimeText.trim().isNotEmpty &&
         hasExitSuggestionContext &&
         !isEndTimeFinalized;
-    final standardScheduleColor = theme.colorScheme.onSurfaceVariant;
-    const pendingExitColor = Color(0xFFBF7A24);
     final toggleButton = IconButton(
       key: const ValueKey('calendar-quick-editor-toggle-button'),
       onPressed: () => onToggleExpanded(!isExpanded),
@@ -127,75 +144,6 @@ class CalendarQuickScheduleEditor extends StatelessWidget {
       padding: EdgeInsets.zero,
       icon: Icon(expandedIcon),
     );
-    final values = <Widget>[
-      QuickScheduleValue(
-        label: 'Entrata',
-        value: startTimeText.isEmpty ? '--:--' : startTimeText,
-        valueKey: const ValueKey('calendar-override-start-time-button'),
-        supportingText: !hasResultContext && !isDayOff ? 'Inizia da qui' : null,
-        isPrimaryAction: !hasResultContext && !isDayOff,
-        onTap: onPickStartTime,
-      ),
-      if (showEndTime)
-        QuickScheduleValue(
-          label: hasPendingExitConfirmation
-              ? 'Uscita programmata'
-              : hasTheoreticalExit
-              ? 'Uscita teorica'
-              : (isProgrammedExit ? 'Uscita programmata' : 'Uscita'),
-          value: hasPendingExitConfirmation
-              ? (endTimeText.isEmpty ? suggestedExitLabel : endTimeText)
-              : hasTheoreticalExit
-              ? suggestedExitLabel
-              : (endTimeText.isEmpty ? '--:--' : endTimeText),
-          valueKey: const ValueKey('calendar-override-end-time-button'),
-          supportingText: hasPendingExitConfirmation
-              ? null
-              : hasTheoreticalExit
-              ? 'Calcolata su entrata + ore attese'
-              : (endTimeText.isEmpty && !isDayOff ? 'Dopo l\'entrata' : null),
-          labelColorOverride: hasPendingExitConfirmation || hasTheoreticalExit
-              ? pendingExitColor
-              : null,
-          valueColorOverride: hasPendingExitConfirmation || hasTheoreticalExit
-              ? pendingExitColor
-              : null,
-          secondaryActionLabel: hasPendingExitConfirmation || hasTheoreticalExit
-              ? 'Conferma'
-              : null,
-          secondaryActionKey: const ValueKey(
-            'calendar-override-confirm-theoretical-end-button',
-          ),
-          onSecondaryAction:
-              (hasPendingExitConfirmation || hasTheoreticalExit) &&
-                  onConfirmTheoreticalExit != null
-              ? () => onConfirmTheoreticalExit!()
-              : null,
-          onTap: onPickEndTime,
-        ),
-      QuickScheduleValue(
-        label: isUsingStandardWorkTarget
-            ? 'Ore di lavoro standard'
-            : 'Ore di lavoro',
-        value: targetText.isEmpty ? '--' : targetText,
-        valueKey: const ValueKey('calendar-override-target-value'),
-        labelColorOverride: isUsingStandardWorkTarget
-            ? standardScheduleColor
-            : null,
-        valueColorOverride: isUsingStandardWorkTarget
-            ? standardScheduleColor
-            : null,
-        onTap: onPickTargetMinutes,
-      ),
-      if (showBreakMinutes)
-        QuickScheduleValue(
-          label: 'Pausa',
-          value: breakMinutes == 0 ? '0 min' : '$breakMinutes min',
-          valueKey: const ValueKey('calendar-override-break-value'),
-          onTap: onPickBreakMinutes,
-        ),
-    ];
-
     final header = Row(
       children: [
         Expanded(
@@ -281,33 +229,45 @@ class CalendarQuickScheduleEditor extends StatelessWidget {
                             }
                           },
                         ),
+                        ActionChip(
+                          key: const ValueKey('quick-day-add-work-chip'),
+                          avatar: const Icon(Icons.more_time_rounded, size: 18),
+                          label: const Text('Aggiungi ore'),
+                          onPressed: onAddWork,
+                        ),
+                        ActionChip(
+                          key: const ValueKey('quick-day-add-leave-chip'),
+                          avatar: const Icon(
+                            Icons.event_busy_outlined,
+                            size: 18,
+                          ),
+                          label: const Text('Aggiungi causale'),
+                          onPressed: onAddLeave,
+                        ),
                       ],
                     ),
                     const SizedBox(height: 12),
-                    LayoutBuilder(
-                      builder: (context, constraints) {
-                        final columnCount = math.min(
-                          values.length,
-                          constraints.maxWidth >= 720
-                              ? 4
-                              : (constraints.maxWidth >= 540 ? 3 : 2),
-                        );
-                        const spacing = 12.0;
-                        final itemWidth = columnCount <= 1
-                            ? constraints.maxWidth
-                            : (constraints.maxWidth -
-                                      (spacing * (columnCount - 1))) /
-                                  columnCount;
-
-                        return Wrap(
-                          spacing: spacing,
-                          runSpacing: 12,
-                          children: [
-                            for (final value in values)
-                              SizedBox(width: itemWidth, child: value),
-                          ],
-                        );
-                      },
+                    QuickDayScheduleFields(
+                      targetText: targetText,
+                      startTimeText: startTimeText,
+                      endTimeText: endTimeText,
+                      plannedStartTimeText: plannedStartTimeText,
+                      plannedEndTimeText: plannedEndTimeText,
+                      suggestedExitLabel: suggestedExitLabel,
+                      breakMinutes: breakMinutes,
+                      showEndTime: showEndTime,
+                      showBreakMinutes: showBreakMinutes,
+                      isDayOff: isDayOff,
+                      hasResultContext: hasResultContext,
+                      hasProgrammedExit: isProgrammedExit,
+                      hasTheoreticalExit: hasTheoreticalExit,
+                      hasPendingExitConfirmation: hasPendingExitConfirmation,
+                      isUsingStandardWorkTarget: isUsingStandardWorkTarget,
+                      onPickTargetMinutes: onPickTargetMinutes,
+                      onPickStartTime: onPickStartTime,
+                      onPickEndTime: onPickEndTime,
+                      onPickBreakMinutes: onPickBreakMinutes,
+                      onConfirmTheoreticalExit: onConfirmTheoreticalExit,
                     ),
                     const SizedBox(height: 14),
                     QuickDayComputedSummary(
@@ -332,6 +292,14 @@ class CalendarQuickScheduleEditor extends StatelessWidget {
                       isDayOff: isDayOff,
                       hasResultContext: hasResultContext,
                     ),
+                    if (dayActivities.isNotEmpty) ...[
+                      const SizedBox(height: 14),
+                      QuickDayRegistrations(
+                        dayActivities: dayActivities,
+                        onEditActivity: onEditActivity,
+                        onDeleteActivity: onDeleteActivity,
+                      ),
+                    ],
                     if (!hasExitSuggestionContext && !isDayOff) ...[
                       const SizedBox(height: 10),
                       Text(

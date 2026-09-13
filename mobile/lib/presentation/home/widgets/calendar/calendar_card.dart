@@ -12,10 +12,10 @@ import 'package:work_hours_mobile/domain/models/user_work_rules.dart';
 import 'package:work_hours_mobile/presentation/home/logic/calendar_dates.dart';
 import 'package:work_hours_mobile/presentation/home/logic/day_balance.dart';
 import 'package:work_hours_mobile/presentation/home/logic/quick_day_insights.dart';
+import 'package:work_hours_mobile/presentation/home/logic/workday_session_info.dart';
 import 'package:work_hours_mobile/presentation/home/models/calendar_day.dart';
 import 'package:work_hours_mobile/presentation/home/models/calendar_view.dart';
 import 'package:work_hours_mobile/presentation/home/models/day_metrics.dart';
-import 'package:work_hours_mobile/presentation/home/today_extras.dart';
 import 'package:work_hours_mobile/presentation/home/widgets/calendar/calendar_period_summary.dart';
 import 'package:work_hours_mobile/presentation/home/widgets/calendar/calendar_period_switcher.dart';
 import 'package:work_hours_mobile/presentation/home/widgets/calendar/calendar_quick_schedule_editor.dart';
@@ -35,6 +35,7 @@ class CalendarCard extends StatelessWidget {
     required this.workRules,
     required this.days,
     required this.baseDaySchedule,
+    required this.plannedDaySchedule,
     required this.effectiveDaySchedule,
     required this.draftDaySchedule,
     required this.quickEditorDaySchedule,
@@ -98,6 +99,12 @@ class CalendarCard extends StatelessWidget {
   final UserWorkRules workRules;
   final List<CalendarDay> days;
   final DaySchedule baseDaySchedule;
+
+  /// Orario previsto del giorno, completo di entrata e uscita.
+  ///
+  /// Riempie i campi della modifica rapida quando non c'e' ancora nulla di
+  /// registrato: resta una previsione e non entra nei calcoli.
+  final DaySchedule plannedDaySchedule;
   final DaySchedule effectiveDaySchedule;
   final DaySchedule draftDaySchedule;
   final DaySchedule quickEditorDaySchedule;
@@ -382,6 +389,8 @@ class CalendarCard extends StatelessWidget {
             targetText: effectiveQuickEditorTargetText,
             startTimeText: effectiveQuickEditorStartTime,
             endTimeText: effectiveQuickEditorEndTime,
+            plannedStartTimeText: plannedDaySchedule.startTime ?? '',
+            plannedEndTimeText: plannedDaySchedule.endTime ?? '',
             suggestedExitLabel: suggestedExitLabel,
             hasExitSuggestionContext: hasExitSuggestionContext,
             breakMinutes: effectiveQuickEditorBreakMinutes,
@@ -426,6 +435,11 @@ class CalendarCard extends StatelessWidget {
             hasTheoreticalExit: hasTheoreticalExit,
             hasPendingExitConfirmation: hasPendingExitConfirmation,
             isUsingStandardWorkTarget: isUsingStandardWorkTarget,
+            dayActivities: dayActivities,
+            onAddWork: onOpenWorkQuickEntry,
+            onAddLeave: onOpenLeaveQuickEntry,
+            onEditActivity: onEditActivity,
+            onDeleteActivity: onDeleteActivity,
             onOpenWorkSettings: onOpenWorkSettings,
             isEndTimeFinalized:
                 effectiveQuickEditorEndTime.trim().isNotEmpty &&
@@ -612,7 +626,7 @@ class CalendarCard extends StatelessWidget {
               flexibleEntryWindowLabel: isSelectedDateToday
                   ? resolveFlexibleEntryWindowLabel(
                       workRules: workRules,
-                      schedule: baseDaySchedule,
+                      schedule: plannedDaySchedule,
                     )
                   : null,
               onToggleExpanded: (expanded) => unawaited(
@@ -628,26 +642,6 @@ class CalendarCard extends StatelessWidget {
             ),
           ],
           if (calendarView == CalendarView.day) ...[
-            SizedBox(height: quickEditorSpacing),
-            TodayExtrasCard(
-              isToday: isSelectedDateToday,
-              dayActivities: dayActivities,
-              allowances: buildLeaveAllowanceSummaries(workRules),
-              expectedMinutes: liveExpectedMinutes,
-              workedMinutes: displayedWorkedMinutes,
-              leaveMinutes: dayMetrics.leaveMinutes,
-              hasProgressContext: hasQuickResultContext,
-              remainingOvertimeMinutes: resolveRemainingDailyOvertimeMinutes(
-                workRules: workRules,
-                rawBalanceMinutes:
-                    (displayedWorkedMinutes + dayMetrics.leaveMinutes) -
-                    liveExpectedMinutes,
-              ),
-              onAddWork: onOpenWorkQuickEntry,
-              onAddLeave: onOpenLeaveQuickEntry,
-              onEditActivity: onEditActivity,
-              onDeleteActivity: onDeleteActivity,
-            ),
             SizedBox(height: quickEditorSpacing),
             if (appearanceSettings.dayCalendarLayoutMode ==
                 DayCalendarLayoutMode.quickEditorFirst)

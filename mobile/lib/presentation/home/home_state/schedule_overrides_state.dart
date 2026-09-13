@@ -847,4 +847,22 @@ mixin _ScheduleOverridesState on _HomeScreenStateBase {
       breakMinutes: scheduleOverride.breakMinutes,
     );
   }
+
+  /// Orario previsto del giorno, completo di entrata e uscita anche quando il
+  /// piano dichiara solo le ore.
+  ///
+  /// Serve solo a mostrare valori gia' impostati: non entra nei calcoli di ore
+  /// lavorate e saldi, che devono restare legati a cio' che e' successo davvero.
+  @override
+  DaySchedule _resolvePlannedDayScheduleForDate(
+    DashboardSnapshot snapshot,
+    DateTime date,
+  ) {
+    return completePlannedDaySchedule(
+      _resolveEffectiveDayScheduleForDate(snapshot, date),
+      referenceStartMinutes: resolvePlannedStartMinutes(
+        snapshot.profile.weekdaySchedule,
+      ),
+    );
+  }
 }

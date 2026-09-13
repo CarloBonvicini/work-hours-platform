@@ -124,7 +124,24 @@ void main() {
         .isNotEmpty;
     final hasWorkHoursLabel = find.text('Ore di lavoro').evaluate().isNotEmpty;
     expect(hasStandardHoursLabel || hasWorkHoursLabel, isTrue);
-    expect(find.text('Inizia da qui'), findsOneWidget);
+    // Le ore si registrano da sole con Entrata/Uscita: niente riquadro
+    // separato, solo le azioni di correzione dentro la modifica rapida.
+    expect(find.text('Registrazioni di oggi'), findsNothing);
+    expect(find.text('Nessuna registrazione.'), findsNothing);
+    expect(
+      find.byKey(const ValueKey('quick-day-add-leave-chip')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('quick-day-add-work-chip')),
+      findsOneWidget,
+    );
+    // L'entrata parte gia' dai valori previsti; se il giorno non ne ha,
+    // resta l'invito a iniziare.
+    final hasStartGuidance =
+        find.text('Previsto: conferma o cambia').evaluate().isNotEmpty ||
+        find.text('Inizia da qui').evaluate().isNotEmpty;
+    expect(hasStartGuidance, isTrue);
     expect(
       tester
           .widget<Text>(
@@ -297,6 +314,13 @@ void main() {
             .data,
         'Da calcolare',
       );
+
+      // Entrata e uscita previste sono gia' pronte nei campi, senza per questo
+      // valere come ore registrate.
+      expect(find.text('08:30'), findsWidgets);
+      expect(find.text('16:25'), findsWidgets);
+      expect(find.text('Uscita prevista'), findsOneWidget);
+      expect(find.text('Previsto: conferma o cambia'), findsNWidgets(2));
     },
   );
 
@@ -1137,7 +1161,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(repository.workEntries, isEmpty);
-    expect(find.text('Nessuna registrazione.'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('activity-menu-work-w-today')),
+      findsNothing,
+    );
   });
 
   testWidgets('finishing the workday records the hours and the real times', (

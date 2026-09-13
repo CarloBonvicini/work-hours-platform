@@ -55,6 +55,10 @@ mixin _HomeSectionsState on _HomeScreenStateBase {
       workRules: monthSnapshot.profile.workRules,
       days: _buildCalendarDays(monthSnapshot),
       baseDaySchedule: baseDaySchedule,
+      plannedDaySchedule: _resolvePlannedDayScheduleForDate(
+        monthSnapshot,
+        _selectedDate,
+      ),
       effectiveDaySchedule: displayedDaySchedule,
       draftDaySchedule: displayedDaySchedule,
       quickEditorDaySchedule: previewDaySchedule,
