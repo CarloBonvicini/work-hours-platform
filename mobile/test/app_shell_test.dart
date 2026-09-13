@@ -91,23 +91,70 @@ void main() {
     expect(find.text('Installa'), findsOneWidget);
   });
 
-  testWidgets('skips initial setup wizard and marks first launch completed', (
+  testWidgets('first launch asks the three setup questions and saves them', (
     tester,
   ) async {
     final onboardingStore = FakeOnboardingPreferenceStore(hasCompleted: false);
+    final repository = FakeDashboardRepository();
 
     await pumpWorkHoursApp(
       tester,
+      repository: repository,
       appUpdateService: CountingAppUpdateService(),
       onboardingPreferenceStore: onboardingStore,
       hasCompletedInitialSetup: false,
     );
-
     await tester.pumpAndSettle();
 
-    expect(find.text('Configurazione iniziale 1/3'), findsNothing);
-    expect(find.text('Configurazione iniziale 2/3'), findsNothing);
-    expect(find.text('Configurazione iniziale 3/3'), findsNothing);
+    expect(find.byKey(const ValueKey('initial-setup-sheet')), findsOneWidget);
+    // I valori di partenza sono gia' utilizzabili: si puo' confermare subito.
+    expect(find.byKey(const ValueKey('initial-setup-outcome')), findsOneWidget);
+
+    // Lavora anche il sabato e senza pausa.
+    await tester.tap(
+      find.byKey(const ValueKey('work-settings-working-day-toggle-saturday')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('initial-setup-break-0')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('initial-setup-confirm-button')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('initial-setup-sheet')), findsNothing);
+    expect(onboardingStore.markCompletedCalls, 1);
+
+    final savedSchedule = repository.savedWeekdaySchedule;
+    expect(savedSchedule, isNotNull);
+    expect(savedSchedule!.monday.startTime, '09:00');
+    expect(savedSchedule.monday.endTime, '18:00');
+    expect(savedSchedule.monday.targetMinutes, 9 * 60);
+    expect(savedSchedule.saturday.targetMinutes, 9 * 60);
+    expect(savedSchedule.sunday.targetMinutes, 0);
+  });
+
+  testWidgets('first launch setup can be postponed without saving', (
+    tester,
+  ) async {
+    final onboardingStore = FakeOnboardingPreferenceStore(hasCompleted: false);
+    final repository = FakeDashboardRepository();
+
+    await pumpWorkHoursApp(
+      tester,
+      repository: repository,
+      appUpdateService: CountingAppUpdateService(),
+      onboardingPreferenceStore: onboardingStore,
+      hasCompletedInitialSetup: false,
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('initial-setup-skip-button')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('initial-setup-sheet')), findsNothing);
+    // Rimandare non deve toccare il profilo, ma non si richiede al riavvio.
+    expect(repository.savedWeekdaySchedule, isNull);
     expect(onboardingStore.markCompletedCalls, 1);
   });
 
