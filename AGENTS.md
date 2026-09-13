@@ -32,6 +32,12 @@ Mantieni Work Hours Platform modulare, leggibile e facile da evolvere, evitando 
   oversize, o lo lasci come lo hai trovato o lo riduci.
 - Se tocchi file legacy, fai modifiche minime e proponi split incrementale nel task.
 
+## Quando aggiungere una regola qui
+- Una regola si scrive solo se e gia costata un bug o una correzione: le buone
+  intenzioni generiche diluiscono quelle che contano.
+- Se si puo trasformare in un controllo automatico, si scrive li, non qui.
+- Niente elenchi di file o cartelle da tenere allineati a mano: marciscono.
+
 ## Modalita di lavoro
 Per ogni task:
 1. identifica i file da toccare;

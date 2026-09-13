@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Applica al mobile la soglia di 400 righe per file, sui soli file toccati.
+# Controlli strutturali sul mobile, applicati ai soli file toccati dal diff:
+# la soglia di 400 righe per file e il divieto di nuovi file sciolti nella
+# radice di lib/presentation/home/.
 #
 # Il backend ha lo stesso limite via lint (backend/eslint.config.js). Dart non
 # offre un equivalente, quindi qui si guarda il diff: i file nuovi devono nascere
@@ -13,6 +15,7 @@ set -euo pipefail
 
 BASE_REF="${1:-origin/main}"
 MAX_LINES="${MAX_DART_FILE_LINES:-400}"
+HOME_DIR="mobile/lib/presentation/home"
 
 # Righe di codice: vuote e commenti esclusi, come skipBlankLines/skipComments
 # della regola max-lines usata sul backend.
@@ -60,12 +63,36 @@ while IFS= read -r file; do
   [ -n "$file" ] || continue
   [ -f "$file" ] || continue
 
+  is_new=0
+  if ! git cat-file -e "$BASE_SHA:$file" 2>/dev/null; then
+    is_new=1
+  fi
+
+  # La radice di home/ e' la regia, non un contenitore: il codice nuovo va in
+  # logic/, models/, home_state/ o widgets/<area>/.
+  if [ "$is_new" -eq 1 ] && [ "$file" != "$HOME_DIR/home_screen.dart" ]; then
+    case "$file" in
+      "$HOME_DIR"/*)
+        # `*` nel case copre anche le `/`: il nome sciolto e' quello che dopo
+        # il prefisso non contiene altre cartelle.
+        leaf="${file#"$HOME_DIR/"}"
+        case "$leaf" in
+          */*) ;;
+          *)
+            echo "KO  $file: file nuovo nella radice di home/. Mettilo in logic/, models/, home_state/ o widgets/<area>/." >&2
+            failures=$((failures + 1))
+            ;;
+        esac
+        ;;
+    esac
+  fi
+
   current="$(count_code_lines <"$file")"
   if [ "$current" -le "$MAX_LINES" ]; then
     continue
   fi
 
-  if previous_content="$(git show "$BASE_SHA:$file" 2>/dev/null)"; then
+  if [ "$is_new" -eq 0 ] && previous_content="$(git show "$BASE_SHA:$file" 2>/dev/null)"; then
     previous="$(printf '%s\n' "$previous_content" | count_code_lines)"
     if [ "$current" -le "$previous" ]; then
       echo "ok (non peggiorato)  $file: $previous -> $current righe"

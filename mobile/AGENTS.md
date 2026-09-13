@@ -4,8 +4,6 @@
 Mantenere UI e logica Flutter coerenti, prevedibili e testabili.
 
 ## Regole mobile
-- Separare widget UI da logica/calcoli quando la schermata cresce.
-- Evitare file-schermata monolitici: preferire componenti piccoli riusabili.
 - Non introdurre logica business complessa dentro widget build.
 - Un `build` lungo si accorcia estraendo widget, non funzioni helper a cui passare il
   `BuildContext`: la soglia delle 40 righe per funzione non si applica ai `build`.
@@ -47,7 +45,6 @@ Mantenere UI e logica Flutter coerenti, prevedibili e testabili.
   chi lavora conferma, non reinserisce.
 - Prima di togliere un blocco, verifica che le sue azioni restino raggiungibili dalla
   navigazione reale: alcune sezioni esistono nel codice ma non sono in `mainNavigationSections`.
-- Le azioni principali devono essere chiaramente cliccabili.
 - Evitare testo tecnico lato utente finale.
 
 ## Struttura della home (`lib/presentation/home/`)
@@ -57,5 +54,6 @@ Mantenere UI e logica Flutter coerenti, prevedibili e testabili.
 - `logic/`: funzioni pure testabili (saldi giornalieri, insight editor rapido, segmenti agenda, etichette, stato timbratura).
 - `widgets/<area>/`: widget pubblici per area (una cartella per area, vedi `widgets/`).
 - Non riportare codice dentro `home_screen.dart`: e' la regia, non un contenitore.
-- Niente nuovi file sciolti nella radice di `home/`: quelli rimasti (`consuntivo_section.dart`,
-  `initial_setup_dialog.dart`, ...) sono residui da riassorbire, non un posto dove aggiungere.
+- Niente nuovi file sciolti nella radice di `home/`: lo verifica
+  `scripts/check-dart-file-size.sh`. I residui rimasti sono da riassorbire, non un
+  posto dove aggiungere.
