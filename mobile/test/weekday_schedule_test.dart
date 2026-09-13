@@ -1,6 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:work_hours_mobile/domain/models/weekday_schedule.dart';
+import 'package:work_hours_mobile/domain/models/day_schedule.dart';
 import 'package:work_hours_mobile/domain/models/weekday_target_minutes.dart';
+import 'package:work_hours_mobile/presentation/home/logic/schedule_draft.dart';
 
 void main() {
   group('WeekdaySchedule.uniform', () {
@@ -49,6 +51,55 @@ void main() {
       for (final weekday in WeekdayKey.values) {
         expect(schedule.forWeekday(weekday).targetMinutes, 0);
       }
+    });
+  });
+
+  group('averageWorkingDayTargetMinutes', () {
+    test('media solo i giorni con ore previste', () {
+      // Quattro giorni da 8 ore e uno libero: la giornata tipo resta 8 ore.
+      final schedule = WeekdaySchedule.uniform(
+        8 * 60,
+        workingDays: const {
+          WeekdayKey.monday,
+          WeekdayKey.tuesday,
+          WeekdayKey.wednesday,
+          WeekdayKey.thursday,
+        },
+      );
+
+      expect(averageWorkingDayTargetMinutes(schedule), 8 * 60);
+    });
+
+    test('vale anche quando il lunedi e libero', () {
+      final schedule = WeekdaySchedule.uniform(
+        6 * 60,
+        workingDays: const {WeekdayKey.saturday, WeekdayKey.sunday},
+      );
+
+      expect(averageWorkingDayTargetMinutes(schedule), 6 * 60);
+    });
+
+    test('media gli orari diversi dei giorni lavorati', () {
+      const schedule = WeekdaySchedule(
+        monday: DaySchedule(targetMinutes: 480),
+        tuesday: DaySchedule(targetMinutes: 240),
+        wednesday: DaySchedule(targetMinutes: 0),
+        thursday: DaySchedule(targetMinutes: 0),
+        friday: DaySchedule(targetMinutes: 0),
+        saturday: DaySchedule(targetMinutes: 0),
+        sunday: DaySchedule(targetMinutes: 0),
+      );
+
+      expect(averageWorkingDayTargetMinutes(schedule), 360);
+    });
+
+    test('settimana senza ore previste vale zero', () {
+      expect(
+        averageWorkingDayTargetMinutes(
+          WeekdaySchedule.uniform(8 * 60, workingDays: const {}),
+        ),
+        0,
+      );
     });
   });
 }

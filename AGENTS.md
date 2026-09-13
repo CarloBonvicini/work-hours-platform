@@ -17,8 +17,9 @@ Mantieni Work Hours Platform modulare, leggibile e facile da evolvere, evitando 
 ## Soglie di dimensione
 - Riferimento: 400 righe per file, 40 per funzione (righe vuote e commenti esclusi).
 - Backend: sono bloccanti, le applica il lint (`backend/eslint.config.js`).
-- Mobile: nessun enforcement automatico e molti file sono gia oltre. Valgono come direzione:
-  i file nuovi nascono sotto soglia, quelli che tocchi non devono crescere oltre.
+- Mobile: le applica `scripts/check-dart-file-size.sh` sui soli file toccati dal diff
+  (in CI su ogni pull request). I file nuovi devono nascere sotto soglia, quelli gia
+  oversize non devono crescere. Lanciabile in locale: `./scripts/check-dart-file-size.sh`.
 - Non spendere un task a spezzare un file solo perche ha passato la soglia: se la
   responsabilita e una sola, lascialo e dillo nel task.
 
@@ -26,8 +27,9 @@ Mantieni Work Hours Platform modulare, leggibile e facile da evolvere, evitando 
 - E vietato aggiungere nuove feature in file legacy gia oversize senza valutare prima decomposizione.
 - Eccezioni backend: l'elenco autorevole e `LEGACY_OVERSIZED_FILES` in `backend/eslint.config.js`.
   Tienilo allineato la', non duplicarlo qui.
-- Mobile: non esiste una lista e diversi file sono oversize. Regola operativa: non peggiorarli.
-  Se ne tocchi uno, o lo lasci come lo hai trovato o lo riduci.
+- Mobile: nessuna lista di eccezioni da mantenere a mano. Il controllo guarda il diff,
+  quindi il debito esistente non da fastidio finche non ci lavori: se tocchi un file
+  oversize, o lo lasci come lo hai trovato o lo riduci.
 - Se tocchi file legacy, fai modifiche minime e proponi split incrementale nel task.
 
 ## Modalita di lavoro

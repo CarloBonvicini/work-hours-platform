@@ -177,15 +177,12 @@ class WorkSettingsCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     bool isWorkingWeekday(WeekdayKey weekday) {
-      final targetMinutes =
-          resolveDraftTargetMinutes(
-            targetText: weekdayControllers[weekday]!.text,
-            startTimeText: weekdayStartTimeControllers[weekday]!.text,
-            endTimeText: weekdayEndTimeControllers[weekday]!.text,
-            breakText: weekdayBreakControllers[weekday]!.text,
-          ) ??
-          0;
-      return targetMinutes > 0;
+      return isWorkingDayDraft(
+        targetText: weekdayControllers[weekday]!.text,
+        startTimeText: weekdayStartTimeControllers[weekday]!.text,
+        endTimeText: weekdayEndTimeControllers[weekday]!.text,
+        breakText: weekdayBreakControllers[weekday]!.text,
+      );
     }
 
     final configuredWorkingDays = WeekdayKey.values
@@ -262,19 +259,19 @@ class WorkSettingsCard extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 14),
-                  if (useUniformDailyTarget) ...[
-                    // Anche con l'orario unico i giorni lavorativi si scelgono
-                    // qui: chi lavora il weekend non deve cambiare modalita'.
-                    Text(
-                      'Seleziona i tuoi giorni lavorativi',
-                      style: Theme.of(context).textTheme.bodyMedium,
-                    ),
-                    const SizedBox(height: 10),
-                    WorkingWeekdaySelector(
-                      selectedWeekdays: configuredWorkingDays.toSet(),
-                      onChanged: onWeekdayWorkingDayChanged,
-                    ),
-                    const SizedBox(height: 14),
+                  // I giorni lavorativi si scelgono in entrambe le modalita':
+                  // chi lavora il weekend non deve cambiare impostazione.
+                  Text(
+                    'Seleziona i tuoi giorni lavorativi',
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                  const SizedBox(height: 10),
+                  WorkingWeekdaySelector(
+                    selectedWeekdays: configuredWorkingDays.toSet(),
+                    onChanged: onWeekdayWorkingDayChanged,
+                  ),
+                  const SizedBox(height: 14),
+                  if (useUniformDailyTarget)
                     SettingsScheduleEditor(
                       title: 'Orario standard',
                       targetText: uniformDailyTargetController.text,
@@ -297,21 +294,11 @@ class WorkSettingsCard extends StatelessWidget {
                       onPickEndTime: () =>
                           onPickUniformScheduleTime(CalendarTimeField.end),
                       onPickBreak: onPickUniformBreakMinutes,
-                    ),
-                  ] else
+                    )
+                  else
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          'Seleziona i tuoi giorni lavorativi',
-                          style: Theme.of(context).textTheme.bodyMedium,
-                        ),
-                        const SizedBox(height: 10),
-                        WorkingWeekdaySelector(
-                          selectedWeekdays: configuredWorkingDays.toSet(),
-                          onChanged: onWeekdayWorkingDayChanged,
-                        ),
-                        const SizedBox(height: 12),
                         if (configuredWorkingDays.isEmpty)
                           Text(
                             'Nessun giorno selezionato. Attiva almeno un giorno dalla riga sopra.',

@@ -66,7 +66,9 @@ class QuickDayScheduleFields extends StatelessWidget {
       plannedEndTimeText.isNotEmpty;
 
   Widget _startField(Color plannedColor) {
-    final displayedText = _isPlannedStart ? plannedStartTimeText : startTimeText;
+    final displayedText = _isPlannedStart
+        ? plannedStartTimeText
+        : startTimeText;
     return QuickScheduleValue(
       label: 'Entrata',
       value: displayedText.isEmpty ? '--:--' : displayedText,

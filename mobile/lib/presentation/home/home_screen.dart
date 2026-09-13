@@ -76,6 +76,7 @@ part 'home_state/schedule_override_history_state.dart';
 part 'home_state/agenda_interaction_state.dart';
 part 'home_state/schedule_overrides_state.dart';
 part 'home_state/work_schedule_settings_state.dart';
+part 'home_state/work_rules_settings_state.dart';
 part 'home_state/profile_state.dart';
 part 'home_state/consuntivo_state.dart';
 part 'home_state/calendar_metrics_state.dart';
@@ -759,6 +760,7 @@ class _HomeScreenState extends _HomeScreenStateBase
         _AgendaInteractionState,
         _ScheduleOverridesState,
         _WorkScheduleSettingsState,
+        _WorkRulesSettingsState,
         _ProfileState,
         _ConsuntivoState,
         _CalendarMetricsState,

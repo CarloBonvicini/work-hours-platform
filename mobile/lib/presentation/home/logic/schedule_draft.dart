@@ -3,6 +3,8 @@
 import 'package:work_hours_mobile/application/services/hour_input_parser.dart';
 import 'package:work_hours_mobile/application/services/time_input_parser.dart';
 import 'package:work_hours_mobile/domain/models/day_schedule.dart';
+import 'package:work_hours_mobile/domain/models/weekday_schedule.dart';
+import 'package:work_hours_mobile/domain/models/weekday_target_minutes.dart';
 import 'package:work_hours_mobile/presentation/home/models/calendar_day.dart';
 
 class ScheduleOverrideDraftState {
@@ -90,6 +92,42 @@ int? resolveDraftTargetMinutes({
   }
 
   return elapsedMinutes - breakMinutes;
+}
+
+/// Vero quando la bozza del giorno prevede ore di lavoro.
+///
+/// E' la definizione di "giorno lavorativo" usata sia dalle impostazioni sia
+/// dal salvataggio dell'orario settimanale: deve restare una sola.
+bool isWorkingDayDraft({
+  required String targetText,
+  required String startTimeText,
+  required String endTimeText,
+  required String breakText,
+}) {
+  final targetMinutes = resolveDraftTargetMinutes(
+    targetText: targetText,
+    startTimeText: startTimeText,
+    endTimeText: endTimeText,
+    breakText: breakText,
+  );
+  return (targetMinutes ?? 0) > 0;
+}
+
+/// Ore attese in una giornata lavorativa, mediate sui soli giorni con ore.
+///
+/// I giorni liberi non entrano nella media: contarli abbasserebbe le ore attese
+/// di chi lavora meno giorni ma piu' a lungo.
+int averageWorkingDayTargetMinutes(WeekdaySchedule schedule) {
+  final workingTargets = [
+    for (final weekday in WeekdayKey.values)
+      schedule.forWeekday(weekday).targetMinutes,
+  ].where((minutes) => minutes > 0).toList(growable: false);
+  if (workingTargets.isEmpty) {
+    return 0;
+  }
+
+  final total = workingTargets.reduce((value, next) => value + next);
+  return (total / workingTargets.length).round();
 }
 
 String formatDayScheduleDetails(DaySchedule schedule) {
