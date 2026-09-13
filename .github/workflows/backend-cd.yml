@@ -113,6 +113,15 @@ jobs:
             printf '\nAPI_IMAGE=%s\n' "${API_IMAGE}" >> infra/.env
           fi
 
+          # Il nome progetto deve restare "infra" (container infra-api-1/infra-db-1,
+          # volume infra_postgres_data): un valore diverso nel secret farebbe
+          # partire uno stack nuovo con un database vuoto.
+          if grep -q '^COMPOSE_PROJECT_NAME=' infra/.env; then
+            sed -i "s|^COMPOSE_PROJECT_NAME=.*|COMPOSE_PROJECT_NAME=infra|" infra/.env
+          else
+            printf '\nCOMPOSE_PROJECT_NAME=infra\n' >> infra/.env
+          fi
+
       - name: Validate runtime configuration
         shell: bash
         run: |

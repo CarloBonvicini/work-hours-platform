@@ -1,0 +1,119 @@
+name: Backend Healthcheck
+
+# Controlla /health ogni 15 minuti da un runner GitHub (quindi anche se il
+# portatile e' spento). Se il backend non risponde:
+#   1. apre una issue con label "backend-down" (assegnata al proprietario del
+#      repo, cosi' arriva la mail di GitHub);
+#   2. al controllo successivo, se e' ancora giu', rilancia Backend CD una sola
+#      volta (label "redeploy-tentato" come promemoria);
+#   3. quando torna su, commenta e chiude la issue.
+# Nel settembre 2026 il backend e' rimasto giu' 47 giorni senza che nessuno se
+# ne accorgesse: questo workflow serve a non ripeterlo.
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+  actions: write
+
+concurrency:
+  group: backend-healthcheck
+  cancel-in-progress: false
+
+env:
+  HEALTH_URL: https://workhours.developerdomain.org/health
+  LABEL_DOWN: backend-down
+  LABEL_REDEPLOY: redeploy-tentato
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Probe /health (3 tentativi)
+        id: probe
+        shell: bash
+        run: |
+          set -u
+          ok=false
+          code="000"
+          for attempt in 1 2 3; do
+            code="$(curl -sS -o /tmp/body -w '%{http_code}' --max-time 20 "$HEALTH_URL" 2>/dev/null || echo "000")"
+            if [ "$code" = "200" ] && grep -q '"status":"ok"' /tmp/body 2>/dev/null; then
+              ok=true
+              break
+            fi
+            echo "Tentativo ${attempt}/3: HTTP ${code}"
+            [ "$attempt" -lt 3 ] && sleep 20
+          done
+          echo "Esito: ok=${ok} http=${code}"
+          echo "ok=${ok}" >> "$GITHUB_OUTPUT"
+          echo "code=${code}" >> "$GITHUB_OUTPUT"
+
+      - name: Apri/chiudi issue e riavvio automatico
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          OK: ${{ steps.probe.outputs.ok }}
+          CODE: ${{ steps.probe.outputs.code }}
+          OWNER: ${{ github.repository_owner }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -eu
+
+          gh label create "$LABEL_DOWN" --color B60205 --description "Backend /health non risponde" --force >/dev/null
+          gh label create "$LABEL_REDEPLOY" --color FBCA04 --description "Backend CD rilanciato automaticamente dal healthcheck" --force >/dev/null
+
+          issue="$(gh issue list --label "$LABEL_DOWN" --state open --limit 1 --json number --jq '.[0].number // empty')"
+          now="$(date -u +'%Y-%m-%d %H:%M UTC')"
+
+          if [ "$OK" = "true" ]; then
+            if [ -n "$issue" ]; then
+              gh issue comment "$issue" --body "Tornato su alle ${now} (HTTP ${CODE}). Chiudo. [Run](${RUN_URL})"
+              gh issue close "$issue"
+              echo "Backend tornato su: chiusa la issue #${issue}."
+            else
+              echo "Backend OK."
+            fi
+            exit 0
+          fi
+
+          if [ -z "$issue" ]; then
+            cat > /tmp/issue.md <<EOF
+          \`${HEALTH_URL}\` non risponde correttamente dalle **${now}** (HTTP ${CODE} per 3 tentativi consecutivi).
+
+          Cosa fa il workflow da solo:
+          - al prossimo controllo (15 min), se e' ancora giu', rilancia **Backend CD** una volta;
+          - quando /health torna 200, commenta e chiude questa issue.
+
+          Se non torna su da solo:
+          - dal PC di Carlo: \`ssh robot\` poi \`docker ps -a\` e \`docker logs --tail 100 infra-api-1\`;
+          - oppure \`gh workflow run "Backend CD" --ref main\`.
+
+          [Run del controllo](${RUN_URL})
+          EOF
+            gh issue create \
+              --title "Backend giu': /health non risponde" \
+              --label "$LABEL_DOWN" \
+              --assignee "$OWNER" \
+              --body-file /tmp/issue.md
+            echo "Backend giu': aperta una nuova issue."
+            exit 1
+          fi
+
+          # Secondo fallimento consecutivo: un solo redeploy automatico per episodio.
+          if gh issue view "$issue" --json labels --jq '.labels[].name' | grep -qx "$LABEL_REDEPLOY"; then
+            echo "Backend ancora giu' (issue #${issue}), redeploy gia' tentato: serve un intervento manuale."
+            exit 0
+          fi
+
+          gh workflow run "Backend CD" --ref main
+          gh issue edit "$issue" --add-label "$LABEL_REDEPLOY"
+          gh issue comment "$issue" --body "Ancora giu' alle ${now} (HTTP ${CODE}): ho rilanciato **Backend CD** sul runner del portatile. Se al prossimo controllo non e' tornato, serve un intervento manuale. [Run](${RUN_URL})"
+          echo "Backend ancora giu': rilanciato Backend CD (issue #${issue})."
