@@ -55,7 +55,7 @@ Mantenere UI e logica Flutter coerenti, prevedibili e testabili.
 - `home_state/`: un mixin per area (ticket, account cloud, aggiornamenti, timbratura, bozza orario, agenda, impostazioni, calendario, consuntivo...) come file `part` della stessa libreria. Nuova logica di stato va nel mixin dell'area giusta; se un metodo serve a piu' aree, dichiararne la firma nella base.
 - `models/`: modelli di vista (CalendarDay, DayMetrics, AgendaRange, HomeSection...).
 - `logic/`: funzioni pure testabili (saldi giornalieri, insight editor rapido, segmenti agenda, etichette, stato timbratura).
-- `widgets/<area>/`: widget pubblici per area (calendar, agenda, settings, overview, support, update, shared).
+- `widgets/<area>/`: widget pubblici per area (una cartella per area, vedi `widgets/`).
 - Non riportare codice dentro `home_screen.dart`: e' la regia, non un contenitore.
 - Niente nuovi file sciolti nella radice di `home/`: quelli rimasti (`consuntivo_section.dart`,
   `initial_setup_dialog.dart`, ...) sono residui da riassorbire, non un posto dove aggiungere.
