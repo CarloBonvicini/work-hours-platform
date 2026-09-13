@@ -29,9 +29,9 @@ mixin _AppUpdatesState on _HomeScreenStateBase {
         _isCheckingForUpdate = false;
       });
       if (availableUpdate != null) {
-        unawaited(
-          _localNotificationService.notifyUpdateAvailable(availableUpdate),
-        );
+        // Niente notifica di sistema da qui: questo controllo gira solo ad app
+        // aperta, e chi sta guardando l'app riceve gia' il dialogo. L'avviso a
+        // app chiusa lo manda la push del rilascio.
         await _maybePromptForUpdate(availableUpdate);
       }
     } catch (_) {

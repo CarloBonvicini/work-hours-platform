@@ -9,6 +9,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 concurrency:
   group: mobile-prod-tag-${{ github.ref }}
@@ -67,6 +68,28 @@ jobs:
           echo "should_create=true" >> "$GITHUB_OUTPUT"
           echo "next_tag=$next_tag" >> "$GITHUB_OUTPUT"
 
+      - name: Compute release inputs
+        if: ${{ steps.next.outputs.should_create == 'true' }}
+        id: release
+        shell: bash
+        run: |
+          set -eu
+
+          version="${{ steps.next.outputs.next_tag }}"
+          version="${version#mobile-v}"
+          IFS=. read -r major minor patch <<EOF_VERSION
+          $version
+          EOF_VERSION
+
+          # Il versionCode Android puo' solo crescere, altrimenti l'APK nuovo non
+          # si installa sopra quello vecchio. Questa formula cresce insieme alla
+          # versione (0.1.107 -> 1107, 0.2.0 -> 2000, 1.0.0 -> 1000000).
+          build_number=$(( major * 1000000 + minor * 1000 + patch ))
+
+          echo "build_name=$version" >> "$GITHUB_OUTPUT"
+          echo "build_number=$build_number" >> "$GITHUB_OUTPUT"
+          echo "release_name=Work Hours Mobile $version" >> "$GITHUB_OUTPUT"
+
       - name: Create and push production tag
         if: ${{ steps.next.outputs.should_create == 'true' }}
         shell: bash
@@ -79,11 +102,32 @@ jobs:
           git tag -a "$tag_name" -m "Mobile production release $tag_name"
           git push origin "$tag_name"
 
+      # Il tag lo spinge github-actions[bot] con il GITHUB_TOKEN, e i push fatti
+      # con quel token non fanno partire altri workflow: senza questo avvio
+      # esplicito il tag nasce e la release non viene mai costruita.
+      # `workflow_dispatch` e' l'eccezione alla regola e parte comunque.
+      - name: Start mobile release
+        if: ${{ steps.next.outputs.should_create == 'true' }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+
+          gh workflow run mobile-release.yml \
+            --repo "${{ github.repository }}" \
+            --ref "${{ steps.next.outputs.next_tag }}" \
+            -f release_tag="${{ steps.next.outputs.next_tag }}" \
+            -f build_name="${{ steps.release.outputs.build_name }}" \
+            -f build_number="${{ steps.release.outputs.build_number }}" \
+            -f release_name="${{ steps.release.outputs.release_name }}"
+
       - name: Report result
         shell: bash
         run: |
           if [ "${{ steps.next.outputs.should_create }}" = "true" ]; then
             echo "Creato nuovo tag prod: ${{ steps.next.outputs.next_tag }}"
+            echo "Release avviata con build number ${{ steps.release.outputs.build_number }}."
           else
             echo "Nessun nuovo tag creato. Tag corrente: ${{ steps.next.outputs.next_tag }}"
           fi

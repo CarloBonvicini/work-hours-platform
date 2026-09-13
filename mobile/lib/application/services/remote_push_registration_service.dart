@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
+import 'package:work_hours_mobile/application/services/update_announcement_store.dart';
 import 'package:work_hours_mobile/data/api/work_hours_api_client.dart';
 
 @pragma('vm:entry-point')
@@ -11,6 +12,33 @@ Future<void> remotePushBackgroundMessageHandler(RemoteMessage message) async {
     await Firebase.initializeApp();
   } catch (_) {
     // Firebase init is best-effort in background.
+  }
+
+  await markUpdatePushAsAnnounced(message);
+}
+
+/// Segna la versione annunciata dalla push del rilascio.
+///
+/// Ad app chiusa la notifica la mostra il sistema, non noi: senza questa traccia
+/// l'app riaperta non sa che l'avviso e' gia' arrivato e lo ripete.
+Future<void> markUpdatePushAsAnnounced(
+  RemoteMessage message, {
+  UpdateAnnouncementStore announcementStore = const UpdateAnnouncementStore(),
+}) async {
+  final data = message.data;
+  if (data['type']?.toString().trim() != 'app_update') {
+    return;
+  }
+
+  final version = data['version']?.toString().trim();
+  if (version == null || version.isEmpty) {
+    return;
+  }
+
+  try {
+    await announcementStore.markAnnounced(version);
+  } catch (_) {
+    // La deduplica e' best-effort: al massimo l'avviso arriva una volta di piu'.
   }
 }
 
