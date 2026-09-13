@@ -12,6 +12,7 @@ import 'package:work_hours_mobile/domain/models/user_work_rules.dart';
 import 'package:work_hours_mobile/presentation/home/logic/calendar_dates.dart';
 import 'package:work_hours_mobile/presentation/home/logic/day_balance.dart';
 import 'package:work_hours_mobile/presentation/home/logic/quick_day_insights.dart';
+import 'package:work_hours_mobile/presentation/home/logic/quick_day_summary_label.dart';
 import 'package:work_hours_mobile/presentation/home/logic/workday_session_info.dart';
 import 'package:work_hours_mobile/presentation/home/models/calendar_day.dart';
 import 'package:work_hours_mobile/presentation/home/models/calendar_view.dart';
@@ -316,12 +317,9 @@ class CalendarCard extends StatelessWidget {
             programmedExitMinutes != null
         ? programmedExitMinutes - nowMinutes
         : null;
-    final remainingToProgrammedExitLabel =
-        remainingToProgrammedExitMinutes == null
-        ? null
-        : remainingToProgrammedExitMinutes > 0
-        ? 'Mancano ${formatHoursInput(remainingToProgrammedExitMinutes)} all\'uscita prevista'
-        : 'Uscita prevista raggiunta';
+    final remainingToProgrammedExitLabel = buildRemainingToExitLabel(
+      remainingToProgrammedExitMinutes,
+    );
     final workedMinutesAtProgrammedExit =
         remainingToProgrammedExitMinutes == null
         ? null
@@ -440,6 +438,16 @@ class CalendarCard extends StatelessWidget {
             hasTheoreticalExit: hasTheoreticalExit,
             hasPendingExitConfirmation: hasPendingExitConfirmation,
             isUsingStandardWorkTarget: isUsingStandardWorkTarget,
+            collapsedSummary: buildQuickDaySummaryLabel(
+              isDayOff: isQuickEditorDayOff,
+              hasResultContext: hasQuickResultContext,
+              workedMinutes: displayedWorkedMinutes,
+              startTimeText: effectiveQuickEditorStartTime,
+              endTimeText: effectiveQuickEditorEndTime,
+              plannedStartTimeText: plannedDaySchedule.startTime ?? '',
+              plannedEndTimeText: plannedDaySchedule.endTime ?? '',
+              targetText: effectiveQuickEditorTargetText,
+            ),
             dayActivities: dayActivities,
             onAddWork: onOpenWorkQuickEntry,
             onAddLeave: onOpenLeaveQuickEntry,

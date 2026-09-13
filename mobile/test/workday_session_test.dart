@@ -25,6 +25,7 @@ void main() {
     await pumpWorkHoursApp(tester, workdayStartStore: workdayStartStore);
     await dismissUpdateDialogIfAny(tester);
     await openHomeSection(tester, 'day');
+    await openQuickDayEditor(tester);
 
     Future<void> tapAction(String key) async {
       final finder = find.byKey(ValueKey(key));
@@ -97,6 +98,7 @@ void main() {
     await pumpWorkHoursApp(tester, repository: repository);
     await dismissUpdateDialogIfAny(tester);
     await openHomeSection(tester, 'day');
+    await openQuickDayEditor(tester);
 
     // La registrazione del giorno e' elencata con il suo menu azioni.
     final menuFinder = find.byKey(const ValueKey('activity-menu-work-w-today'));
@@ -123,6 +125,7 @@ void main() {
 
     // Eliminazione con conferma dalla vista giorno.
     await openHomeSection(tester, 'day');
+    await openQuickDayEditor(tester);
     await tester.ensureVisible(menuFinder);
     await tester.tap(menuFinder);
     await tester.pumpAndSettle();
@@ -170,6 +173,7 @@ void main() {
     );
     await dismissUpdateDialogIfAny(tester);
     await openHomeSection(tester, 'day');
+    await openQuickDayEditor(tester);
 
     final finishFinder = find.byKey(
       const ValueKey('calendar-end-workday-button'),

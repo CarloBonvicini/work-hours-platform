@@ -18,6 +18,7 @@ void main() {
     await dismissUpdateDialogIfAny(tester);
 
     await openHomeSection(tester, 'day');
+    await openQuickDayEditor(tester);
 
     final exitPosition = tester.getTopLeft(
       find.byKey(const ValueKey('calendar-override-end-time-button')),
@@ -102,6 +103,7 @@ void main() {
     await dismissUpdateDialogIfAny(tester);
 
     await openHomeSection(tester, 'day');
+    await openQuickDayEditor(tester);
 
     await tester.tap(
       find.byKey(const ValueKey('calendar-override-end-time-button')),

@@ -82,6 +82,13 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Oggi'), findsWidgets);
+    // La modifica rapida arriva chiusa: in cima c'e' la timbratura, e il
+    // riepilogo del giorno si legge senza aprirla.
+    expect(
+      find.byKey(const ValueKey('calendar-quick-editor-summary')),
+      findsOneWidget,
+    );
+    await openQuickDayEditor(tester);
     expect(
       find.byKey(const ValueKey('calendar-record-start-button')),
       findsOneWidget,
@@ -212,6 +219,7 @@ void main() {
 
       Future<void> openDaySection() async {
         await openHomeSection(tester, 'day');
+        await openQuickDayEditor(tester);
       }
 
       final today = DateTime.now();
@@ -300,6 +308,7 @@ void main() {
     await pumpWorkHoursApp(tester, repository: repository);
     await dismissUpdateDialogIfAny(tester);
     await openHomeSection(tester, 'day');
+    await openQuickDayEditor(tester);
 
     // L'eccezione del giorno non e' una giornata libera: deve restare
     // possibile tornare all'orario standard.

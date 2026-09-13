@@ -73,6 +73,26 @@ Future<void> openHomeSection(WidgetTester tester, String section) async {
   await tester.pumpAndSettle();
 }
 
+/// Apre la modifica rapida della vista giorno, che di default arriva chiusa.
+///
+/// Idempotente: chiamarla due volte non la richiude.
+Future<void> openQuickDayEditor(WidgetTester tester) async {
+  final fieldFinder = find.byKey(
+    const ValueKey('calendar-override-start-time-button'),
+  );
+  if (fieldFinder.evaluate().isNotEmpty) {
+    return;
+  }
+
+  final toggleFinder = find.byKey(
+    const ValueKey('calendar-quick-editor-toggle-button'),
+  );
+  await tester.ensureVisible(toggleFinder);
+  await tester.pumpAndSettle();
+  await tester.tap(toggleFinder);
+  await tester.pumpAndSettle();
+}
+
 /// Data di oggi nel formato ISO usato dalle registrazioni.
 String todayIsoDate() {
   final today = DateTime.now();

@@ -56,6 +56,7 @@ class CalendarQuickScheduleEditor extends StatelessWidget {
     required this.hasPendingExitConfirmation,
     required this.isUsingStandardWorkTarget,
     required this.isEndTimeFinalized,
+    required this.collapsedSummary,
     required this.dayActivities,
     required this.onAddWork,
     required this.onAddLeave,
@@ -113,6 +114,9 @@ class CalendarQuickScheduleEditor extends StatelessWidget {
   final bool hasPendingExitConfirmation;
   final bool isUsingStandardWorkTarget;
   final bool isEndTimeFinalized;
+
+  /// Riga mostrata quando il riquadro e' chiuso: evita di doverlo aprire.
+  final String collapsedSummary;
   final List<ActivityItem> dayActivities;
   final VoidCallback onAddWork;
   final VoidCallback onAddLeave;
@@ -191,9 +195,29 @@ class CalendarQuickScheduleEditor extends StatelessWidget {
         if (isExpanded)
           header
         else
-          SizedBox(
-            height: 30,
-            child: Align(alignment: Alignment.centerLeft, child: header),
+          // Il riepilogo va sotto il titolo, non di fianco: di fianco sfora
+          // sugli schermi stretti, dove l'app viene usata davvero.
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              header,
+              InkWell(
+                borderRadius: BorderRadius.circular(12),
+                onTap: () => onToggleExpanded(true),
+                child: Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Text(
+                    collapsedSummary,
+                    key: const ValueKey('calendar-quick-editor-summary'),
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
         AnimatedSize(
           duration: const Duration(milliseconds: 180),

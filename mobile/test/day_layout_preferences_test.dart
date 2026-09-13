@@ -23,8 +23,13 @@ void main() {
     await dismissUpdateDialogIfAny(tester);
     await openDaySection();
 
+    // Di default la modifica rapida e' chiusa: in cima c'e' la timbratura.
     expect(
       find.byKey(const ValueKey('calendar-override-start-time-button')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('calendar-quick-editor-summary')),
       findsOneWidget,
     );
 
@@ -35,9 +40,9 @@ void main() {
 
     expect(
       find.byKey(const ValueKey('calendar-override-start-time-button')),
-      findsNothing,
+      findsOneWidget,
     );
-    expect(themePreferenceStore.settings.expandDayQuickEditor, isFalse);
+    expect(themePreferenceStore.settings.expandDayQuickEditor, isTrue);
 
     await pumpWorkHoursApp(
       tester,
@@ -49,13 +54,10 @@ void main() {
     await dismissUpdateDialogIfAny(tester);
     await openDaySection();
 
-    expect(
-      find.byKey(const ValueKey('calendar-quick-editor-toggle-button')),
-      findsOneWidget,
-    );
+    // Chi la apre se la ritrova aperta al rientro.
     expect(
       find.byKey(const ValueKey('calendar-override-start-time-button')),
-      findsNothing,
+      findsOneWidget,
     );
   });
 
@@ -188,12 +190,9 @@ void main() {
     await dismissUpdateDialogIfAny(tester);
     await openDaySection();
 
+    // La modifica rapida arriva gia' chiusa: qui si riduce solo la timbratura.
     await tester.tap(
       find.byKey(const ValueKey('calendar-workday-card-toggle-button')),
-    );
-    await tester.pumpAndSettle();
-    await tester.tap(
-      find.byKey(const ValueKey('calendar-quick-editor-toggle-button')),
     );
     await tester.pumpAndSettle();
 
