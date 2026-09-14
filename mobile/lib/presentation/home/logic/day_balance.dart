@@ -76,11 +76,12 @@ int resolveLiveWorkedMinutes({
   bool treatEndAsActual = false,
 }) {
   if (session != null) {
-    final measurementSegments = buildAgendaMeasurementSegments(
-      schedule: quickEditorSchedule,
+    // Solo i segmenti della sessione: entrata timbrata e pause registrate.
+    // Passare per l'agenda faceva vincere la finestra del piano, e l'uscita
+    // prevista finiva contata come ora gia' lavorata.
+    final measurementSegments = buildSessionMeasurementSegments(
       session: session,
       nowMinutes: nowMinutes,
-      pauseWindow: pauseWindow,
     );
     if (measurementSegments.isNotEmpty) {
       return measurementSegments

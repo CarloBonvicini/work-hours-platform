@@ -242,6 +242,7 @@ class CalendarDaySummary extends StatelessWidget {
           alignment: Alignment.topCenter,
           child: isExpanded
               ? Column(
+                  key: const ValueKey('calendar-day-agenda-body'),
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const SizedBox(height: 10),

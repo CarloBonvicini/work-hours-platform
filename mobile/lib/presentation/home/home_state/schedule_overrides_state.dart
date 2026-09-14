@@ -41,6 +41,16 @@ mixin _ScheduleOverridesState on _HomeScreenStateBase {
     }
   }
 
+  /// Uscita da salvare: vuota finche' e' solo la previsione.
+  ///
+  /// L'uscita calcolata da entrata + ore + pausa non e' un fatto registrato,
+  /// quindi non va scritta nel giorno. Prima per non salvarla si saltava tutto
+  /// il salvataggio, e cambiando giorno si perdevano anche entrata, ore e pausa.
+  String get _persistableScheduleOverrideEndTimeText =>
+      _hasPendingExitConfirmationForSelectedDate
+      ? ''
+      : _scheduleOverrideEndTimeController.text;
+
   @override
   Future<void> _autosaveScheduleOverride() async {
     _scheduleOverrideAutosaveQueued = true;
@@ -56,16 +66,17 @@ mixin _ScheduleOverridesState on _HomeScreenStateBase {
         return;
       }
 
+      final endTimeText = _persistableScheduleOverrideEndTimeText;
       final draftValidation = validateScheduleDraft(
         targetText: _scheduleOverrideTargetController.text,
         startTimeText: _scheduleOverrideStartTimeController.text,
-        endTimeText: _scheduleOverrideEndTimeController.text,
+        endTimeText: endTimeText,
         breakText: _scheduleOverrideBreakController.text,
       );
       final draftSchedule = _parseDayScheduleInput(
         targetText: _scheduleOverrideTargetController.text,
         startTimeText: _scheduleOverrideStartTimeController.text,
-        endTimeText: _scheduleOverrideEndTimeController.text,
+        endTimeText: endTimeText,
         breakText: _scheduleOverrideBreakController.text,
       );
       if (draftValidation != null || draftSchedule == null) {
@@ -206,9 +217,6 @@ mixin _ScheduleOverridesState on _HomeScreenStateBase {
       });
     }
     _pushCurrentScheduleOverrideDraftToHistory();
-    if (_hasPendingExitConfirmationForSelectedDate) {
-      return;
-    }
     await _autosaveScheduleOverride();
   }
 
@@ -321,9 +329,6 @@ mixin _ScheduleOverridesState on _HomeScreenStateBase {
       _errorMessage = null;
     });
     _pushCurrentScheduleOverrideDraftToHistory();
-    if (_hasPendingExitConfirmationForSelectedDate) {
-      return;
-    }
     await _autosaveScheduleOverride();
   }
 
