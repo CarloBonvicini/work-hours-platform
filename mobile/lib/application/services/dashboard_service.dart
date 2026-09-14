@@ -79,6 +79,37 @@ class DashboardService {
     );
   }
 
+  /// Porta a [minutes] le ore lavorate del giorno: aggiorna la prima voce del
+  /// giorno o, se non c'e', ne crea una con [noteIfNew].
+  ///
+  /// L'Uscita della timbratura e gli orari scritti su un giorno passato
+  /// registrano cosi', in un posto solo: toccare di nuovo gli orari aggiorna
+  /// le ore invece di aggiungerne altre.
+  Future<DashboardSnapshot> upsertDayWorkedHours({
+    required String date,
+    required int minutes,
+    required String noteIfNew,
+  }) async {
+    final snapshot = await _repository.loadSnapshot(
+      month: date.substring(0, 7),
+    );
+    final existing = snapshot.workEntries
+        .where((entry) => entry.date == date)
+        .firstOrNull;
+    if (existing == null) {
+      return addWorkEntry(date: date, minutes: minutes, note: noteIfNew);
+    }
+    if (existing.minutes == minutes) {
+      return snapshot;
+    }
+    return updateWorkEntry(
+      id: existing.id,
+      date: date,
+      minutes: minutes,
+      note: existing.note,
+    );
+  }
+
   /// [month] e' il mese della voce eliminata, per ricaricare lo snapshot giusto.
   Future<DashboardSnapshot> deleteWorkEntry({
     required String id,

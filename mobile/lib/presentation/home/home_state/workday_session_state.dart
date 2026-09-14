@@ -368,10 +368,10 @@ mixin _WorkdaySessionState on _HomeScreenStateBase {
         breakMinutes: breakMinutes,
         note: _findScheduleOverrideForDate(snapshot, _todayDate)?.note,
       );
-      final nextSnapshot = await _upsertWorkedHoursEntry(
-        snapshot: snapshot,
-        isoDate: isoDate,
-        workedMinutes: workedMinutes,
+      final nextSnapshot = await widget.dashboardService.upsertDayWorkedHours(
+        date: isoDate,
+        minutes: workedMinutes,
+        noteIfNew: 'Timbratura',
       );
       if (!mounted) {
         return;
@@ -394,30 +394,6 @@ mixin _WorkdaySessionState on _HomeScreenStateBase {
         _errorMessage = _humanizeError(error);
       });
     }
-  }
-
-  /// Aggiorna la prima voce "Ore lavorate" del giorno oppure ne crea una.
-  Future<DashboardSnapshot> _upsertWorkedHoursEntry({
-    required DashboardSnapshot snapshot,
-    required String isoDate,
-    required int workedMinutes,
-  }) {
-    final existing = snapshot.workEntries
-        .where((entry) => entry.date == isoDate)
-        .firstOrNull;
-    if (existing == null) {
-      return widget.dashboardService.addWorkEntry(
-        date: isoDate,
-        minutes: workedMinutes,
-        note: 'Timbratura',
-      );
-    }
-    return widget.dashboardService.updateWorkEntry(
-      id: existing.id,
-      date: isoDate,
-      minutes: workedMinutes,
-      note: existing.note,
-    );
   }
 
   void _showWorkdaySnackBar(String message) {

@@ -109,7 +109,11 @@ mixin _ScheduleOverridesState on _HomeScreenStateBase {
         );
         return true;
       }());
-      if (autosaveAction == _ScheduleOverrideAutosaveAction.none) {
+      // Su un giorno passato entrata e uscita sono ore fatte, non un
+      // programma: vanno registrate anche quando coincidono col piano.
+      final isPastDay = compareDateToToday(_selectedDate) < 0;
+      if (autosaveAction == _ScheduleOverrideAutosaveAction.none &&
+          !isPastDay) {
         if (mounted) {
           setState(() {
             _errorMessage = null;
@@ -127,19 +131,39 @@ mixin _ScheduleOverridesState on _HomeScreenStateBase {
 
       try {
         final currentPauseWindow = _selectedDayPauseWindowDraft();
-        final nextSnapshot =
-            autosaveAction == _ScheduleOverrideAutosaveAction.remove
-            ? await widget.dashboardService.removeScheduleOverride(
-                date: DashboardService.defaultEntryDateOf(_selectedDate),
+        var nextSnapshot = switch (autosaveAction) {
+          _ScheduleOverrideAutosaveAction.none => snapshot,
+          _ScheduleOverrideAutosaveAction.remove =>
+            await widget.dashboardService.removeScheduleOverride(
+              date: DashboardService.defaultEntryDateOf(_selectedDate),
+            ),
+          _ScheduleOverrideAutosaveAction.save =>
+            await widget.dashboardService.saveScheduleOverride(
+              date: DashboardService.defaultEntryDateOf(_selectedDate),
+              targetMinutes: draftSchedule.targetMinutes,
+              startTime: draftSchedule.startTime,
+              endTime: draftSchedule.endTime,
+              breakMinutes: draftSchedule.breakMinutes,
+              note: null,
+            ),
+        };
+        final pastDayWorkedMinutes = isPastDay
+            ? resolveComputedWorkedMinutes(
+                schedule: draftSchedule,
+                minimumBreakMinutes:
+                    snapshot.profile.workRules.minimumBreakMinutes,
               )
-            : await widget.dashboardService.saveScheduleOverride(
-                date: DashboardService.defaultEntryDateOf(_selectedDate),
-                targetMinutes: draftSchedule.targetMinutes,
-                startTime: draftSchedule.startTime,
-                endTime: draftSchedule.endTime,
-                breakMinutes: draftSchedule.breakMinutes,
-                note: null,
-              );
+            : null;
+        if (pastDayWorkedMinutes != null && pastDayWorkedMinutes > 0) {
+          // Diventano la voce "Ore lavorate" del giorno, come con l'Uscita
+          // della timbratura: prima restavano un orario, contato come
+          // lavorato solo nel saldo del mese della home.
+          nextSnapshot = await widget.dashboardService.upsertDayWorkedHours(
+            date: DashboardService.defaultEntryDateOf(_selectedDate),
+            minutes: pastDayWorkedMinutes,
+            noteIfNew: 'Orario del giorno',
+          );
+        }
 
         if (!mounted) {
           return;
@@ -284,11 +308,7 @@ mixin _ScheduleOverridesState on _HomeScreenStateBase {
     _seedScheduleOverrideDraftFromCurrentDisplay();
     _scheduleOverrideTargetController.text = formatHoursInput(pickedMinutes);
     _clearPendingExitConfirmationForSelectedDate();
-    final exitMinutes = resolveDraftExitMinutes(
-      startTimeText: _scheduleOverrideStartTimeController.text,
-      breakText: _scheduleOverrideBreakController.text,
-      targetMinutes: pickedMinutes,
-    );
+    final exitMinutes = _draftExitMinutes(targetMinutes: pickedMinutes);
     if (exitMinutes != null) {
       _scheduleOverrideEndTimeController.text = formatTimeInput(exitMinutes);
     }
@@ -577,45 +597,28 @@ mixin _ScheduleOverridesState on _HomeScreenStateBase {
       return schedule;
     }
 
-    final explicitStartMinutes = parseTimeInput(schedule.startTime);
-    final explicitEndMinutes = parseTimeInput(schedule.endTime);
-    final baseStartMinutes = parseTimeInput(baseSchedule.startTime);
-    final baseEndMinutes = parseTimeInput(baseSchedule.endTime);
-    final currentBreakMinutes = currentSessionBreakMinutes(
-      session,
-      _currentMinutesOfDay(),
-    );
-    final usesDefaultStart =
-        explicitStartMinutes == null ||
-        (baseStartMinutes != null && explicitStartMinutes == baseStartMinutes);
-    final usesDefaultEnd =
-        explicitEndMinutes == null ||
-        (baseEndMinutes != null && explicitEndMinutes == baseEndMinutes);
-    final displayedStartMinutes = usesDefaultStart
-        ? session.startMinutes
-        : explicitStartMinutes;
-    final effectiveBreakMinutes = math.max(
-      schedule.breakMinutes,
-      currentBreakMinutes,
-    );
-    final computedEndMinutes = resolveDisplayedSessionEndMinutes(
-      session: session,
+    return resolveDisplayedSessionSchedule(
       schedule: schedule,
-      displayedStartMinutes: displayedStartMinutes,
-      explicitEndMinutes: explicitEndMinutes,
-      usesDefaultEnd: usesDefaultEnd,
+      baseSchedule: baseSchedule,
+      session: session,
       nowMinutes: _currentMinutesOfDay(),
-      minimumBreakMinutes:
-          _snapshot?.profile.workRules.minimumBreakMinutes ?? 0,
+      workRules: _snapshot?.profile.workRules,
     );
-    return DaySchedule(
-      // Keep daily target stable: editing start/end must not rewrite "Ore di lavoro".
-      targetMinutes: schedule.targetMinutes,
-      startTime: formatTimeInput(displayedStartMinutes),
-      endTime: computedEndMinutes == null
-          ? schedule.endTime
-          : formatTimeInput(computedEndMinutes),
-      breakMinutes: effectiveBreakMinutes,
+  }
+
+  /// Uscita proposta dai campi della modifica rapida, con le regole d'entrata.
+  int? _draftExitMinutes({int? targetMinutes}) {
+    final snapshot = _snapshotForMonth(_selectedMonth) ?? _snapshot;
+    final baseSchedule = snapshot == null
+        ? null
+        : _resolveBaseDayScheduleForDate(snapshot, _selectedDate);
+    return resolveDraftExitMinutes(
+      startTimeText: _scheduleOverrideStartTimeController.text,
+      breakText: _scheduleOverrideBreakController.text,
+      targetText: _scheduleOverrideTargetController.text,
+      targetMinutes: targetMinutes,
+      plannedStartMinutes: parseTimeInput(baseSchedule?.startTime),
+      workRules: snapshot?.profile.workRules,
     );
   }
 
@@ -625,11 +628,7 @@ mixin _ScheduleOverridesState on _HomeScreenStateBase {
     final previousEndMinutes = parseTimeInput(
       _scheduleOverrideEndTimeController.text.trim(),
     );
-    final endMinutes = resolveDraftExitMinutes(
-      startTimeText: _scheduleOverrideStartTimeController.text,
-      breakText: _scheduleOverrideBreakController.text,
-      targetText: _scheduleOverrideTargetController.text,
-    );
+    final endMinutes = _draftExitMinutes();
     if (endMinutes == null) {
       if (markPendingConfirmation) {
         _clearPendingExitConfirmationForSelectedDate();
@@ -703,6 +702,7 @@ mixin _ScheduleOverridesState on _HomeScreenStateBase {
       hasOverride: metrics.hasOverride,
       schedule: displayedSchedule,
       overrideNote: metrics.overrideNote,
+      countsInBalance: metrics.countsInBalance,
     );
   }
 

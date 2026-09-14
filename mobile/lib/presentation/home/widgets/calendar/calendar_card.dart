@@ -238,10 +238,9 @@ class CalendarCard extends StatelessWidget {
             rawEndTimeText: overrideEndTimeController.text,
             treatEndAsActual: hasElapsedManualExit,
           )
-        : resolveDisplayedWorkedMinutes(
-            quickEditorSchedule: quickEditorDaySchedule,
-            workRules: workRules,
-          );
+        // Un altro giorno ha solo le ore registrate: gli orari del piano, o di
+        // un giorno futuro, non sono ore fatte.
+        : dayMetrics.workedMinutes;
     final resolvedStartMinutesForSuggestion =
         parseTimeInput(overrideStartTimeController.text.trim()) ??
         parseTimeInput(effectiveQuickEditorStartTime);
@@ -250,7 +249,6 @@ class CalendarCard extends StatelessWidget {
     final hasQuickResultContext =
         hasRecordedWorkContext ||
         hasElapsedManualExit ||
-        (!isSelectedDateToday && hasQuickWorkedOverride) ||
         (isSelectedDateToday &&
             (hasManualQuickStartInput || hasManualQuickEndInput));
     final hasExitSuggestionContext =

@@ -3,6 +3,7 @@
 import 'package:work_hours_mobile/application/services/hour_input_parser.dart';
 import 'package:work_hours_mobile/application/services/time_input_parser.dart';
 import 'package:work_hours_mobile/domain/models/day_schedule.dart';
+import 'package:work_hours_mobile/domain/models/user_work_rules.dart';
 import 'package:work_hours_mobile/domain/models/weekday_schedule.dart';
 import 'package:work_hours_mobile/domain/models/weekday_target_minutes.dart';
 import 'package:work_hours_mobile/presentation/home/logic/expected_exit.dart';
@@ -162,21 +163,30 @@ String compactWeekScheduleLabel(DaySchedule schedule) {
 /// Uscita prevista dai testi della modifica rapida, pronta per il campo orario.
 ///
 /// Sta qui e non nei mixin di stato: i mixin orchestrano, il conto lo fa logic.
+/// Con l'orario fisso l'uscita parte dall'entrata del piano
+/// ([plannedStartMinutes]), come per la timbratura.
 int? resolveDraftExitMinutes({
   required String startTimeText,
   required String breakText,
   String? targetText,
   int? targetMinutes,
+  int? plannedStartMinutes,
+  UserWorkRules? workRules,
 }) {
   final startMinutes = parseTimeInput(startTimeText);
   final resolvedTargetMinutes =
-      targetMinutes ?? (targetText == null ? null : parseHoursInput(targetText));
+      targetMinutes ??
+      (targetText == null ? null : parseHoursInput(targetText));
   if (startMinutes == null || resolvedTargetMinutes == null) {
     return null;
   }
 
   return resolveScheduleExitTimeMinutes(
-    startMinutes: startMinutes,
+    startMinutes: resolveExitAnchorStartMinutes(
+      actualStartMinutes: startMinutes,
+      plannedStartMinutes: plannedStartMinutes,
+      workRules: workRules,
+    ),
     targetMinutes: resolvedTargetMinutes,
     breakMinutes: parseBreakDurationInput(breakText) ?? 0,
   );

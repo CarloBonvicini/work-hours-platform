@@ -13,6 +13,7 @@ class DayMetrics {
     required this.hasOverride,
     required this.schedule,
     this.overrideNote,
+    this.countsInBalance = false,
   });
 
   factory DayMetrics.empty(DateTime date) {
@@ -37,6 +38,10 @@ class DayMetrics {
   final bool hasOverride;
   final DaySchedule schedule;
   final String? overrideNote;
+
+  /// Il giorno pesa sul saldo (vedi dayCountsInBalance): anche vuoto, se e'
+  /// un giorno passato da quando si registra.
+  final bool countsInBalance;
 }
 
 class MonthMetrics {

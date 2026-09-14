@@ -295,9 +295,12 @@ mixin _ConsuntivoState on _HomeScreenStateBase {
           (total, entry) => total + entry.minutes,
         );
         final registeredMinutes = workedMinutes + leaveMinutes;
-        // Oggi matura solo quando c'e' qualcosa di registrato, come nel saldo
-        // del mese: alle 9 del mattino non e' ancora un debito.
-        final hasMatured = cursor.isBefore(today) || registeredMinutes > 0;
+        // Stessa regola del saldo del mese (dayCountsInBalance): oggi alle 9
+        // non e' ancora debito, un giorno prima della prima registrazione mai.
+        final hasMatured = snapshot.countsInBalance(
+          isoDate,
+          hasRegistrations: registeredMinutes > 0,
+        );
         final balanceMinutes = hasMatured
             ? registeredMinutes - effectiveSchedule.targetMinutes
             : 0;

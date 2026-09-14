@@ -5,7 +5,6 @@ import 'package:work_hours_mobile/application/services/time_input_parser.dart';
 import 'package:work_hours_mobile/application/services/workday_start_store.dart';
 import 'package:work_hours_mobile/domain/models/day_schedule.dart';
 import 'package:work_hours_mobile/presentation/home/logic/agenda_segments.dart';
-import 'package:work_hours_mobile/presentation/home/logic/day_balance.dart';
 import 'package:work_hours_mobile/presentation/home/logic/workday_session_info.dart';
 import 'package:work_hours_mobile/presentation/home/models/calendar_day.dart';
 
@@ -34,6 +33,7 @@ String? buildCalendarDaySecondaryLabel({
   required int leaveMinutes,
   required bool hasOverride,
   required String? todayStatusLabel,
+  bool needsRegistration = false,
 }) {
   return switch (relation) {
     CalendarDayRelation.past => switch ((
@@ -44,6 +44,8 @@ String? buildCalendarDaySecondaryLabel({
       (true, true, _) => 'Registrato + permesso',
       (true, false, _) => 'Registrato',
       (false, true, _) => 'Permesso',
+      // Pesa come debito: meglio dirlo che lasciare la cella vuota.
+      _ when needsRegistration => 'Da registrare',
       (false, false, true) => 'Modificato',
       _ => null,
     },
@@ -97,16 +99,20 @@ CalendarDayDetails? buildCalendarDayDetails({
   final explicitEndMinutes = parseTimeInput(schedule.endTime);
   final nowMinutes = (DateTime.now().hour * 60) + DateTime.now().minute;
   final endMinutes = session?.endMinutes ?? explicitEndMinutes;
+  final hasRegisteredWorkOrLeave = workedMinutes > 0 || leaveMinutes > 0;
+  // Un giorno passato conta solo cio' che e' registrato: l'orario del piano
+  // resta disegnato, ma non vale come ore ne' come pausa fatte.
+  final isUnregisteredPast =
+      relation == CalendarDayRelation.past && !hasRegisteredWorkOrLeave;
   final pauseMinutes = session != null
       ? currentSessionBreakMinutes(session, nowMinutes)
+      : isUnregisteredPast
+      ? 0
       : schedule.breakMinutes;
-  final hasRegisteredWorkOrLeave = workedMinutes > 0 || leaveMinutes > 0;
   final resolvedWorkedMinutes = session != null
       ? resolveSessionWorkedMinutes(session: session, nowMinutes: nowMinutes)
       : relation == CalendarDayRelation.past
-      ? hasRegisteredWorkOrLeave
-            ? workedMinutes
-            : (resolveComputedWorkedMinutes(schedule: schedule) ?? 0)
+      ? workedMinutes
       : 0;
 
   if (startMinutes == null &&

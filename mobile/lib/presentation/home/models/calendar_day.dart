@@ -14,6 +14,7 @@ class CalendarDay {
     required this.primaryLabel,
     required this.secondaryLabel,
     required this.details,
+    this.countsInBalance = false,
   });
 
   const CalendarDay.empty()
@@ -28,7 +29,8 @@ class CalendarDay {
       relation = CalendarDayRelation.future,
       primaryLabel = null,
       secondaryLabel = null,
-      details = null;
+      details = null,
+      countsInBalance = false;
 
   final DateTime? date;
   final String isoDate;
@@ -42,6 +44,9 @@ class CalendarDay {
   final String? primaryLabel;
   final String? secondaryLabel;
   final CalendarDayDetails? details;
+
+  /// Il giorno pesa sul saldo (vedi dayCountsInBalance).
+  final bool countsInBalance;
 }
 
 enum CalendarDayRelation { past, today, future }
