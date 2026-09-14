@@ -5,6 +5,7 @@ import 'package:work_hours_mobile/application/services/time_input_parser.dart';
 import 'package:work_hours_mobile/domain/models/day_schedule.dart';
 import 'package:work_hours_mobile/domain/models/weekday_schedule.dart';
 import 'package:work_hours_mobile/domain/models/weekday_target_minutes.dart';
+import 'package:work_hours_mobile/presentation/home/logic/expected_exit.dart';
 import 'package:work_hours_mobile/presentation/home/models/calendar_day.dart';
 
 class ScheduleOverrideDraftState {
@@ -156,4 +157,57 @@ String compactWeekScheduleLabel(DaySchedule schedule) {
     return 'Nessun turno';
   }
   return '${formatHoursInput(schedule.targetMinutes)} previste';
+}
+
+/// Uscita prevista dai testi della modifica rapida, pronta per il campo orario.
+///
+/// Sta qui e non nei mixin di stato: i mixin orchestrano, il conto lo fa logic.
+int? resolveDraftExitMinutes({
+  required String startTimeText,
+  required String breakText,
+  String? targetText,
+  int? targetMinutes,
+}) {
+  final startMinutes = parseTimeInput(startTimeText);
+  final resolvedTargetMinutes =
+      targetMinutes ?? (targetText == null ? null : parseHoursInput(targetText));
+  if (startMinutes == null || resolvedTargetMinutes == null) {
+    return null;
+  }
+
+  return resolveScheduleExitTimeMinutes(
+    startMinutes: startMinutes,
+    targetMinutes: resolvedTargetMinutes,
+    breakMinutes: parseBreakDurationInput(breakText) ?? 0,
+  );
+}
+
+/// Entrata che porta a una certa uscita, pronta per un campo orario.
+int resolveScheduleEntryTimeMinutes({
+  required int endMinutes,
+  required int targetMinutes,
+  required int breakMinutes,
+}) {
+  return clampExitToDayEnd(
+    resolveExpectedStartMinutes(
+      endMinutes: endMinutes,
+      targetMinutes: targetMinutes,
+      breakMinutes: breakMinutes,
+    ),
+  );
+}
+
+/// Uscita prevista pronta per un campo orario, quindi mai oltre la mezzanotte.
+int resolveScheduleExitTimeMinutes({
+  required int startMinutes,
+  required int targetMinutes,
+  required int breakMinutes,
+}) {
+  return clampExitToDayEnd(
+    resolveExpectedExitMinutes(
+      startMinutes: startMinutes,
+      targetMinutes: targetMinutes,
+      breakMinutes: breakMinutes,
+    ),
+  );
 }

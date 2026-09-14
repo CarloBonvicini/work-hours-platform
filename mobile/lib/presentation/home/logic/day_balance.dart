@@ -6,6 +6,7 @@ import 'package:work_hours_mobile/application/services/workday_start_store.dart'
 import 'package:work_hours_mobile/domain/models/day_schedule.dart';
 import 'package:work_hours_mobile/domain/models/user_work_rules.dart';
 import 'package:work_hours_mobile/presentation/home/logic/agenda_segments.dart';
+import 'package:work_hours_mobile/presentation/home/logic/expected_exit.dart';
 import 'package:work_hours_mobile/presentation/home/models/calendar_day.dart';
 
 bool matchesDaySchedule(DaySchedule left, DaySchedule right) {
@@ -133,6 +134,7 @@ int? resolveSuggestedExitTotalMinutes({
   required DaySchedule quickEditorSchedule,
   required UserWorkRules workRules,
   String? rawStartTimeText,
+  int actualBreakMinutes = 0,
 }) {
   final expectedMinutes = resolveDisplayedExpectedMinutes(
     effectiveSchedule: effectiveSchedule,
@@ -150,11 +152,18 @@ int? resolveSuggestedExitTotalMinutes({
     return null;
   }
 
-  final effectiveBreakMinutes = math.max(
-    quickEditorSchedule.breakMinutes,
-    math.max(effectiveSchedule.breakMinutes, workRules.minimumBreakMinutes),
+  return resolveExpectedExitMinutes(
+    startMinutes: startMinutes,
+    targetMinutes: expectedMinutes,
+    breakMinutes: resolveExpectedExitBreakMinutes(
+      plannedBreakMinutes: math.max(
+        quickEditorSchedule.breakMinutes,
+        effectiveSchedule.breakMinutes,
+      ),
+      actualBreakMinutes: actualBreakMinutes,
+      minimumBreakMinutes: workRules.minimumBreakMinutes,
+    ),
   );
-  return startMinutes + expectedMinutes + effectiveBreakMinutes;
 }
 
 String resolveSuggestedExitLabel({
@@ -163,6 +172,7 @@ String resolveSuggestedExitLabel({
   required UserWorkRules workRules,
   String? rawStartTimeText,
   String? rawEndTimeText,
+  int actualBreakMinutes = 0,
 }) {
   final expectedMinutes = resolveDisplayedExpectedMinutes(
     effectiveSchedule: effectiveSchedule,
@@ -177,6 +187,7 @@ String resolveSuggestedExitLabel({
     quickEditorSchedule: quickEditorSchedule,
     workRules: workRules,
     rawStartTimeText: rawStartTimeText,
+    actualBreakMinutes: actualBreakMinutes,
   );
   if (suggestedExitTotalMinutes == null) {
     final fallbackEndMinutes =
@@ -188,7 +199,5 @@ String resolveSuggestedExitLabel({
         : formatTimeInput(fallbackEndMinutes);
   }
 
-  final normalizedMinutes = suggestedExitTotalMinutes % (24 * 60);
-  final nextDaySuffix = suggestedExitTotalMinutes >= (24 * 60) ? ' +1g' : '';
-  return '${formatTimeInput(normalizedMinutes)}$nextDaySuffix';
+  return formatExpectedExitLabel(suggestedExitTotalMinutes);
 }
