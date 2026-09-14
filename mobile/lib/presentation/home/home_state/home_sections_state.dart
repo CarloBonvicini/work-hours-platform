@@ -153,12 +153,9 @@ mixin _HomeSectionsState on _HomeScreenStateBase {
               return;
             }
 
-            if (horizontalVelocity > 0) {
-              unawaited(_shiftSelectedDay(1));
-              return;
-            }
-
-            unawaited(_shiftSelectedDay(-1));
+            // Si scorre come si sfoglia: trascinare verso sinistra porta al
+            // giorno dopo, verso destra a quello prima.
+            unawaited(_shiftSelectedDay(horizontalVelocity > 0 ? -1 : 1));
           },
           child: _buildPlannerSectionCard(
             snapshot: snapshot,
