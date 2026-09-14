@@ -107,41 +107,66 @@ void main() {
     });
   });
 
-  group('resolveDisplayedSessionEndMinutes', () {
-    const schedule = DaySchedule(targetMinutes: 8 * 60, breakMinutes: 30);
-    const session = WorkdaySession(startMinutes: 8 * 60 + 15);
+  group('resolveDisplayedSessionSchedule', () {
+    // Solo le ore: l'uscita nasce dal conto.
+    const hoursOnly = DaySchedule(targetMinutes: 8 * 60, breakMinutes: 30);
+    // Piano 08:00-17:00 con un'ora di pausa.
+    const plan = DaySchedule(
+      targetMinutes: 8 * 60,
+      startTime: '08:00',
+      endTime: '17:00',
+      breakMinutes: 60,
+    );
+    const lateEntry = WorkdaySession(startMinutes: 8 * 60 + 15);
+    final rules = UserWorkRules.unbounded(expectedDailyMinutes: 8 * 60);
+
+    String? endOf({
+      required DaySchedule schedule,
+      required WorkdaySession session,
+      UserWorkRules? workRules,
+      DaySchedule? baseSchedule,
+    }) {
+      return resolveDisplayedSessionSchedule(
+        schedule: schedule,
+        baseSchedule: baseSchedule ?? schedule,
+        session: session,
+        nowMinutes: 10 * 60,
+        workRules: workRules,
+      ).endTime;
+    }
 
     test(
       'la pausa minima delle regole sposta l uscita come nella modifica rapida',
       () {
         // Prima questa copia ignorava la pausa minima: 16:45 invece di 17:15.
         expect(
-          resolveDisplayedSessionEndMinutes(
-            session: session,
-            schedule: schedule,
-            displayedStartMinutes: 8 * 60 + 15,
-            explicitEndMinutes: null,
-            usesDefaultEnd: true,
-            nowMinutes: 10 * 60,
-            minimumBreakMinutes: 60,
+          endOf(
+            schedule: hoursOnly,
+            session: lateEntry,
+            workRules: UserWorkRules.unbounded(
+              expectedDailyMinutes: 8 * 60,
+              minimumBreakMinutes: 60,
+            ),
           ),
-          17 * 60 + 15,
+          '17:15',
         );
       },
     );
 
     test('un uscita scritta a mano resta com e', () {
       expect(
-        resolveDisplayedSessionEndMinutes(
-          session: session,
-          schedule: schedule,
-          displayedStartMinutes: 8 * 60 + 15,
-          explicitEndMinutes: 16 * 60,
-          usesDefaultEnd: false,
-          nowMinutes: 10 * 60,
-          minimumBreakMinutes: 60,
+        endOf(
+          schedule: const DaySchedule(
+            targetMinutes: 8 * 60,
+            startTime: '08:00',
+            endTime: '16:00',
+            breakMinutes: 60,
+          ),
+          baseSchedule: plan,
+          session: lateEntry,
+          workRules: rules,
         ),
-        16 * 60,
+        '16:00',
       );
     });
 
@@ -149,18 +174,55 @@ void main() {
       'oltre la mezzanotte si ferma alle 23:59 invece di ripartire da 0',
       () {
         expect(
-          resolveDisplayedSessionEndMinutes(
+          endOf(
+            schedule: hoursOnly,
             session: const WorkdaySession(startMinutes: 18 * 60),
-            schedule: schedule,
-            displayedStartMinutes: 18 * 60,
-            explicitEndMinutes: null,
-            usesDefaultEnd: true,
-            nowMinutes: 19 * 60,
           ),
-          23 * 60 + 59,
+          '23:59',
         );
       },
     );
+
+    test('senza orario fisso chi entra tardi esce tardi', () {
+      // Prima restava l'uscita del piano: 17:00, con 15 minuti di debito
+      // scoperti solo a fine giornata.
+      expect(
+        endOf(schedule: plan, session: lateEntry, workRules: rules),
+        '17:15',
+      );
+    });
+
+    test('con orario fisso si esce all ora del piano', () {
+      expect(
+        endOf(
+          schedule: plan,
+          session: lateEntry,
+          workRules: rules.copyWith(fixedScheduleEnabled: true),
+        ),
+        '17:00',
+      );
+    });
+
+    test('con la flessibilita l uscita segue l entrata dentro la fascia', () {
+      final flexible = rules.copyWith(
+        fixedScheduleEnabled: true,
+        flexibleStartEnabled: true,
+        flexibleStartWindowMinutes: 2 * 60,
+      );
+      expect(
+        endOf(schedule: plan, session: lateEntry, workRules: flexible),
+        '17:15',
+      );
+      // Oltre la fascia (08:00-10:00) l'uscita si ferma: il resto e' debito.
+      expect(
+        endOf(
+          schedule: plan,
+          session: const WorkdaySession(startMinutes: 10 * 60 + 30),
+          workRules: flexible,
+        ),
+        '19:00',
+      );
+    });
   });
 
   group('buildAgendaWorkedSummary', () {

@@ -284,11 +284,7 @@ mixin _ScheduleOverridesState on _HomeScreenStateBase {
     _seedScheduleOverrideDraftFromCurrentDisplay();
     _scheduleOverrideTargetController.text = formatHoursInput(pickedMinutes);
     _clearPendingExitConfirmationForSelectedDate();
-    final exitMinutes = resolveDraftExitMinutes(
-      startTimeText: _scheduleOverrideStartTimeController.text,
-      breakText: _scheduleOverrideBreakController.text,
-      targetMinutes: pickedMinutes,
-    );
+    final exitMinutes = _draftExitMinutes(targetMinutes: pickedMinutes);
     if (exitMinutes != null) {
       _scheduleOverrideEndTimeController.text = formatTimeInput(exitMinutes);
     }
@@ -577,45 +573,28 @@ mixin _ScheduleOverridesState on _HomeScreenStateBase {
       return schedule;
     }
 
-    final explicitStartMinutes = parseTimeInput(schedule.startTime);
-    final explicitEndMinutes = parseTimeInput(schedule.endTime);
-    final baseStartMinutes = parseTimeInput(baseSchedule.startTime);
-    final baseEndMinutes = parseTimeInput(baseSchedule.endTime);
-    final currentBreakMinutes = currentSessionBreakMinutes(
-      session,
-      _currentMinutesOfDay(),
-    );
-    final usesDefaultStart =
-        explicitStartMinutes == null ||
-        (baseStartMinutes != null && explicitStartMinutes == baseStartMinutes);
-    final usesDefaultEnd =
-        explicitEndMinutes == null ||
-        (baseEndMinutes != null && explicitEndMinutes == baseEndMinutes);
-    final displayedStartMinutes = usesDefaultStart
-        ? session.startMinutes
-        : explicitStartMinutes;
-    final effectiveBreakMinutes = math.max(
-      schedule.breakMinutes,
-      currentBreakMinutes,
-    );
-    final computedEndMinutes = resolveDisplayedSessionEndMinutes(
-      session: session,
+    return resolveDisplayedSessionSchedule(
       schedule: schedule,
-      displayedStartMinutes: displayedStartMinutes,
-      explicitEndMinutes: explicitEndMinutes,
-      usesDefaultEnd: usesDefaultEnd,
+      baseSchedule: baseSchedule,
+      session: session,
       nowMinutes: _currentMinutesOfDay(),
-      minimumBreakMinutes:
-          _snapshot?.profile.workRules.minimumBreakMinutes ?? 0,
+      workRules: _snapshot?.profile.workRules,
     );
-    return DaySchedule(
-      // Keep daily target stable: editing start/end must not rewrite "Ore di lavoro".
-      targetMinutes: schedule.targetMinutes,
-      startTime: formatTimeInput(displayedStartMinutes),
-      endTime: computedEndMinutes == null
-          ? schedule.endTime
-          : formatTimeInput(computedEndMinutes),
-      breakMinutes: effectiveBreakMinutes,
+  }
+
+  /// Uscita proposta dai campi della modifica rapida, con le regole d'entrata.
+  int? _draftExitMinutes({int? targetMinutes}) {
+    final snapshot = _snapshotForMonth(_selectedMonth) ?? _snapshot;
+    final baseSchedule = snapshot == null
+        ? null
+        : _resolveBaseDayScheduleForDate(snapshot, _selectedDate);
+    return resolveDraftExitMinutes(
+      startTimeText: _scheduleOverrideStartTimeController.text,
+      breakText: _scheduleOverrideBreakController.text,
+      targetText: _scheduleOverrideTargetController.text,
+      targetMinutes: targetMinutes,
+      plannedStartMinutes: parseTimeInput(baseSchedule?.startTime),
+      workRules: snapshot?.profile.workRules,
     );
   }
 
@@ -625,11 +604,7 @@ mixin _ScheduleOverridesState on _HomeScreenStateBase {
     final previousEndMinutes = parseTimeInput(
       _scheduleOverrideEndTimeController.text.trim(),
     );
-    final endMinutes = resolveDraftExitMinutes(
-      startTimeText: _scheduleOverrideStartTimeController.text,
-      breakText: _scheduleOverrideBreakController.text,
-      targetText: _scheduleOverrideTargetController.text,
-    );
+    final endMinutes = _draftExitMinutes();
     if (endMinutes == null) {
       if (markPendingConfirmation) {
         _clearPendingExitConfirmationForSelectedDate();

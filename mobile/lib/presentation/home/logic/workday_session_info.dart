@@ -25,35 +25,93 @@ int resolveSessionExpectedExitMinutes({
   );
 }
 
-/// Uscita da mostrare oggi con la timbratura in corso, dentro la giornata.
+/// Orario di oggi come si mostra con la timbratura in corso.
 ///
-/// Un'uscita scritta a mano resta com'e'; senza, vale la formula della modifica
-/// rapida, pausa minima compresa. Prima lo stato ne teneva una copia che la
-/// ignorava, e il riquadro di timbratura poteva annunciare un'altra uscita.
-int? resolveDisplayedSessionEndMinutes({
+/// L'entrata e' quella timbrata, salvo un'entrata scritta a mano. L'uscita
+/// scritta a mano resta com'e'; altrimenti parte dall'entrata che contano le
+/// regole ([resolveExitAnchorStartMinutes]) con la formula della modifica
+/// rapida, pausa minima compresa. Prima lo stato ne teneva una copia che
+/// ignorava pausa minima e regole d'entrata: entrando alle 08:15 con un piano
+/// 08:00-17:00 l'uscita restava alle 17:00 anche senza orario fisso.
+DaySchedule resolveDisplayedSessionSchedule({
+  required DaySchedule schedule,
+  required DaySchedule baseSchedule,
+  required WorkdaySession session,
+  required int nowMinutes,
+  UserWorkRules? workRules,
+}) {
+  final explicitStartMinutes = parseTimeInput(schedule.startTime);
+  final explicitEndMinutes = parseTimeInput(schedule.endTime);
+  final baseStartMinutes = parseTimeInput(baseSchedule.startTime);
+  final baseEndMinutes = parseTimeInput(baseSchedule.endTime);
+  final currentBreakMinutes = currentSessionBreakMinutes(session, nowMinutes);
+  final usesDefaultStart =
+      explicitStartMinutes == null ||
+      (baseStartMinutes != null && explicitStartMinutes == baseStartMinutes);
+  final usesDefaultEnd =
+      explicitEndMinutes == null ||
+      (baseEndMinutes != null && explicitEndMinutes == baseEndMinutes);
+  final displayedStartMinutes = usesDefaultStart
+      ? session.startMinutes
+      : explicitStartMinutes;
+  final endMinutes = _resolveSessionEndMinutes(
+    session: session,
+    schedule: schedule,
+    displayedStartMinutes: displayedStartMinutes,
+    plannedStartMinutes: baseStartMinutes,
+    explicitEndMinutes: explicitEndMinutes,
+    usesDefaultEnd: usesDefaultEnd,
+    currentBreakMinutes: currentBreakMinutes,
+    workRules: workRules,
+  );
+
+  return DaySchedule(
+    // L'obiettivo resta quello del giorno: spostare entrata e uscita non
+    // riscrive le ore da fare.
+    targetMinutes: schedule.targetMinutes,
+    startTime: formatTimeInput(displayedStartMinutes),
+    endTime: endMinutes == null
+        ? schedule.endTime
+        : formatTimeInput(clampExitToDayEnd(endMinutes)),
+    breakMinutes: math.max(schedule.breakMinutes, currentBreakMinutes),
+  );
+}
+
+int? _resolveSessionEndMinutes({
   required WorkdaySession session,
   required DaySchedule schedule,
   required int displayedStartMinutes,
+  required int? plannedStartMinutes,
   required int? explicitEndMinutes,
   required bool usesDefaultEnd,
-  required int nowMinutes,
-  int minimumBreakMinutes = 0,
+  required int currentBreakMinutes,
+  required UserWorkRules? workRules,
 }) {
-  final endMinutes = session.endMinutes != null && usesDefaultEnd
-      ? session.endMinutes
-      : explicitEndMinutes ??
-            (schedule.targetMinutes > 0
-                ? resolveScheduleExitMinutes(
-                    schedule,
-                    startMinutes: displayedStartMinutes,
-                    actualBreakMinutes: currentSessionBreakMinutes(
-                      session,
-                      nowMinutes,
-                    ),
-                    minimumBreakMinutes: minimumBreakMinutes,
-                  )
-                : null);
-  return endMinutes == null ? null : clampExitToDayEnd(endMinutes);
+  if (session.endMinutes != null && usesDefaultEnd) {
+    return session.endMinutes;
+  }
+  // Uscita scritta a mano, o giornata senza ore da fare: resta com'e'.
+  if (!usesDefaultEnd || schedule.targetMinutes <= 0) {
+    return explicitEndMinutes;
+  }
+  // Orario fisso senza flessibilita': si esce all'ora del piano.
+  if (explicitEndMinutes != null &&
+      workRules != null &&
+      workRules.fixedScheduleEnabled &&
+      resolveFlexibleStartWindowMinutes(workRules) == 0) {
+    return explicitEndMinutes;
+  }
+
+  return resolveScheduleExitMinutes(
+    schedule,
+    startMinutes: resolveExitAnchorStartMinutes(
+      actualStartMinutes: displayedStartMinutes,
+      plannedStartMinutes: plannedStartMinutes,
+      workRules: workRules,
+    ),
+    actualBreakMinutes: currentBreakMinutes,
+    minimumBreakMinutes: workRules?.minimumBreakMinutes ?? 0,
+  );
 }
 
 int currentSessionBreakMinutes(WorkdaySession? session, int nowMinutes) {

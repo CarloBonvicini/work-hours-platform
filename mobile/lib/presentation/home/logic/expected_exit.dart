@@ -3,6 +3,7 @@
 import 'dart:math' as math;
 import 'package:work_hours_mobile/application/services/time_input_parser.dart';
 import 'package:work_hours_mobile/domain/models/day_schedule.dart';
+import 'package:work_hours_mobile/domain/models/user_work_rules.dart';
 
 const int _lastMinuteOfDay = (23 * 60) + 59;
 
@@ -19,6 +20,36 @@ int resolveExpectedExitMinutes({
   return startMinutes +
       math.max<int>(0, targetMinutes) +
       math.max<int>(0, breakMinutes);
+}
+
+/// L'entrata da cui parte il conto dell'uscita.
+///
+/// Senza orario fisso conta l'entrata vera: chi entra piu' tardi esce piu'
+/// tardi. Con l'orario fisso conta quella del piano, e la flessibilita' la
+/// lascia spostare solo dentro la fascia: entrare prima non anticipa l'uscita,
+/// il ritardo oltre la fascia resta debito.
+int resolveExitAnchorStartMinutes({
+  required int actualStartMinutes,
+  required int? plannedStartMinutes,
+  UserWorkRules? workRules,
+}) {
+  if (workRules == null ||
+      !workRules.fixedScheduleEnabled ||
+      plannedStartMinutes == null) {
+    return actualStartMinutes;
+  }
+
+  return actualStartMinutes.clamp(
+    plannedStartMinutes,
+    plannedStartMinutes + resolveFlexibleStartWindowMinutes(workRules),
+  );
+}
+
+/// Ritardo d'entrata consentito: zero se la flessibilita' e' spenta.
+int resolveFlexibleStartWindowMinutes(UserWorkRules workRules) {
+  return workRules.flexibleStartEnabled
+      ? math.max(0, workRules.flexibleStartWindowMinutes)
+      : 0;
 }
 
 /// L'entrata che porta a una certa uscita: il conto letto al contrario.
