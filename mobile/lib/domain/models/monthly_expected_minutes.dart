@@ -1,7 +1,11 @@
-// Quando un giorno pesa sul saldo, e quanto del previsto di un mese e' maturato.
+// Riepilogo del mese: quando un giorno pesa sul saldo e quanto del previsto e'
+// maturato.
 
+import 'package:work_hours_mobile/domain/models/leave_entry.dart';
+import 'package:work_hours_mobile/domain/models/monthly_summary.dart';
 import 'package:work_hours_mobile/domain/models/profile.dart';
 import 'package:work_hours_mobile/domain/models/schedule_override.dart';
+import 'package:work_hours_mobile/domain/models/work_entry.dart';
 
 /// Se un giorno pesa sul saldo.
 ///
@@ -85,6 +89,41 @@ String resolveTrackingStartDate({
   }
 
   return (maturedMinutes: matured, remainingMinutes: remaining);
+}
+
+/// Riepilogo del mese dalle registrazioni: ore, causali e previsto maturato.
+///
+/// Sta nel dominio e non nel repository: il repository legge e salva, cosa
+/// pesa sul saldo lo decide una regola sola ([dayCountsInBalance]).
+MonthlySummary buildMonthlySummary({
+  required String month,
+  required UserProfile profile,
+  required List<WorkEntry> workEntries,
+  required List<LeaveEntry> leaveEntries,
+  required List<ScheduleOverride> overrides,
+  required DateTime today,
+  String? trackingStartDate,
+}) {
+  final expected = splitMonthlyExpectedMinutes(
+    month: month,
+    profile: profile,
+    overrides: overrides,
+    registeredDates: {
+      for (final entry in workEntries) entry.date,
+      for (final entry in leaveEntries) entry.date,
+    },
+    today: today,
+    trackingStartDate: trackingStartDate,
+  );
+
+  return MonthlySummary.fromTotals(
+    month: month,
+    expectedMinutes: expected.maturedMinutes,
+    remainingExpectedMinutes: expected.remainingMinutes,
+    workedMinutes: workEntries.fold(0, (total, entry) => total + entry.minutes),
+    leaveMinutes: leaveEntries.fold(0, (total, entry) => total + entry.minutes),
+    rules: profile.workRules,
+  );
 }
 
 String formatIsoDate(DateTime date) {

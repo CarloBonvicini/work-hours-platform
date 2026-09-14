@@ -6,7 +6,6 @@ import 'package:work_hours_mobile/domain/models/dashboard_snapshot.dart';
 import 'package:work_hours_mobile/domain/models/day_schedule.dart';
 import 'package:work_hours_mobile/domain/models/leave_entry.dart';
 import 'package:work_hours_mobile/domain/models/monthly_expected_minutes.dart';
-import 'package:work_hours_mobile/domain/models/monthly_summary.dart';
 import 'package:work_hours_mobile/domain/models/profile.dart';
 import 'package:work_hours_mobile/domain/models/schedule_override.dart';
 import 'package:work_hours_mobile/domain/models/support_ticket.dart';
@@ -438,14 +437,6 @@ class SharedPreferencesLocalDashboardRepository implements DashboardRepository {
         .where((entry) => entry.date.startsWith(month))
         .toList(growable: false);
 
-    final workedMinutes = workEntries.fold<int>(
-      0,
-      (sum, entry) => sum + entry.minutes,
-    );
-    final leaveMinutes = leaveEntries.fold<int>(
-      0,
-      (sum, entry) => sum + entry.minutes,
-    );
     final trackingStartDate = resolveTrackingStartDate(
       registeredDates: [
         for (final entry in bundle.workEntries) entry.date,
@@ -453,28 +444,18 @@ class SharedPreferencesLocalDashboardRepository implements DashboardRepository {
       ],
       today: _now(),
     );
-    final expected = splitMonthlyExpectedMinutes(
-      month: month,
-      profile: bundle.profile,
-      overrides: scheduleOverrides,
-      registeredDates: {
-        for (final entry in workEntries) entry.date,
-        for (final entry in leaveEntries) entry.date,
-      },
-      today: _now(),
-      trackingStartDate: trackingStartDate,
-    );
 
     return DashboardSnapshot(
       profile: bundle.profile,
       trackingStartDate: trackingStartDate,
-      summary: MonthlySummary.fromTotals(
+      summary: buildMonthlySummary(
         month: month,
-        expectedMinutes: expected.maturedMinutes,
-        remainingExpectedMinutes: expected.remainingMinutes,
-        workedMinutes: workedMinutes,
-        leaveMinutes: leaveMinutes,
-        rules: bundle.profile.workRules,
+        profile: bundle.profile,
+        workEntries: workEntries,
+        leaveEntries: leaveEntries,
+        overrides: scheduleOverrides,
+        today: _now(),
+        trackingStartDate: trackingStartDate,
       ),
       workEntries: workEntries.reversed.toList(growable: false),
       leaveEntries: leaveEntries.reversed.toList(growable: false),
