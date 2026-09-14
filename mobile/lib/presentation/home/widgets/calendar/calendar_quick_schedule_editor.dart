@@ -50,7 +50,7 @@ class CalendarQuickScheduleEditor extends StatelessWidget {
     required this.onDayBalanceAggregationChanged,
     required this.onOpenWorkSettings,
     required this.remainingToProgrammedExitLabel,
-    required this.workedMinutesAtProgrammedExit,
+    required this.expectedMinutes,
     required this.hasResultContext,
     required this.hasTheoreticalExit,
     required this.hasPendingExitConfirmation,
@@ -108,7 +108,7 @@ class CalendarQuickScheduleEditor extends StatelessWidget {
   final ValueChanged<DayBalanceAggregation> onDayBalanceAggregationChanged;
   final VoidCallback onOpenWorkSettings;
   final String? remainingToProgrammedExitLabel;
-  final int? workedMinutesAtProgrammedExit;
+  final int expectedMinutes;
   final bool hasResultContext;
   final bool hasTheoreticalExit;
   final bool hasPendingExitConfirmation;
@@ -323,8 +323,7 @@ class CalendarQuickScheduleEditor extends StatelessWidget {
                           onDayBalanceAggregationChanged,
                       remainingToProgrammedExitLabel:
                           remainingToProgrammedExitLabel,
-                      workedMinutesAtProgrammedExit:
-                          workedMinutesAtProgrammedExit,
+                      expectedMinutes: expectedMinutes,
                       onOpenWorkSettings: onOpenWorkSettings,
                       isDayOff: isDayOff,
                       hasResultContext: hasResultContext,

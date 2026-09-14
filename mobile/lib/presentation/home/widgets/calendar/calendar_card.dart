@@ -11,6 +11,7 @@ import 'package:work_hours_mobile/presentation/home/models/activity_item.dart';
 import 'package:work_hours_mobile/domain/models/user_work_rules.dart';
 import 'package:work_hours_mobile/presentation/home/logic/calendar_dates.dart';
 import 'package:work_hours_mobile/presentation/home/logic/day_balance.dart';
+import 'package:work_hours_mobile/presentation/home/logic/day_exit_view.dart';
 import 'package:work_hours_mobile/presentation/home/logic/quick_day_insights.dart';
 import 'package:work_hours_mobile/presentation/home/logic/quick_day_summary_label.dart';
 import 'package:work_hours_mobile/presentation/home/logic/workday_session_info.dart';
@@ -293,63 +294,27 @@ class CalendarCard extends StatelessWidget {
         onOvertimeLimitExceeded(0);
       });
     }
-    final suggestedExitLabel = resolveSuggestedExitLabel(
+    final exitView = resolveDayExitView(
       effectiveSchedule: effectiveDaySchedule,
       quickEditorSchedule: quickEditorDaySchedule,
       workRules: workRules,
+      scheduledEndTimeText: effectiveQuickEditorEndTime,
       rawStartTimeText: overrideStartTimeController.text,
       rawEndTimeText: overrideEndTimeController.text,
+      isDayOff: isQuickEditorDayOff,
+      isToday: isSelectedDateToday,
+      hasResultContext: hasQuickResultContext,
+      hasSuggestionContext: hasExitSuggestionContext,
+      session: workdaySession,
+      nowMinutes: nowMinutes,
+      pendingConfirmationMinutes: pendingExitConfirmationMinutes,
     );
-    final suggestedExitTotalMinutes = resolveSuggestedExitTotalMinutes(
-      effectiveSchedule: effectiveDaySchedule,
-      quickEditorSchedule: quickEditorDaySchedule,
-      workRules: workRules,
-      rawStartTimeText: overrideStartTimeController.text,
-    );
-    final hasScheduledExit = effectiveQuickEditorEndTime.trim().isNotEmpty;
-    final programmedExitMinutes = parseTimeInput(
-      effectiveQuickEditorEndTime.trim(),
-    );
-    final remainingToProgrammedExitMinutes =
-        !isQuickEditorDayOff &&
-            isSelectedDateToday &&
-            hasQuickResultContext &&
-            programmedExitMinutes != null
-        ? programmedExitMinutes - nowMinutes
-        : null;
-    final remainingToProgrammedExitLabel = buildRemainingToExitLabel(
-      remainingToProgrammedExitMinutes,
-    );
-    final workedMinutesAtProgrammedExit =
-        remainingToProgrammedExitMinutes == null
-        ? null
-        : displayedWorkedMinutes +
-              (remainingToProgrammedExitMinutes > 0
-                  ? remainingToProgrammedExitMinutes
-                  : 0);
-    final hasPendingExitConfirmation = pendingExitConfirmationMinutes != null;
-    final hasSuggestedTheoreticalExit =
-        !isQuickEditorDayOff &&
-        !hasScheduledExit &&
-        hasExitSuggestionContext &&
-        suggestedExitLabel != '--:--' &&
-        suggestedExitLabel != 'Libero';
-    final hasTheoreticalExit =
-        hasPendingExitConfirmation || hasSuggestedTheoreticalExit;
     final isUsingStandardSchedule = matchesDaySchedule(
       baseDaySchedule,
       quickEditorDaySchedule,
     );
     final isUsingStandardWorkTarget =
         quickEditorDaySchedule.targetMinutes == baseDaySchedule.targetMinutes;
-    final candidateConfirmableExitMinutes = hasPendingExitConfirmation
-        ? pendingExitConfirmationMinutes
-        : suggestedExitTotalMinutes;
-    final confirmableTheoreticalExitMinutes =
-        candidateConfirmableExitMinutes == null ||
-            candidateConfirmableExitMinutes > ((23 * 60) + 59)
-        ? null
-        : candidateConfirmableExitMinutes;
     final canRestoreWorkingDay =
         isQuickEditorDayOff && !isUsingStandardSchedule;
     // Tornare all'orario standard deve essere possibile anche quando
@@ -393,7 +358,7 @@ class CalendarCard extends StatelessWidget {
             endTimeText: effectiveQuickEditorEndTime,
             plannedStartTimeText: plannedDaySchedule.startTime ?? '',
             plannedEndTimeText: plannedDaySchedule.endTime ?? '',
-            suggestedExitLabel: suggestedExitLabel,
+            suggestedExitLabel: exitView.suggestedLabel,
             hasExitSuggestionContext: hasExitSuggestionContext,
             breakMinutes: effectiveQuickEditorBreakMinutes,
             showEndTime: appearanceSettings.showDayEndTime,
@@ -432,11 +397,11 @@ class CalendarCard extends StatelessWidget {
                 appearanceSettings.copyWith(dayBalanceAggregation: aggregation),
               ),
             ),
-            remainingToProgrammedExitLabel: remainingToProgrammedExitLabel,
-            workedMinutesAtProgrammedExit: workedMinutesAtProgrammedExit,
+            remainingToProgrammedExitLabel: exitView.remainingLabel,
+            expectedMinutes: liveExpectedMinutes,
             hasResultContext: hasQuickResultContext,
-            hasTheoreticalExit: hasTheoreticalExit,
-            hasPendingExitConfirmation: hasPendingExitConfirmation,
+            hasTheoreticalExit: exitView.isForecast,
+            hasPendingExitConfirmation: exitView.hasPendingConfirmation,
             isUsingStandardWorkTarget: isUsingStandardWorkTarget,
             collapsedSummary: buildQuickDaySummaryLabel(
               isDayOff: isQuickEditorDayOff,
@@ -459,10 +424,10 @@ class CalendarCard extends StatelessWidget {
                 (!isSelectedDateToday ||
                     hasElapsedManualExit ||
                     (workdaySession?.isCompleted ?? false)),
-            onConfirmTheoreticalExit: confirmableTheoreticalExitMinutes == null
+            onConfirmTheoreticalExit: exitView.confirmableMinutes == null
                 ? null
                 : () => onConfirmSuggestedExitMinutes(
-                    confirmableTheoreticalExitMinutes,
+                    exitView.confirmableMinutes!,
                   ),
           ),
         ],
@@ -499,7 +464,7 @@ class CalendarCard extends StatelessWidget {
                     hasOverride:
                         metric.hasOverride ||
                         hasQuickWorkedOverride ||
-                        hasPendingExitConfirmation,
+                        exitView.hasPendingConfirmation,
                     schedule: quickEditorDaySchedule,
                     overrideNote: metric.overrideNote,
                   );

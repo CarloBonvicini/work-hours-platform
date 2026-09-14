@@ -40,13 +40,11 @@ mixin _WorkdaySessionState on _HomeScreenStateBase {
     }
 
     final nowMinutes = _currentMinutesOfDay();
-    final actualBreakMinutes = currentSessionBreakMinutes(session, nowMinutes);
-    final effectiveBreakMinutes = math.max(
-      schedule.breakMinutes,
-      actualBreakMinutes,
+    final expectedEndMinutes = resolveSessionExpectedExitMinutes(
+      session: session,
+      schedule: schedule,
+      nowMinutes: nowMinutes,
     );
-    final expectedEndMinutes =
-        session.startMinutes + schedule.targetMinutes + effectiveBreakMinutes;
     unawaited(
       _localNotificationService.scheduleMissingExitReminder(
         // Un'ora di margine oltre l'uscita prevista prima del promemoria.

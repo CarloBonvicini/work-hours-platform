@@ -436,32 +436,29 @@ mixin _WorkScheduleSettingsState on _HomeScreenStateBase {
     var breakMinutes = parsedBreakMinutes;
     var targetMinutes = explicitTargetMinutes ?? fallbackSchedule.targetMinutes;
 
+    // Si completa il lato mancante, poi le ore si ricavano una volta sola:
+    // prima questo blocco era ricopiato identico in tutti e tre i rami.
     if (startMinutes != null && endMinutes != null) {
       if (endMinutes < startMinutes) {
         final tmp = startMinutes;
         startMinutes = endMinutes;
         endMinutes = tmp;
       }
-      final elapsedMinutes = endMinutes - startMinutes;
-      if (breakMinutes > elapsedMinutes) {
-        breakMinutes = elapsedMinutes;
-      }
-      targetMinutes = math.max(0, elapsedMinutes - breakMinutes);
     } else if (startMinutes != null) {
-      endMinutes = (startMinutes + targetMinutes + breakMinutes).clamp(
-        0,
-        (23 * 60) + 59,
+      endMinutes = resolveScheduleExitTimeMinutes(
+        startMinutes: startMinutes,
+        targetMinutes: targetMinutes,
+        breakMinutes: breakMinutes,
       );
-      final elapsedMinutes = endMinutes - startMinutes;
-      if (breakMinutes > elapsedMinutes) {
-        breakMinutes = elapsedMinutes;
-      }
-      targetMinutes = math.max(0, elapsedMinutes - breakMinutes);
     } else if (endMinutes != null) {
-      startMinutes = (endMinutes - targetMinutes - breakMinutes).clamp(
-        0,
-        (23 * 60) + 59,
+      startMinutes = resolveScheduleEntryTimeMinutes(
+        endMinutes: endMinutes,
+        targetMinutes: targetMinutes,
+        breakMinutes: breakMinutes,
       );
+    }
+
+    if (startMinutes != null && endMinutes != null) {
       final elapsedMinutes = endMinutes - startMinutes;
       if (breakMinutes > elapsedMinutes) {
         breakMinutes = elapsedMinutes;

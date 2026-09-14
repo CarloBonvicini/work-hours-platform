@@ -7,9 +7,23 @@ import 'package:work_hours_mobile/application/services/workday_start_store.dart'
 import 'package:work_hours_mobile/domain/models/day_schedule.dart';
 import 'package:work_hours_mobile/domain/models/user_work_rules.dart';
 import 'package:work_hours_mobile/presentation/home/logic/agenda_segments.dart';
+import 'package:work_hours_mobile/presentation/home/logic/expected_exit.dart';
 import 'package:work_hours_mobile/presentation/home/models/calendar_day.dart';
 
 enum WorkdaySessionStatus { notStarted, active, onBreak, completed }
+
+/// Quando si puo' uscire, partendo dall'entrata timbrata e dalla pausa fatta.
+int resolveSessionExpectedExitMinutes({
+  required WorkdaySession session,
+  required DaySchedule schedule,
+  required int nowMinutes,
+}) {
+  return resolveScheduleExitMinutes(
+    schedule,
+    startMinutes: session.startMinutes,
+    actualBreakMinutes: currentSessionBreakMinutes(session, nowMinutes),
+  );
+}
 
 int currentSessionBreakMinutes(WorkdaySession? session, int nowMinutes) {
   if (session == null) {
@@ -86,16 +100,16 @@ String? resolveExpectedEndInfo({
     return 'Puoi uscire alle ${formatTimeInput(explicitEndMinutes)}.';
   }
 
-  final actualBreakMinutes = currentSessionBreakMinutes(session, nowMinutes);
-  final effectiveBreakMinutes = math.max(
-    schedule.breakMinutes,
-    actualBreakMinutes,
+  final totalMinutes = resolveSessionExpectedExitMinutes(
+    session: session,
+    schedule: schedule,
+    nowMinutes: nowMinutes,
   );
-  final totalMinutes =
-      session.startMinutes + schedule.targetMinutes + effectiveBreakMinutes;
-  final normalizedMinutes = totalMinutes % (24 * 60);
-  final nextDaySuffix = totalMinutes >= (24 * 60) ? ' del giorno dopo' : '';
-  return 'Puoi uscire alle ${formatTimeInput(normalizedMinutes)}$nextDaySuffix.';
+  final exitLabel = formatExpectedExitLabel(
+    totalMinutes,
+    nextDaySuffix: ' del giorno dopo',
+  );
+  return 'Puoi uscire alle $exitLabel.';
 }
 
 String? resolveWorkedSessionInfo({

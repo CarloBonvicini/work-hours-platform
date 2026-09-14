@@ -27,7 +27,7 @@ class QuickDayHero extends StatelessWidget {
     required this.dayBalanceAggregation,
     required this.onDayBalanceAggregationChanged,
     required this.remainingToProgrammedExitLabel,
-    required this.workedMinutesAtProgrammedExit,
+    required this.expectedMinutes,
   });
 
   final int workedMinutes;
@@ -49,7 +49,7 @@ class QuickDayHero extends StatelessWidget {
   final DayBalanceAggregation dayBalanceAggregation;
   final ValueChanged<DayBalanceAggregation> onDayBalanceAggregationChanged;
   final String? remainingToProgrammedExitLabel;
-  final int? workedMinutesAtProgrammedExit;
+  final int expectedMinutes;
 
   @override
   Widget build(BuildContext context) {
@@ -79,9 +79,12 @@ class QuickDayHero extends StatelessWidget {
     };
     final hasRemainingToProgrammedExit =
         remainingToProgrammedExitLabel != null && !isDayOff && hasResultContext;
-    final workedValue = workedMinutesAtProgrammedExit == null
+    // Ore fatte su ore da fare oggi. Prima il secondo numero sommava ore
+    // lavorate e minuti di orologio mancanti: due grandezze diverse, un
+    // risultato che non voleva dire niente.
+    final workedValue = expectedMinutes <= 0 || !hasResultContext || isDayOff
         ? formatHoursInput(workedMinutes)
-        : '${formatHoursInput(workedMinutes)}/${formatHoursInput(workedMinutesAtProgrammedExit!)}';
+        : '${formatHoursInput(workedMinutes)}/${formatHoursInput(expectedMinutes)}';
     final neutralValueColor = colorScheme.onSurfaceVariant;
     Widget metricBlock({
       required String label,

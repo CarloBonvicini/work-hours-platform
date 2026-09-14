@@ -221,10 +221,10 @@ void main() {
 
     await tester.tap(find.text('Agenda oraria'));
     await tester.pumpAndSettle();
+    // Cosa c'e' dentro l'agenda dipende dal piano del giorno della settimana:
+    // qui conta solo che la sezione si sia aperta.
     expect(
-      find.text(
-        'Nessun orario da mostrare. Inserisci entrata e uscita per vedere la timeline.',
-      ),
+      find.byKey(const ValueKey('calendar-day-agenda-body')),
       findsOneWidget,
     );
   });

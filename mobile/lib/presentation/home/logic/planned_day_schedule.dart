@@ -2,16 +2,14 @@
 // settimanale indica solo le ore, cosi' la modifica rapida parte sempre dai
 // valori previsti invece che da --:--.
 
-import 'dart:math' as math;
 import 'package:work_hours_mobile/application/services/time_input_parser.dart';
 import 'package:work_hours_mobile/domain/models/day_schedule.dart';
 import 'package:work_hours_mobile/domain/models/weekday_schedule.dart';
 import 'package:work_hours_mobile/domain/models/weekday_target_minutes.dart';
+import 'package:work_hours_mobile/presentation/home/logic/expected_exit.dart';
 
 /// Entrata proposta quando nessun giorno della settimana ne definisce una.
 const int fallbackPlannedStartMinutes = 9 * 60;
-
-const int _lastMinuteOfDay = (23 * 60) + 59;
 
 /// Entrata di riferimento: il primo giorno della settimana che ne dichiara una.
 int resolvePlannedStartMinutes(WeekdaySchedule weekdaySchedule) {
@@ -46,15 +44,24 @@ DaySchedule completePlannedDaySchedule(
     return schedule;
   }
 
-  final occupiedMinutes = schedule.targetMinutes + schedule.breakMinutes;
   final startMinutes =
       declaredStartMinutes ??
       (declaredEndMinutes == null
           ? referenceStartMinutes
-          : math.max(0, declaredEndMinutes - occupiedMinutes));
+          : resolveExpectedStartMinutes(
+              endMinutes: declaredEndMinutes,
+              targetMinutes: schedule.targetMinutes,
+              breakMinutes: schedule.breakMinutes,
+            ));
   final endMinutes =
       declaredEndMinutes ??
-      math.min(_lastMinuteOfDay, startMinutes + occupiedMinutes);
+      clampExitToDayEnd(
+        resolveExpectedExitMinutes(
+          startMinutes: startMinutes,
+          targetMinutes: schedule.targetMinutes,
+          breakMinutes: schedule.breakMinutes,
+        ),
+      );
   if (endMinutes <= startMinutes) {
     return schedule;
   }

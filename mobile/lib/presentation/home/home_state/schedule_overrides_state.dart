@@ -41,6 +41,16 @@ mixin _ScheduleOverridesState on _HomeScreenStateBase {
     }
   }
 
+  /// Uscita da salvare: vuota finche' e' solo la previsione.
+  ///
+  /// L'uscita calcolata da entrata + ore + pausa non e' un fatto registrato,
+  /// quindi non va scritta nel giorno. Prima per non salvarla si saltava tutto
+  /// il salvataggio, e cambiando giorno si perdevano anche entrata, ore e pausa.
+  String get _persistableScheduleOverrideEndTimeText =>
+      _hasPendingExitConfirmationForSelectedDate
+      ? ''
+      : _scheduleOverrideEndTimeController.text;
+
   @override
   Future<void> _autosaveScheduleOverride() async {
     _scheduleOverrideAutosaveQueued = true;
@@ -56,16 +66,17 @@ mixin _ScheduleOverridesState on _HomeScreenStateBase {
         return;
       }
 
+      final endTimeText = _persistableScheduleOverrideEndTimeText;
       final draftValidation = validateScheduleDraft(
         targetText: _scheduleOverrideTargetController.text,
         startTimeText: _scheduleOverrideStartTimeController.text,
-        endTimeText: _scheduleOverrideEndTimeController.text,
+        endTimeText: endTimeText,
         breakText: _scheduleOverrideBreakController.text,
       );
       final draftSchedule = _parseDayScheduleInput(
         targetText: _scheduleOverrideTargetController.text,
         startTimeText: _scheduleOverrideStartTimeController.text,
-        endTimeText: _scheduleOverrideEndTimeController.text,
+        endTimeText: endTimeText,
         breakText: _scheduleOverrideBreakController.text,
       );
       if (draftValidation != null || draftSchedule == null) {
@@ -206,9 +217,6 @@ mixin _ScheduleOverridesState on _HomeScreenStateBase {
       });
     }
     _pushCurrentScheduleOverrideDraftToHistory();
-    if (_hasPendingExitConfirmationForSelectedDate) {
-      return;
-    }
     await _autosaveScheduleOverride();
   }
 
@@ -276,17 +284,13 @@ mixin _ScheduleOverridesState on _HomeScreenStateBase {
     _seedScheduleOverrideDraftFromCurrentDisplay();
     _scheduleOverrideTargetController.text = formatHoursInput(pickedMinutes);
     _clearPendingExitConfirmationForSelectedDate();
-    final startMinutes = parseTimeInput(
-      _scheduleOverrideStartTimeController.text,
+    final exitMinutes = resolveDraftExitMinutes(
+      startTimeText: _scheduleOverrideStartTimeController.text,
+      breakText: _scheduleOverrideBreakController.text,
+      targetMinutes: pickedMinutes,
     );
-    if (startMinutes != null) {
-      final breakMinutes =
-          parseBreakDurationInput(_scheduleOverrideBreakController.text) ?? 0;
-      final targetEndMinutes = startMinutes + pickedMinutes + breakMinutes;
-      final normalizedEndMinutes = targetEndMinutes.clamp(0, (23 * 60) + 59);
-      _scheduleOverrideEndTimeController.text = formatTimeInput(
-        normalizedEndMinutes,
-      );
+    if (exitMinutes != null) {
+      _scheduleOverrideEndTimeController.text = formatTimeInput(exitMinutes);
     }
     _normalizeSelectedDayPauseWindowForCurrentDraft();
     _clearAgendaPreviewState();
@@ -321,9 +325,6 @@ mixin _ScheduleOverridesState on _HomeScreenStateBase {
       _errorMessage = null;
     });
     _pushCurrentScheduleOverrideDraftToHistory();
-    if (_hasPendingExitConfirmationForSelectedDate) {
-      return;
-    }
     await _autosaveScheduleOverride();
   }
 
@@ -624,25 +625,18 @@ mixin _ScheduleOverridesState on _HomeScreenStateBase {
     final previousEndMinutes = parseTimeInput(
       _scheduleOverrideEndTimeController.text.trim(),
     );
-    final startMinutes = parseTimeInput(
-      _scheduleOverrideStartTimeController.text,
+    final endMinutes = resolveDraftExitMinutes(
+      startTimeText: _scheduleOverrideStartTimeController.text,
+      breakText: _scheduleOverrideBreakController.text,
+      targetText: _scheduleOverrideTargetController.text,
     );
-    final targetMinutes = parseHoursInput(
-      _scheduleOverrideTargetController.text,
-    );
-    final breakMinutes =
-        parseBreakDurationInput(_scheduleOverrideBreakController.text) ?? 0;
-    if (startMinutes == null || targetMinutes == null) {
+    if (endMinutes == null) {
       if (markPendingConfirmation) {
         _clearPendingExitConfirmationForSelectedDate();
       }
       return false;
     }
 
-    final endMinutes = (startMinutes + targetMinutes + breakMinutes).clamp(
-      0,
-      (23 * 60) + 59,
-    );
     _scheduleOverrideEndTimeController.text = formatTimeInput(endMinutes);
     if (markPendingConfirmation) {
       if (previousEndMinutes == null || previousEndMinutes != endMinutes) {

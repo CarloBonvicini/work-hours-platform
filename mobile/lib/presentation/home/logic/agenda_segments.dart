@@ -216,6 +216,21 @@ List<AgendaMeasurementSegment> buildAgendaMeasurementSegments({
     return segments;
   }
 
+  return buildSessionMeasurementSegments(
+    session: session,
+    nowMinutes: nowMinutes,
+  );
+}
+
+/// Segmenti di cio' che e' davvero successo: entrata timbrata e pause registrate.
+///
+/// Non guarda mai l'orario del piano. L'uscita prevista e' una previsione, non un
+/// fatto: se entrasse qui, alle 12:49 risulterebbero gia' lavorate le ore di
+/// tutta la giornata.
+List<AgendaMeasurementSegment> buildSessionMeasurementSegments({
+  required WorkdaySession session,
+  required int nowMinutes,
+}) {
   final segments = <AgendaMeasurementSegment>[];
   final resolvedEndMinutes = session.endMinutes ?? nowMinutes;
   final breakSegments = [...session.breakSegments]
