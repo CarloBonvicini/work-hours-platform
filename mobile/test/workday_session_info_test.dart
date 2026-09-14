@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:work_hours_mobile/domain/models/day_schedule.dart';
 import 'package:work_hours_mobile/domain/models/user_work_rules.dart';
 import 'package:work_hours_mobile/domain/models/workday_session.dart';
+import 'package:work_hours_mobile/presentation/home/logic/agenda_segments.dart';
 import 'package:work_hours_mobile/presentation/home/logic/workday_session_info.dart';
 
 void main() {
@@ -73,17 +74,7 @@ void main() {
   group('resolveWorkedSessionInfo', () {
     test('senza timbratura non riporta ore lavorate', () {
       expect(
-        resolveWorkedSessionInfo(
-          session: null,
-          // Orario previsto completo: resta una previsione, non ore lavorate.
-          schedule: const DaySchedule(
-            targetMinutes: 8 * 60,
-            startTime: '09:00',
-            endTime: '17:00',
-          ),
-          pauseWindow: null,
-          nowMinutes: 14 * 60,
-        ),
+        resolveWorkedSessionInfo(session: null, nowMinutes: 14 * 60),
         isNull,
       );
     });
@@ -99,17 +90,109 @@ void main() {
       );
 
       expect(
-        resolveWorkedSessionInfo(
-          session: session,
-          schedule: const DaySchedule(
-            targetMinutes: 8 * 60,
-            startTime: '09:00',
-            endTime: '17:00',
-          ),
-          pauseWindow: null,
-          nowMinutes: 18 * 60,
-        ),
+        resolveWorkedSessionInfo(session: session, nowMinutes: 18 * 60),
         'Lavoro 7:30 | Pausa 0:30.',
+      );
+    });
+
+    test('a meta giornata conta il tempo passato, non la giornata prevista', () {
+      // Entrato alle 08:15, nessuna pausa, sono le 12:49. L'orario del giorno
+      // arriva fino all'uscita prevista con un'ora di pausa: prima il riquadro
+      // lo misurava tutto e diceva "Lavoro 8:00 | Pausa 1:00".
+      const session = WorkdaySession(startMinutes: 8 * 60 + 15);
+      expect(
+        resolveWorkedSessionInfo(session: session, nowMinutes: 12 * 60 + 49),
+        'Lavoro 4:34 | Pausa 0:00.',
+      );
+    });
+  });
+
+  group('resolveDisplayedSessionEndMinutes', () {
+    const schedule = DaySchedule(targetMinutes: 8 * 60, breakMinutes: 30);
+    const session = WorkdaySession(startMinutes: 8 * 60 + 15);
+
+    test(
+      'la pausa minima delle regole sposta l uscita come nella modifica rapida',
+      () {
+        // Prima questa copia ignorava la pausa minima: 16:45 invece di 17:15.
+        expect(
+          resolveDisplayedSessionEndMinutes(
+            session: session,
+            schedule: schedule,
+            displayedStartMinutes: 8 * 60 + 15,
+            explicitEndMinutes: null,
+            usesDefaultEnd: true,
+            nowMinutes: 10 * 60,
+            minimumBreakMinutes: 60,
+          ),
+          17 * 60 + 15,
+        );
+      },
+    );
+
+    test('un uscita scritta a mano resta com e', () {
+      expect(
+        resolveDisplayedSessionEndMinutes(
+          session: session,
+          schedule: schedule,
+          displayedStartMinutes: 8 * 60 + 15,
+          explicitEndMinutes: 16 * 60,
+          usesDefaultEnd: false,
+          nowMinutes: 10 * 60,
+          minimumBreakMinutes: 60,
+        ),
+        16 * 60,
+      );
+    });
+
+    test(
+      'oltre la mezzanotte si ferma alle 23:59 invece di ripartire da 0',
+      () {
+        expect(
+          resolveDisplayedSessionEndMinutes(
+            session: const WorkdaySession(startMinutes: 18 * 60),
+            schedule: schedule,
+            displayedStartMinutes: 18 * 60,
+            explicitEndMinutes: null,
+            usesDefaultEnd: true,
+            nowMinutes: 19 * 60,
+          ),
+          23 * 60 + 59,
+        );
+      },
+    );
+  });
+
+  group('buildAgendaWorkedSummary', () {
+    const plannedSegments = [
+      AgendaMeasurementSegment(
+        startMinutes: 9 * 60,
+        endMinutes: 13 * 60,
+        label: '',
+        kind: AgendaMeasurementSegmentKind.work,
+      ),
+      AgendaMeasurementSegment(
+        startMinutes: 13 * 60,
+        endMinutes: 14 * 60,
+        label: '',
+        kind: AgendaMeasurementSegmentKind.pause,
+      ),
+    ];
+
+    test('il piano si presenta come previsione, non come ore lavorate', () {
+      expect(
+        buildAgendaWorkedSummary(
+          measurementSegments: plannedSegments,
+          isForecast: true,
+        ),
+        'Previsto: 4:00 lavoro | 1:00 pausa',
+      );
+    });
+
+    test('la timbratura resta un totale di ore lavorate', () {
+      expect(
+        buildAgendaWorkedSummary(measurementSegments: plannedSegments),
+        'Totale: 4:00 lavorate | 1:00 pausa',
       );
     });
   });

@@ -191,9 +191,20 @@ class CalendarDaySummary extends StatelessWidget {
                 : null),
     );
     final hasAgendaTimeline = hasStructuredSchedule || hasMeasuredSegments;
-    final workedSummary = buildAgendaWorkedSummary(
-      measurementSegments: measurementSegments,
-    );
+    // L'agenda disegna il piano; il totale conta cio' che e' successo. Con la
+    // timbratura misura solo quella, senza dice che e' una previsione.
+    final session = workdaySession;
+    final workedSummary = session != null
+        ? buildAgendaWorkedSummary(
+            measurementSegments: buildSessionMeasurementSegments(
+              session: session,
+              nowMinutes: nowMinutes,
+            ),
+          )
+        : buildAgendaWorkedSummary(
+            measurementSegments: measurementSegments,
+            isForecast: true,
+          );
     final toggleButton = IconButton(
       key: const ValueKey('calendar-day-agenda-toggle-button'),
       onPressed: () => onToggleExpanded(!isExpanded),

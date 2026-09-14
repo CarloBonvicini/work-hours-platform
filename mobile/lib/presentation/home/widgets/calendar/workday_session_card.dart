@@ -54,8 +54,6 @@ class WorkdaySessionCard extends StatelessWidget {
     );
     final workedSessionInfo = resolveWorkedSessionInfo(
       session: session,
-      schedule: schedule,
-      pauseWindow: pauseWindow,
       nowMinutes: nowMinutes,
     );
     final breakSegmentsInfo = formatWorkdayBreakSegments(session);

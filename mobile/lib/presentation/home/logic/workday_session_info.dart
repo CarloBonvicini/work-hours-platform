@@ -25,6 +25,37 @@ int resolveSessionExpectedExitMinutes({
   );
 }
 
+/// Uscita da mostrare oggi con la timbratura in corso, dentro la giornata.
+///
+/// Un'uscita scritta a mano resta com'e'; senza, vale la formula della modifica
+/// rapida, pausa minima compresa. Prima lo stato ne teneva una copia che la
+/// ignorava, e il riquadro di timbratura poteva annunciare un'altra uscita.
+int? resolveDisplayedSessionEndMinutes({
+  required WorkdaySession session,
+  required DaySchedule schedule,
+  required int displayedStartMinutes,
+  required int? explicitEndMinutes,
+  required bool usesDefaultEnd,
+  required int nowMinutes,
+  int minimumBreakMinutes = 0,
+}) {
+  final endMinutes = session.endMinutes != null && usesDefaultEnd
+      ? session.endMinutes
+      : explicitEndMinutes ??
+            (schedule.targetMinutes > 0
+                ? resolveScheduleExitMinutes(
+                    schedule,
+                    startMinutes: displayedStartMinutes,
+                    actualBreakMinutes: currentSessionBreakMinutes(
+                      session,
+                      nowMinutes,
+                    ),
+                    minimumBreakMinutes: minimumBreakMinutes,
+                  )
+                : null);
+  return endMinutes == null ? null : clampExitToDayEnd(endMinutes);
+}
+
 int currentSessionBreakMinutes(WorkdaySession? session, int nowMinutes) {
   if (session == null) {
     return 0;
@@ -114,8 +145,6 @@ String? resolveExpectedEndInfo({
 
 String? resolveWorkedSessionInfo({
   required WorkdaySession? session,
-  required DaySchedule schedule,
-  required CalendarPauseWindow? pauseWindow,
   required int nowMinutes,
 }) {
   // Senza timbratura non c'e' nulla di lavorato: l'orario previsto del giorno
@@ -124,28 +153,24 @@ String? resolveWorkedSessionInfo({
     return null;
   }
 
-  final measurementSegments = buildAgendaMeasurementSegments(
-    schedule: schedule,
+  // Solo la sessione: con l'orario del giorno la misura arrivava fino
+  // all'uscita prevista, e alle 12:49 risultavano 8:00 lavorate.
+  final measurementSegments = buildSessionMeasurementSegments(
     session: session,
     nowMinutes: nowMinutes,
-    pauseWindow: pauseWindow,
   );
   if (measurementSegments.isEmpty) {
     return null;
   }
 
-  final workedMinutes = measurementSegments
-      .where((segment) => segment.kind == AgendaMeasurementSegmentKind.work)
-      .fold<int>(
-        0,
-        (total, segment) => total + (segment.endMinutes - segment.startMinutes),
-      );
-  final totalBreakMinutes = measurementSegments
-      .where((segment) => segment.kind == AgendaMeasurementSegmentKind.pause)
-      .fold<int>(
-        0,
-        (total, segment) => total + (segment.endMinutes - segment.startMinutes),
-      );
+  final workedMinutes = sumSegmentMinutes(
+    measurementSegments,
+    AgendaMeasurementSegmentKind.work,
+  );
+  final totalBreakMinutes = sumSegmentMinutes(
+    measurementSegments,
+    AgendaMeasurementSegmentKind.pause,
+  );
   return 'Lavoro ${formatHoursInput(workedMinutes)} | Pausa ${formatHoursInput(totalBreakMinutes)}.';
 }
 
