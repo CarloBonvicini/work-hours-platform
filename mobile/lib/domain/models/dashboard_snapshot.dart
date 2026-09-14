@@ -1,4 +1,5 @@
 import 'package:work_hours_mobile/domain/models/leave_entry.dart';
+import 'package:work_hours_mobile/domain/models/monthly_expected_minutes.dart';
 import 'package:work_hours_mobile/domain/models/monthly_summary.dart';
 import 'package:work_hours_mobile/domain/models/profile.dart';
 import 'package:work_hours_mobile/domain/models/schedule_override.dart';
@@ -12,6 +13,7 @@ class DashboardSnapshot {
     required this.leaveEntries,
     required this.scheduleOverrides,
     required this.apiBaseUrl,
+    this.trackingStartDate,
   });
 
   final UserProfile profile;
@@ -20,6 +22,24 @@ class DashboardSnapshot {
   final List<LeaveEntry> leaveEntries;
   final List<ScheduleOverride> scheduleOverrides;
   final String apiBaseUrl;
+
+  /// Giorno della prima registrazione: da li' i giorni passati pesano sul
+  /// saldo. Null se non si sa, e allora pesano tutti.
+  final String? trackingStartDate;
+
+  /// Se il giorno [isoDate] pesa sul saldo: vedi [dayCountsInBalance].
+  bool countsInBalance(
+    String isoDate, {
+    required bool hasRegistrations,
+    DateTime? now,
+  }) {
+    return dayCountsInBalance(
+      isoDate: isoDate,
+      todayIsoDate: formatIsoDate(now ?? DateTime.now()),
+      trackingStartDate: trackingStartDate,
+      hasRegistrations: hasRegistrations,
+    );
+  }
 
   factory DashboardSnapshot.fromJson(Map<String, dynamic> json) {
     return DashboardSnapshot(
@@ -39,6 +59,7 @@ class DashboardSnapshot {
               )
               .toList(growable: false),
       apiBaseUrl: json['apiBaseUrl'] as String? ?? '',
+      trackingStartDate: json['trackingStartDate'] as String?,
     );
   }
 
@@ -52,6 +73,7 @@ class DashboardSnapshot {
           .map((override) => override.toJson())
           .toList(),
       'apiBaseUrl': apiBaseUrl,
+      'trackingStartDate': trackingStartDate,
     };
   }
 }

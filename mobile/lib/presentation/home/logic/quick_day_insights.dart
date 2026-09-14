@@ -76,14 +76,9 @@ DisplayedMonthBalanceInfo buildDisplayedMonthBalanceInfo({
       continue;
     }
 
-    if (isSelectedCalendarDay) {
-      monthWorkedMinutes += hasLiveContext
-          ? liveWorkedMinutes
-          : resolveWorkedMinutesForCalendarDay(day);
-      continue;
-    }
-
-    monthWorkedMinutes += resolveWorkedMinutesForCalendarDay(day);
+    monthWorkedMinutes += isSelectedCalendarDay && hasLiveContext
+        ? liveWorkedMinutes
+        : day.workedMinutes;
   }
 
   if (monthExpectedMinutes <= 0) {
@@ -98,19 +93,12 @@ DisplayedMonthBalanceInfo buildDisplayedMonthBalanceInfo({
   );
 }
 
-int resolveWorkedMinutesForCalendarDay(CalendarDay day) {
-  if (day.workedMinutes > 0) {
-    return day.workedMinutes;
-  }
-
-  if (day.relation == CalendarDayRelation.past && day.hasOverride) {
-    final derivedWorkedMinutes = day.details?.workedMinutes ?? 0;
-    if (derivedWorkedMinutes > 0) {
-      return derivedWorkedMinutes;
-    }
-  }
-
-  return 0;
+/// Saldo di un giorno dalle sole registrazioni: ore e causali contro il
+/// previsto. L'orario scritto su un giorno passato conta perche' diventa una
+/// voce di ore, non perche' lo si legge qui: prima questo conto lo leggeva
+/// dall'orario, e settimana e consuntivo davano un altro saldo.
+int _registeredBalanceMinutes(CalendarDay day) {
+  return day.workedMinutes + day.leaveMinutes - day.expectedMinutes;
 }
 
 DisplayedPeriodBalanceInfo buildDisplayedPeriodBalanceInfo({
@@ -134,18 +122,12 @@ DisplayedPeriodBalanceInfo buildDisplayedPeriodBalanceInfo({
     case DayBalanceAggregation.weekly:
       var hasWeeklyEntries = false;
       final weeklyBalanceMinutes = weekMetrics.fold<int>(0, (total, metric) {
-        if (isSameDay(metric.date, selectedDay)) {
-          if (!hasLiveContext) {
-            return total;
-          }
+        if (isSameDay(metric.date, selectedDay) && hasLiveContext) {
           hasWeeklyEntries = true;
           return total + liveDayBalanceMinutes;
         }
-        final hasMetricContext = hasRegisteredBalanceContext(
-          workedMinutes: metric.workedMinutes,
-          leaveMinutes: metric.leaveMinutes,
-        );
-        if (!hasMetricContext) {
+        // Un giorno passato senza niente registrato pesa come debito.
+        if (!metric.countsInBalance) {
           return total;
         }
         hasWeeklyEntries = true;
@@ -165,25 +147,16 @@ DisplayedPeriodBalanceInfo buildDisplayedPeriodBalanceInfo({
         if (day.relation == CalendarDayRelation.future) {
           continue;
         }
-        if (isSameDay(date, selectedDay)) {
-          if (!hasLiveContext) {
-            continue;
-          }
+        if (isSameDay(date, selectedDay) && hasLiveContext) {
           hasMonthlyEntries = true;
           monthlyBalanceMinutes += liveDayBalanceMinutes;
           continue;
         }
-        final workedMinutes = resolveWorkedMinutesForCalendarDay(day);
-        final hasDayContext = hasRegisteredBalanceContext(
-          workedMinutes: workedMinutes,
-          leaveMinutes: day.leaveMinutes,
-        );
-        if (!hasDayContext) {
+        if (!day.countsInBalance) {
           continue;
         }
         hasMonthlyEntries = true;
-        monthlyBalanceMinutes +=
-            (workedMinutes + day.leaveMinutes) - day.expectedMinutes;
+        monthlyBalanceMinutes += _registeredBalanceMinutes(day);
       }
       return DisplayedPeriodBalanceInfo(
         balanceMinutes: hasMonthlyEntries ? monthlyBalanceMinutes : 0,
@@ -230,18 +203,13 @@ QuickDayControlInsights buildQuickDayControlInsights({
   final selectedDay = DateUtils.dateOnly(selectedDate);
   var weeklyOvertimeMinutes = 0;
   for (final metric in weekMetrics) {
-    final isSelectedMetric = isSameDay(metric.date, selectedDay);
-    final hasMetricContext = isSelectedMetric
-        ? hasLiveResultContext
-        : hasRegisteredBalanceContext(
-            workedMinutes: metric.workedMinutes,
-            leaveMinutes: metric.leaveMinutes,
-          );
-    if (!hasMetricContext) {
+    final usesLiveResult =
+        isSameDay(metric.date, selectedDay) && hasLiveResultContext;
+    if (!usesLiveResult && !metric.countsInBalance) {
       continue;
     }
 
-    final rawBalanceMinutes = isSelectedMetric
+    final rawBalanceMinutes = usesLiveResult
         ? liveRawBalanceMinutes
         : metric.rawBalanceMinutes;
     weeklyOvertimeMinutes += resolveDailyOvertimeMinutes(
@@ -257,22 +225,14 @@ QuickDayControlInsights buildQuickDayControlInsights({
     if (date == null || day.relation == CalendarDayRelation.future) {
       continue;
     }
-    final isSelectedCalendarDay = isSameDay(date, selectedDay);
-    final hasDayContext = isSelectedCalendarDay
-        ? hasLiveResultContext
-        : hasRegisteredBalanceContext(
-            workedMinutes: resolveWorkedMinutesForCalendarDay(day),
-            leaveMinutes: day.leaveMinutes,
-          );
-    if (!hasDayContext) {
+    final usesLiveResult = isSameDay(date, selectedDay) && hasLiveResultContext;
+    if (!usesLiveResult && !day.countsInBalance) {
       continue;
     }
 
-    final rawBalanceMinutes = isSelectedCalendarDay
+    final rawBalanceMinutes = usesLiveResult
         ? liveRawBalanceMinutes
-        : (resolveWorkedMinutesForCalendarDay(day) +
-              day.leaveMinutes -
-              day.expectedMinutes);
+        : _registeredBalanceMinutes(day);
     monthlyRawBalanceMinutes += rawBalanceMinutes;
     monthlyOvertimeMinutes += resolveDailyOvertimeMinutes(
       rawBalanceMinutes: rawBalanceMinutes,

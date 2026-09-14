@@ -109,7 +109,11 @@ mixin _ScheduleOverridesState on _HomeScreenStateBase {
         );
         return true;
       }());
-      if (autosaveAction == _ScheduleOverrideAutosaveAction.none) {
+      // Su un giorno passato entrata e uscita sono ore fatte, non un
+      // programma: vanno registrate anche quando coincidono col piano.
+      final isPastDay = compareDateToToday(_selectedDate) < 0;
+      if (autosaveAction == _ScheduleOverrideAutosaveAction.none &&
+          !isPastDay) {
         if (mounted) {
           setState(() {
             _errorMessage = null;
@@ -127,19 +131,39 @@ mixin _ScheduleOverridesState on _HomeScreenStateBase {
 
       try {
         final currentPauseWindow = _selectedDayPauseWindowDraft();
-        final nextSnapshot =
-            autosaveAction == _ScheduleOverrideAutosaveAction.remove
-            ? await widget.dashboardService.removeScheduleOverride(
-                date: DashboardService.defaultEntryDateOf(_selectedDate),
+        var nextSnapshot = switch (autosaveAction) {
+          _ScheduleOverrideAutosaveAction.none => snapshot,
+          _ScheduleOverrideAutosaveAction.remove =>
+            await widget.dashboardService.removeScheduleOverride(
+              date: DashboardService.defaultEntryDateOf(_selectedDate),
+            ),
+          _ScheduleOverrideAutosaveAction.save =>
+            await widget.dashboardService.saveScheduleOverride(
+              date: DashboardService.defaultEntryDateOf(_selectedDate),
+              targetMinutes: draftSchedule.targetMinutes,
+              startTime: draftSchedule.startTime,
+              endTime: draftSchedule.endTime,
+              breakMinutes: draftSchedule.breakMinutes,
+              note: null,
+            ),
+        };
+        final pastDayWorkedMinutes = isPastDay
+            ? resolveComputedWorkedMinutes(
+                schedule: draftSchedule,
+                minimumBreakMinutes:
+                    snapshot.profile.workRules.minimumBreakMinutes,
               )
-            : await widget.dashboardService.saveScheduleOverride(
-                date: DashboardService.defaultEntryDateOf(_selectedDate),
-                targetMinutes: draftSchedule.targetMinutes,
-                startTime: draftSchedule.startTime,
-                endTime: draftSchedule.endTime,
-                breakMinutes: draftSchedule.breakMinutes,
-                note: null,
-              );
+            : null;
+        if (pastDayWorkedMinutes != null && pastDayWorkedMinutes > 0) {
+          // Diventano la voce "Ore lavorate" del giorno, come con l'Uscita
+          // della timbratura: prima restavano un orario, contato come
+          // lavorato solo nel saldo del mese della home.
+          nextSnapshot = await widget.dashboardService.upsertDayWorkedHours(
+            date: DashboardService.defaultEntryDateOf(_selectedDate),
+            minutes: pastDayWorkedMinutes,
+            noteIfNew: 'Orario del giorno',
+          );
+        }
 
         if (!mounted) {
           return;
@@ -678,6 +702,7 @@ mixin _ScheduleOverridesState on _HomeScreenStateBase {
       hasOverride: metrics.hasOverride,
       schedule: displayedSchedule,
       overrideNote: metrics.overrideNote,
+      countsInBalance: metrics.countsInBalance,
     );
   }
 

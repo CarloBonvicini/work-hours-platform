@@ -34,6 +34,10 @@ mixin _CalendarMetricsState on _HomeScreenStateBase {
       hasOverride: override != null,
       schedule: effectiveSchedule,
       overrideNote: override?.note,
+      countsInBalance: snapshot.countsInBalance(
+        isoDate,
+        hasRegistrations: workedMinutes > 0 || leaveMinutes > 0,
+      ),
     );
   }
 
@@ -118,6 +122,11 @@ mixin _CalendarMetricsState on _HomeScreenStateBase {
       };
       final workedMinutes = workMinutesByDate[isoDate] ?? 0;
       final leaveMinutes = leaveMinutesByDate[isoDate] ?? 0;
+      final hasRegistrations = workedMinutes > 0 || leaveMinutes > 0;
+      final countsInBalance = snapshot.countsInBalance(
+        isoDate,
+        hasRegistrations: hasRegistrations,
+      );
       final todayStatusLabel = relation == CalendarDayRelation.today
           ? workdaySessionStatusLabel(
               resolveWorkdaySessionStatus(_workdaySession),
@@ -134,6 +143,7 @@ mixin _CalendarMetricsState on _HomeScreenStateBase {
           isToday: isSameDay(date, today),
           isSelected: isSameDay(date, _selectedDate),
           relation: relation,
+          countsInBalance: countsInBalance,
           primaryLabel: buildCalendarDayPrimaryLabel(
             relation: relation,
             schedule: displayedSchedule,
@@ -147,6 +157,13 @@ mixin _CalendarMetricsState on _HomeScreenStateBase {
             leaveMinutes: leaveMinutes,
             hasOverride: hasOverride,
             todayStatusLabel: todayStatusLabel,
+            // Giorno di lavoro passato che pesa sul saldo senza nulla dentro:
+            // e' debito, e il calendario lo deve far vedere.
+            needsRegistration:
+                relation == CalendarDayRelation.past &&
+                countsInBalance &&
+                !hasRegistrations &&
+                effectiveSchedule.targetMinutes > 0,
           ),
           details: buildCalendarDayDetails(
             relation: relation,

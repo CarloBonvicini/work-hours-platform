@@ -446,6 +446,13 @@ class SharedPreferencesLocalDashboardRepository implements DashboardRepository {
       0,
       (sum, entry) => sum + entry.minutes,
     );
+    final trackingStartDate = resolveTrackingStartDate(
+      registeredDates: [
+        for (final entry in bundle.workEntries) entry.date,
+        for (final entry in bundle.leaveEntries) entry.date,
+      ],
+      today: _now(),
+    );
     final expected = splitMonthlyExpectedMinutes(
       month: month,
       profile: bundle.profile,
@@ -455,10 +462,12 @@ class SharedPreferencesLocalDashboardRepository implements DashboardRepository {
         for (final entry in leaveEntries) entry.date,
       },
       today: _now(),
+      trackingStartDate: trackingStartDate,
     );
 
     return DashboardSnapshot(
       profile: bundle.profile,
+      trackingStartDate: trackingStartDate,
       summary: MonthlySummary.fromTotals(
         month: month,
         expectedMinutes: expected.maturedMinutes,
