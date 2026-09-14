@@ -10,9 +10,12 @@ class MonthlySummary {
     required this.balanceMinutes,
     this.remainingCreditMinutes = 0,
     this.remainingDebitMinutes = 0,
+    this.remainingExpectedMinutes = 0,
   });
 
   final String month;
+
+  /// Ore previste dei giorni gia' maturati: sono queste a fare il saldo.
   final int expectedMinutes;
   final int workedMinutes;
   final int leaveMinutes;
@@ -21,17 +24,23 @@ class MonthlySummary {
   final int remainingCreditMinutes;
   final int remainingDebitMinutes;
 
+  /// Ore previste dei giorni che devono ancora arrivare. Si mostrano, ma non
+  /// sono debito: un giorno che non c'e' ancora stato non si puo' aver mancato.
+  final int remainingExpectedMinutes;
+
   factory MonthlySummary.fromTotals({
     required String month,
     required int expectedMinutes,
     required int workedMinutes,
     int leaveMinutes = 0,
+    int remainingExpectedMinutes = 0,
     required UserWorkRules rules,
   }) {
     final rawBalanceMinutes = workedMinutes + leaveMinutes - expectedMinutes;
     return MonthlySummary(
       month: month,
       expectedMinutes: expectedMinutes,
+      remainingExpectedMinutes: remainingExpectedMinutes,
       workedMinutes: workedMinutes,
       leaveMinutes: leaveMinutes,
       rawBalanceMinutes: rawBalanceMinutes,
@@ -77,6 +86,7 @@ class MonthlySummary {
           json['remainingDebitMinutes'] as int? ??
           json['residualDebitMinutes'] as int? ??
           0,
+      remainingExpectedMinutes: json['remainingExpectedMinutes'] as int? ?? 0,
     );
   }
 
@@ -95,6 +105,7 @@ class MonthlySummary {
       'remainingDebitMinutes': remainingDebitMinutes,
       'residualCreditMinutes': remainingCreditMinutes,
       'residualDebitMinutes': remainingDebitMinutes,
+      'remainingExpectedMinutes': remainingExpectedMinutes,
     };
   }
 
@@ -112,6 +123,7 @@ class MonthlySummary {
     return MonthlySummary(
       month: month,
       expectedMinutes: expectedMinutes,
+      remainingExpectedMinutes: remainingExpectedMinutes,
       workedMinutes: workedMinutes,
       leaveMinutes: leaveMinutes,
       rawBalanceMinutes: rawBalanceMinutes,

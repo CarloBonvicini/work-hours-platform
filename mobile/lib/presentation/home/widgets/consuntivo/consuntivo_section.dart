@@ -159,8 +159,15 @@ class ConsuntivoSection extends StatelessWidget {
                           ),
                           const SizedBox(height: 8),
                           Text(
-                            'Programmate ${formatConsuntivoMetricHours(month.expectedMinutes)}',
+                            'Previste finora ${formatConsuntivoMetricHours(month.expectedMinutes)}',
                           ),
+                          if (month.remainingExpectedMinutes > 0)
+                            Text(
+                              'Ancora da fare ${formatConsuntivoMetricHours(month.remainingExpectedMinutes)}',
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                color: colorScheme.onSurfaceVariant,
+                              ),
+                            ),
                           Text(
                             'Registrate ${formatConsuntivoMetricHours(month.workedMinutes)}',
                           ),

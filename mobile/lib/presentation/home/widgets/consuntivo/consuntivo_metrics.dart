@@ -15,9 +15,14 @@ class ConsuntivoMetricGrid extends StatelessWidget {
       runSpacing: 10,
       children: [
         ConsuntivoMetricTile(
-          label: 'Programmate',
+          label: 'Previste finora',
           value: formatConsuntivoMetricHours(totals.expectedMinutes),
         ),
+        if (totals.remainingExpectedMinutes > 0)
+          ConsuntivoMetricTile(
+            label: 'Ancora da fare',
+            value: formatConsuntivoMetricHours(totals.remainingExpectedMinutes),
+          ),
         ConsuntivoMetricTile(
           label: 'Lavorate',
           value: formatConsuntivoMetricHours(totals.workedMinutes),
