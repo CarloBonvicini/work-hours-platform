@@ -1,6 +1,5 @@
 // Etichette e dettagli testuali delle celle del calendario.
 
-import 'dart:math' as math;
 import 'package:work_hours_mobile/application/services/hour_input_parser.dart';
 import 'package:work_hours_mobile/application/services/time_input_parser.dart';
 import 'package:work_hours_mobile/application/services/workday_start_store.dart';
@@ -103,11 +102,7 @@ CalendarDayDetails? buildCalendarDayDetails({
       : schedule.breakMinutes;
   final hasRegisteredWorkOrLeave = workedMinutes > 0 || leaveMinutes > 0;
   final resolvedWorkedMinutes = session != null
-      ? math.max(
-          0,
-          ((session.endMinutes ?? nowMinutes) - session.startMinutes) -
-              pauseMinutes,
-        )
+      ? resolveSessionWorkedMinutes(session: session, nowMinutes: nowMinutes)
       : relation == CalendarDayRelation.past
       ? hasRegisteredWorkOrLeave
             ? workedMinutes

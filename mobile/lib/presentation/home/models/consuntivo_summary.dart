@@ -55,8 +55,10 @@ class ConsuntivoTotals {
     required this.clampedBalanceMinutes,
     required this.overtimeMaturedMinutes,
     required this.debitMaturedMinutes,
+    this.remainingExpectedMinutes = 0,
   });
 
+  /// Previste dei giorni gia' maturati: fanno il saldo.
   final int expectedMinutes;
   final int workedMinutes;
   final int leaveMinutes;
@@ -64,6 +66,9 @@ class ConsuntivoTotals {
   final int clampedBalanceMinutes;
   final int overtimeMaturedMinutes;
   final int debitMaturedMinutes;
+
+  /// Previste dei giorni che devono ancora arrivare: si mostrano, non pesano.
+  final int remainingExpectedMinutes;
 }
 
 class ConsuntivoMonthSummary {
@@ -73,6 +78,7 @@ class ConsuntivoMonthSummary {
     required this.workedMinutes,
     required this.leaveMinutes,
     required this.balanceMinutes,
+    this.remainingExpectedMinutes = 0,
   });
 
   final String monthLabel;
@@ -80,6 +86,7 @@ class ConsuntivoMonthSummary {
   final int workedMinutes;
   final int leaveMinutes;
   final int balanceMinutes;
+  final int remainingExpectedMinutes;
 }
 
 class ConsuntivoPermissionSummary {

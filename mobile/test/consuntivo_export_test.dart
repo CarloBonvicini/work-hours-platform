@@ -14,6 +14,7 @@ ConsuntivoSectionData _sampleData() {
       clampedBalanceMinutes: 120,
       overtimeMaturedMinutes: 150,
       debitMaturedMinutes: 0,
+      remainingExpectedMinutes: 480 * 12,
     ),
     months: [
       ConsuntivoMonthSummary(
@@ -52,7 +53,9 @@ void main() {
     final lines = csv.trim().split('\r\n');
 
     expect(lines.first, 'Consuntivo ore;Maggio 2026 - Luglio 2026');
-    expect(csv, contains('Ore previste;24:00'));
+    expect(csv, contains('Ore previste finora;24:00'));
+    // Le ore dei giorni non ancora arrivati si vedono, ma fuori dal saldo.
+    expect(csv, contains('Ore ancora da fare;96:00'));
     expect(csv, contains('Saldo;+2:30'));
     expect(csv, contains('Giugno 2026;8:00;9:30;1:00;+2:30'));
     expect(csv, contains('lun 01/06;8:00;9:30;+1:30'));

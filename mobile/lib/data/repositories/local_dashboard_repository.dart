@@ -5,6 +5,7 @@ import 'package:work_hours_mobile/domain/models/cloud_backup_bundle.dart';
 import 'package:work_hours_mobile/domain/models/dashboard_snapshot.dart';
 import 'package:work_hours_mobile/domain/models/day_schedule.dart';
 import 'package:work_hours_mobile/domain/models/leave_entry.dart';
+import 'package:work_hours_mobile/domain/models/monthly_expected_minutes.dart';
 import 'package:work_hours_mobile/domain/models/monthly_summary.dart';
 import 'package:work_hours_mobile/domain/models/profile.dart';
 import 'package:work_hours_mobile/domain/models/schedule_override.dart';
@@ -21,15 +22,18 @@ class SharedPreferencesLocalDashboardRepository implements DashboardRepository {
   SharedPreferencesLocalDashboardRepository({
     WorkHoursApiClient? ticketApiClient,
     WorkdayStartStore? workdayStartStore,
+    DateTime Function()? now,
   }) : _ticketApiClient = ticketApiClient,
        _workdayStartStore =
-           workdayStartStore ?? const SharedPreferencesWorkdayStartStore();
+           workdayStartStore ?? const SharedPreferencesWorkdayStartStore(),
+       _now = now ?? DateTime.now;
 
   static const _bundleKey = 'local_dashboard.bundle';
   static const _migrationKey = 'local_dashboard.legacy_migrated';
 
   final WorkHoursApiClient? _ticketApiClient;
   final WorkdayStartStore _workdayStartStore;
+  final DateTime Function() _now;
 
   Future<bool> isEmpty() async {
     final bundle = await _loadBundle();
@@ -442,17 +446,23 @@ class SharedPreferencesLocalDashboardRepository implements DashboardRepository {
       0,
       (sum, entry) => sum + entry.minutes,
     );
-    final expectedMinutes = _expectedMinutesForMonth(
-      month,
-      bundle.profile,
-      scheduleOverrides,
+    final expected = splitMonthlyExpectedMinutes(
+      month: month,
+      profile: bundle.profile,
+      overrides: scheduleOverrides,
+      registeredDates: {
+        for (final entry in workEntries) entry.date,
+        for (final entry in leaveEntries) entry.date,
+      },
+      today: _now(),
     );
 
     return DashboardSnapshot(
       profile: bundle.profile,
       summary: MonthlySummary.fromTotals(
         month: month,
-        expectedMinutes: expectedMinutes,
+        expectedMinutes: expected.maturedMinutes,
+        remainingExpectedMinutes: expected.remainingMinutes,
         workedMinutes: workedMinutes,
         leaveMinutes: leaveMinutes,
         rules: bundle.profile.workRules,
@@ -462,36 +472,5 @@ class SharedPreferencesLocalDashboardRepository implements DashboardRepository {
       scheduleOverrides: scheduleOverrides.reversed.toList(growable: false),
       apiBaseUrl: _ticketApiClient?.baseUrl ?? 'local',
     );
-  }
-
-  int _expectedMinutesForMonth(
-    String month,
-    UserProfile profile,
-    List<ScheduleOverride> overrides,
-  ) {
-    final parts = month.split('-');
-    final year = int.parse(parts[0]);
-    final monthNumber = int.parse(parts[1]);
-    final daysInMonth = DateTime(year, monthNumber + 1, 0).day;
-    final overridesByDate = {for (final entry in overrides) entry.date: entry};
-
-    var total = 0;
-    for (var day = 1; day <= daysInMonth; day += 1) {
-      final date = DateTime(year, monthNumber, day);
-      final isoDate = _formatDate(date);
-      final override = overridesByDate[isoDate];
-      total +=
-          override?.targetMinutes ??
-          profile.weekdaySchedule.forDate(date).targetMinutes;
-    }
-
-    return total;
-  }
-
-  String _formatDate(DateTime date) {
-    final year = date.year.toString().padLeft(4, '0');
-    final month = date.month.toString().padLeft(2, '0');
-    final day = date.day.toString().padLeft(2, '0');
-    return '$year-$month-$day';
   }
 }

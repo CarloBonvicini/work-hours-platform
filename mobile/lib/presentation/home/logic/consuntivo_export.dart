@@ -36,8 +36,12 @@ String buildConsuntivoCsv(ConsuntivoSectionData data) {
     '',
     _csvRow(['Totali', '']),
     _csvRow([
-      'Ore previste',
+      'Ore previste finora',
       formatConsuntivoHours(data.totals.expectedMinutes),
+    ]),
+    _csvRow([
+      'Ore ancora da fare',
+      formatConsuntivoHours(data.totals.remainingExpectedMinutes),
     ]),
     _csvRow([
       'Ore registrate',
@@ -60,7 +64,14 @@ String buildConsuntivoCsv(ConsuntivoSectionData data) {
       formatConsuntivoHours(data.totals.debitMaturedMinutes),
     ]),
     '',
-    _csvRow(['Mese', 'Previste', 'Registrate', 'Causali', 'Saldo']),
+    _csvRow([
+      'Mese',
+      'Previste finora',
+      'Registrate',
+      'Causali',
+      'Saldo',
+      'Ancora da fare',
+    ]),
     for (final month in data.months)
       _csvRow([
         month.monthLabel,
@@ -68,6 +79,7 @@ String buildConsuntivoCsv(ConsuntivoSectionData data) {
         formatConsuntivoHours(month.workedMinutes),
         formatConsuntivoHours(month.leaveMinutes),
         formatConsuntivoSignedHours(month.balanceMinutes),
+        formatConsuntivoHours(month.remainingExpectedMinutes),
       ]),
     '',
     _csvRow([
@@ -124,7 +136,8 @@ Future<Uint8List> buildConsuntivoPdf(ConsuntivoSectionData data) async {
         pw.SizedBox(height: 14),
         pw.TableHelper.fromTextArray(
           headers: const [
-            'Previste',
+            'Previste finora',
+            'Da fare',
             'Registrate',
             'Causali',
             'Saldo',
@@ -134,6 +147,7 @@ Future<Uint8List> buildConsuntivoPdf(ConsuntivoSectionData data) async {
           data: [
             [
               formatConsuntivoHours(data.totals.expectedMinutes),
+              formatConsuntivoHours(data.totals.remainingExpectedMinutes),
               formatConsuntivoHours(data.totals.workedMinutes),
               formatConsuntivoHours(data.totals.leaveMinutes),
               formatConsuntivoSignedHours(data.totals.rawBalanceMinutes),
@@ -151,10 +165,11 @@ Future<Uint8List> buildConsuntivoPdf(ConsuntivoSectionData data) async {
           pw.TableHelper.fromTextArray(
             headers: const [
               'Mese',
-              'Previste',
+              'Previste finora',
               'Registrate',
               'Causali',
               'Saldo',
+              'Da fare',
             ],
             data: [
               for (final month in data.months)
@@ -164,6 +179,7 @@ Future<Uint8List> buildConsuntivoPdf(ConsuntivoSectionData data) async {
                   formatConsuntivoHours(month.workedMinutes),
                   formatConsuntivoHours(month.leaveMinutes),
                   formatConsuntivoSignedHours(month.balanceMinutes),
+                  formatConsuntivoHours(month.remainingExpectedMinutes),
                 ],
             ],
             headerStyle: headerStyle,

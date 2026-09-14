@@ -80,19 +80,10 @@ int resolveLiveWorkedMinutes({
     // Solo i segmenti della sessione: entrata timbrata e pause registrate.
     // Passare per l'agenda faceva vincere la finestra del piano, e l'uscita
     // prevista finiva contata come ora gia' lavorata.
-    final measurementSegments = buildSessionMeasurementSegments(
+    return resolveSessionWorkedMinutes(
       session: session,
       nowMinutes: nowMinutes,
     );
-    if (measurementSegments.isNotEmpty) {
-      return measurementSegments
-          .where((segment) => segment.kind == AgendaMeasurementSegmentKind.work)
-          .fold<int>(
-            0,
-            (total, segment) =>
-                total + (segment.endMinutes - segment.startMinutes),
-          );
-    }
   }
 
   final resolvedStartMinutes =

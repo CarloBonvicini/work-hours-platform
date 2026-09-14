@@ -133,6 +133,7 @@ mixin _ConsuntivoState on _HomeScreenStateBase {
           return ConsuntivoMonthSummary(
             monthLabel: formatMonthLabel(snapshot.summary.month),
             expectedMinutes: snapshot.summary.expectedMinutes,
+            remainingExpectedMinutes: snapshot.summary.remainingExpectedMinutes,
             workedMinutes: snapshot.summary.workedMinutes,
             leaveMinutes: snapshot.summary.leaveMinutes,
             balanceMinutes: snapshot.summary.balanceMinutes,
@@ -141,6 +142,7 @@ mixin _ConsuntivoState on _HomeScreenStateBase {
         .toList(growable: false);
 
     var totalExpectedMinutes = 0;
+    var totalRemainingExpectedMinutes = 0;
     var totalWorkedMinutes = 0;
     var totalLeaveMinutes = 0;
     var totalRawBalanceMinutes = 0;
@@ -153,6 +155,8 @@ mixin _ConsuntivoState on _HomeScreenStateBase {
       }
 
       totalExpectedMinutes += snapshot.summary.expectedMinutes;
+      totalRemainingExpectedMinutes +=
+          snapshot.summary.remainingExpectedMinutes;
       totalWorkedMinutes += snapshot.summary.workedMinutes;
       totalLeaveMinutes += snapshot.summary.leaveMinutes;
       totalRawBalanceMinutes += snapshot.summary.rawBalanceMinutes;
@@ -203,6 +207,7 @@ mixin _ConsuntivoState on _HomeScreenStateBase {
         clampedBalanceMinutes: totalClampedBalanceMinutes,
         overtimeMaturedMinutes: math.max(totalRawBalanceMinutes, 0),
         debitMaturedMinutes: math.max(-totalRawBalanceMinutes, 0),
+        remainingExpectedMinutes: totalRemainingExpectedMinutes,
       ),
       months: monthSummaries,
       permissions: permissions,
@@ -290,8 +295,12 @@ mixin _ConsuntivoState on _HomeScreenStateBase {
           (total, entry) => total + entry.minutes,
         );
         final registeredMinutes = workedMinutes + leaveMinutes;
-        final balanceMinutes =
-            registeredMinutes - effectiveSchedule.targetMinutes;
+        // Oggi matura solo quando c'e' qualcosa di registrato, come nel saldo
+        // del mese: alle 9 del mattino non e' ancora un debito.
+        final hasMatured = cursor.isBefore(today) || registeredMinutes > 0;
+        final balanceMinutes = hasMatured
+            ? registeredMinutes - effectiveSchedule.targetMinutes
+            : 0;
 
         final includeRow =
             workedMinutes > 0 ||

@@ -598,23 +598,23 @@ mixin _ScheduleOverridesState on _HomeScreenStateBase {
       schedule.breakMinutes,
       currentBreakMinutes,
     );
-    final computedEndMinutes = session.endMinutes != null && usesDefaultEnd
-        ? session.endMinutes
-        : explicitEndMinutes ??
-              (schedule.targetMinutes > 0
-                  ? displayedStartMinutes +
-                        schedule.targetMinutes +
-                        effectiveBreakMinutes
-                  : null);
+    final computedEndMinutes = resolveDisplayedSessionEndMinutes(
+      session: session,
+      schedule: schedule,
+      displayedStartMinutes: displayedStartMinutes,
+      explicitEndMinutes: explicitEndMinutes,
+      usesDefaultEnd: usesDefaultEnd,
+      nowMinutes: _currentMinutesOfDay(),
+      minimumBreakMinutes:
+          _snapshot?.profile.workRules.minimumBreakMinutes ?? 0,
+    );
     return DaySchedule(
       // Keep daily target stable: editing start/end must not rewrite "Ore di lavoro".
       targetMinutes: schedule.targetMinutes,
       startTime: formatTimeInput(displayedStartMinutes),
       endTime: computedEndMinutes == null
           ? schedule.endTime
-          : formatTimeInput(
-              (computedEndMinutes % (24 * 60)).clamp(0, (23 * 60) + 59).toInt(),
-            ),
+          : formatTimeInput(computedEndMinutes),
       breakMinutes: effectiveBreakMinutes,
     );
   }

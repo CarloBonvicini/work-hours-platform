@@ -314,25 +314,50 @@ List<AgendaMeasurementSegment> buildSessionMeasurementSegments({
   return segments;
 }
 
+/// Minuti di un tipo (lavoro o pausa) sommati sui segmenti.
+int sumSegmentMinutes(
+  List<AgendaMeasurementSegment> segments,
+  AgendaMeasurementSegmentKind kind,
+) {
+  return segments
+      .where((segment) => segment.kind == kind)
+      .fold<int>(
+        0,
+        (total, segment) => total + (segment.endMinutes - segment.startMinutes),
+      );
+}
+
+/// Ore gia' lavorate secondo la timbratura: l'unico conto delle ore di oggi.
+int resolveSessionWorkedMinutes({
+  required WorkdaySession session,
+  required int nowMinutes,
+}) {
+  return sumSegmentMinutes(
+    buildSessionMeasurementSegments(session: session, nowMinutes: nowMinutes),
+    AgendaMeasurementSegmentKind.work,
+  );
+}
+
+/// Riga di totale sotto l'agenda.
+///
+/// Con [isForecast] i segmenti sono il piano, non ore fatte: la riga lo dice,
+/// invece di chiamarle "lavorate".
 String? buildAgendaWorkedSummary({
   required List<AgendaMeasurementSegment> measurementSegments,
+  bool isForecast = false,
 }) {
   if (measurementSegments.isEmpty) {
     return null;
   }
 
-  final workedMinutes = measurementSegments
-      .where((segment) => segment.kind == AgendaMeasurementSegmentKind.work)
-      .fold<int>(
-        0,
-        (total, segment) => total + (segment.endMinutes - segment.startMinutes),
-      );
-  final totalBreakMinutes = measurementSegments
-      .where((segment) => segment.kind == AgendaMeasurementSegmentKind.pause)
-      .fold<int>(
-        0,
-        (total, segment) => total + (segment.endMinutes - segment.startMinutes),
-      );
+  final workedLabel = formatHoursInput(
+    sumSegmentMinutes(measurementSegments, AgendaMeasurementSegmentKind.work),
+  );
+  final pauseLabel = formatHoursInput(
+    sumSegmentMinutes(measurementSegments, AgendaMeasurementSegmentKind.pause),
+  );
 
-  return 'Totale: ${formatHoursInput(workedMinutes)} lavorate | ${formatHoursInput(totalBreakMinutes)} pausa';
+  return isForecast
+      ? 'Previsto: $workedLabel lavoro | $pauseLabel pausa'
+      : 'Totale: $workedLabel lavorate | $pauseLabel pausa';
 }
