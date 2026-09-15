@@ -283,11 +283,7 @@ mixin _WorkdaySessionState on _HomeScreenStateBase {
     });
 
     try {
-      final totalBreakMinutes = session.breakStartedMinutes == null
-          ? session.accumulatedBreakMinutes
-          : session.accumulatedBreakMinutes +
-                    math.max(0, nowMinutes - session.breakStartedMinutes!)
-                as int;
+      final totalBreakMinutes = currentSessionBreakMinutes(session, nowMinutes);
       final completedBreakSegments = session.breakStartedMinutes == null
           ? session.breakSegments
           : [
@@ -342,15 +338,18 @@ mixin _WorkdaySessionState on _HomeScreenStateBase {
         _snapshotForMonth(DashboardService.formatMonth(_todayDate)) ??
         _snapshot;
     if (endMinutes == null || snapshot == null) {
+      // Tornare qui in silenzio lasciava la giornata timbrata ma senza ore, e
+      // chi usa l'app non aveva modo di accorgersene.
+      _showWorkdaySnackBar('Uscita registrata, ore non salvate.');
       return;
     }
 
     final schedule = _resolveEffectiveDayScheduleForDate(snapshot, _todayDate);
-    final breakMinutes = math.max(
-      schedule.breakMinutes,
-      session.accumulatedBreakMinutes,
+    final registration = resolveSessionRegistration(
+      session: session,
+      schedule: schedule,
     );
-    final workedMinutes = endMinutes - session.startMinutes - breakMinutes;
+    final workedMinutes = registration.workedMinutes;
     if (workedMinutes <= 0) {
       _showWorkdaySnackBar(
         'Uscita registrata alle ${formatTimeInput(endMinutes)}. '
@@ -360,18 +359,21 @@ mixin _WorkdaySessionState on _HomeScreenStateBase {
     }
 
     try {
-      await widget.dashboardService.saveScheduleOverride(
+      // Le ore prima dell'orario: sono il dato che conta. Nell'ordine opposto,
+      // se la seconda scrittura non andava a buon fine restava a video una
+      // giornata con entrata e uscita e "Lavorate 0:00".
+      await widget.dashboardService.upsertDayWorkedHours(
+        date: isoDate,
+        minutes: workedMinutes,
+        noteIfNew: 'Timbratura',
+      );
+      final nextSnapshot = await widget.dashboardService.saveScheduleOverride(
         date: isoDate,
         targetMinutes: schedule.targetMinutes,
         startTime: formatTimeInput(session.startMinutes),
         endTime: formatTimeInput(endMinutes),
-        breakMinutes: breakMinutes,
+        breakMinutes: registration.breakMinutes,
         note: _findScheduleOverrideForDate(snapshot, _todayDate)?.note,
-      );
-      final nextSnapshot = await widget.dashboardService.upsertDayWorkedHours(
-        date: isoDate,
-        minutes: workedMinutes,
-        noteIfNew: 'Timbratura',
       );
       if (!mounted) {
         return;

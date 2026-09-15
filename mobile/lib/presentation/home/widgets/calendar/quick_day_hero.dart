@@ -28,6 +28,7 @@ class QuickDayHero extends StatelessWidget {
     required this.onDayBalanceAggregationChanged,
     required this.remainingToProgrammedExitLabel,
     required this.expectedMinutes,
+    required this.unrecordedMinutes,
   });
 
   final int workedMinutes;
@@ -50,6 +51,7 @@ class QuickDayHero extends StatelessWidget {
   final ValueChanged<DayBalanceAggregation> onDayBalanceAggregationChanged;
   final String? remainingToProgrammedExitLabel;
   final int expectedMinutes;
+  final int? unrecordedMinutes;
 
   @override
   Widget build(BuildContext context) {
@@ -72,8 +74,14 @@ class QuickDayHero extends StatelessWidget {
       fontSize: 11.5,
       height: 1.15,
     );
+    final unrecorded = unrecordedMinutes;
     final workedHelperText = switch ((isDayOff, hasResultContext)) {
       (true, _) => 'Nessuna ora da registrare',
+      // L'orario del giorno c'e' ma le ore non sono mai state registrate: dirlo
+      // e' l'unico modo perche' uno 0:00 con entrata e uscita a video si capisca.
+      (false, false) when unrecorded != null =>
+        'Orario presente, ore mai registrate: '
+            '${formatHoursInput(unrecorded)} da registrare',
       (false, false) => 'Inserisci l\'entrata per iniziare',
       _ => remainingToProgrammedExitLabel,
     };

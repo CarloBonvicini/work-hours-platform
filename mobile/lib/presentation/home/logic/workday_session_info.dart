@@ -114,6 +114,41 @@ int? _resolveSessionEndMinutes({
   );
 }
 
+/// Cosa l'uscita scrive nel giorno: ore da registrare e pausa scalata.
+class SessionRegistration {
+  const SessionRegistration({
+    required this.workedMinutes,
+    required this.breakMinutes,
+  });
+
+  final int workedMinutes;
+  final int breakMinutes;
+}
+
+/// Ore e pausa che l'uscita registra per una timbratura chiusa.
+///
+/// Le ore non sono lo stesso numero del contatore dal vivo
+/// (`resolveSessionWorkedMinutes` in `agenda_segments.dart`): quello misura solo
+/// le pause davvero timbrate, questo scala anche la pausa prevista del giorno.
+/// Chi salta la pausa vede il contatore salire e poi si ritrova registrate meno
+/// ore.
+SessionRegistration resolveSessionRegistration({
+  required WorkdaySession session,
+  required DaySchedule schedule,
+}) {
+  final breakMinutes = math.max(
+    schedule.breakMinutes,
+    session.accumulatedBreakMinutes,
+  );
+  final endMinutes = session.endMinutes;
+  return SessionRegistration(
+    workedMinutes: endMinutes == null
+        ? 0
+        : endMinutes - session.startMinutes - breakMinutes,
+    breakMinutes: breakMinutes,
+  );
+}
+
 int currentSessionBreakMinutes(WorkdaySession? session, int nowMinutes) {
   if (session == null) {
     return 0;
