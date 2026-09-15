@@ -12,7 +12,7 @@ mixin _CalendarNavigationState on _HomeScreenStateBase {
   @override
   Future<void> _openDayForDate(DateTime date) async {
     setState(() {
-      _selectedSection = HomeSection.day;
+      _goToSection(HomeSection.day);
     });
     await _setSelectedDate(date, alignToPeriod: false);
   }

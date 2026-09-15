@@ -31,7 +31,7 @@ mixin _WorkScheduleSettingsState on _HomeScreenStateBase {
     }
 
     setState(() {
-      _selectedSection = HomeSection.workSettings;
+      _goToSection(HomeSection.workSettings);
     });
     final appearanceSettings = widget.appearanceSettings;
     if (!appearanceSettings.expandWorkSettingsSchedule) {
@@ -57,7 +57,7 @@ mixin _WorkScheduleSettingsState on _HomeScreenStateBase {
       return;
     }
     setState(() {
-      _selectedSection = HomeSection.workSettings;
+      _goToSection(HomeSection.workSettings);
     });
   }
 

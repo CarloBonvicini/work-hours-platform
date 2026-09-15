@@ -12,6 +12,7 @@ import 'package:work_hours_mobile/presentation/home/logic/calendar_dates.dart';
 import 'package:work_hours_mobile/presentation/home/logic/day_balance.dart';
 import 'package:work_hours_mobile/presentation/home/logic/day_exit_view.dart';
 import 'package:work_hours_mobile/presentation/home/logic/day_worked_view.dart';
+import 'package:work_hours_mobile/presentation/home/models/home_section.dart';
 import 'package:work_hours_mobile/presentation/home/logic/quick_day_insights.dart';
 import 'package:work_hours_mobile/presentation/home/logic/quick_day_summary_label.dart';
 import 'package:work_hours_mobile/presentation/home/logic/workday_session_info.dart';
@@ -86,6 +87,7 @@ class CalendarCard extends StatelessWidget {
     required this.onRedoOverrideChange,
     required this.onMarkDayAsOff,
     required this.onRegisterUnrecordedHours,
+    required this.onOpenSettingsSection,
     required this.onRestoreWorkingDay,
     required this.onConfirmSuggestedExitMinutes,
     required this.onOpenWorkSettings,
@@ -171,6 +173,7 @@ class CalendarCard extends StatelessWidget {
   final Future<void> Function() onRedoOverrideChange;
   final VoidCallback onMarkDayAsOff;
   final Future<void> Function(int minutes) onRegisterUnrecordedHours;
+  final void Function(HomeSection section) onOpenSettingsSection;
   final Future<void> Function() onRestoreWorkingDay;
   final Future<void> Function(int exitMinutes) onConfirmSuggestedExitMinutes;
   final VoidCallback onOpenWorkSettings;
@@ -354,6 +357,7 @@ class CalendarCard extends StatelessWidget {
             remainingToProgrammedExitLabel: exitView.remainingLabel,
             expectedMinutes: liveExpectedMinutes,
             unrecordedMinutes: workedView.unrecordedMinutes,
+            onOpenSettingsSection: onOpenSettingsSection,
             onRegisterUnrecordedHours: workedView.unrecordedMinutes == null
                 ? null
                 : () => unawaited(

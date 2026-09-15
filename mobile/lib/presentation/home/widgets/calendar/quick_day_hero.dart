@@ -4,6 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:work_hours_mobile/application/services/hour_input_parser.dart';
 import 'package:work_hours_mobile/application/services/theme_preference_store.dart';
 import 'package:work_hours_mobile/presentation/home/logic/quick_day_insights.dart';
+import 'package:work_hours_mobile/presentation/home/logic/value_explanations.dart';
+import 'package:work_hours_mobile/presentation/home/models/home_section.dart';
+import 'package:work_hours_mobile/presentation/home/widgets/calendar/quick_day_period_balance.dart';
+import 'package:work_hours_mobile/presentation/home/widgets/common/explainable_value.dart';
 
 class QuickDayHero extends StatelessWidget {
   const QuickDayHero({
@@ -30,6 +34,7 @@ class QuickDayHero extends StatelessWidget {
     required this.expectedMinutes,
     required this.unrecordedMinutes,
     required this.onRegisterUnrecordedHours,
+    required this.onOpenSettingsSection,
   });
 
   final int workedMinutes;
@@ -54,6 +59,7 @@ class QuickDayHero extends StatelessWidget {
   final int expectedMinutes;
   final int? unrecordedMinutes;
   final VoidCallback? onRegisterUnrecordedHours;
+  final void Function(HomeSection section) onOpenSettingsSection;
 
   @override
   Widget build(BuildContext context) {
@@ -96,6 +102,14 @@ class QuickDayHero extends StatelessWidget {
         ? formatHoursInput(workedMinutes)
         : '${formatHoursInput(workedMinutes)}/${formatHoursInput(expectedMinutes)}';
     final neutralValueColor = colorScheme.onSurfaceVariant;
+    Widget explain(ExplainableValue value, Widget child) {
+      return ExplainableValueBox(
+        value: value,
+        onOpenSettings: onOpenSettingsSection,
+        child: child,
+      );
+    }
+
     Widget metricBlock({
       required String label,
       required String value,
@@ -106,7 +120,7 @@ class QuickDayHero extends StatelessWidget {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label, style: labelStyle),
+          ExplainableLabel(label: label, style: labelStyle),
           const SizedBox(height: 4),
           Text(
             value,
@@ -121,145 +135,100 @@ class QuickDayHero extends StatelessWidget {
       );
     }
 
-    final workedBlock = Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text('Lavorate', style: labelStyle),
-        const SizedBox(height: 4),
-        Text(
-          workedValue,
-          key: const ValueKey('calendar-live-worked-value'),
-          style: theme.textTheme.headlineLarge?.copyWith(
-            fontSize: 30,
-            height: 1,
-            fontWeight: FontWeight.w900,
-            color: colorScheme.primary,
-          ),
-        ),
-        if (workedHelperText != null) ...[
-          const SizedBox(height: 2),
+    final workedBlock = explain(
+      ExplainableValue.worked,
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ExplainableLabel(label: 'Lavorate', style: labelStyle),
+          const SizedBox(height: 4),
           Text(
-            workedHelperText,
-            style: helperStyle?.copyWith(
-              color: hasRemainingToProgrammedExit
-                  ? colorScheme.secondary
-                  : helperStyle.color,
-              fontWeight: hasRemainingToProgrammedExit
-                  ? FontWeight.w700
-                  : helperStyle.fontWeight,
+            workedValue,
+            key: const ValueKey('calendar-live-worked-value'),
+            style: theme.textTheme.headlineLarge?.copyWith(
+              fontSize: 30,
+              height: 1,
+              fontWeight: FontWeight.w900,
+              color: colorScheme.primary,
             ),
           ),
-        ],
-        if (unrecorded != null && onRegisterUnrecordedHours != null) ...[
-          const SizedBox(height: 8),
-          OutlinedButton.icon(
-            key: const ValueKey('calendar-register-unrecorded-hours-button'),
-            onPressed: onRegisterUnrecordedHours,
-            icon: const Icon(Icons.playlist_add_check_rounded, size: 18),
-            label: Text('Registra ${formatHoursInput(unrecorded)}'),
-          ),
-        ],
-      ],
-    );
-    final balanceBlock = metricBlock(
-      label: dayBalanceLabel,
-      value: dayBalanceValue,
-      valueKey: const ValueKey('calendar-live-day-balance-value'),
-      valueColor: hasResultContext || isDayOff
-          ? dayBalanceColor
-          : neutralValueColor,
-    );
-    final overtimeBlock = metricBlock(
-      label: overtimeLabel,
-      value: overtimeValue,
-      valueKey: const ValueKey('calendar-live-overtime-value'),
-      valueColor: overtimeColor,
-      helperText: overtimeHelperText,
-    );
-    final monthBlock = Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text('Saldo mese', style: labelStyle),
-        const SizedBox(height: 3),
-        Text(
-          monthBalanceInfo.value,
-          key: const ValueKey('calendar-live-month-balance-value'),
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-          style: secondaryValueStyle?.copyWith(
-            fontSize: 16,
-            color: colorScheme.onSurface,
-          ),
-        ),
-      ],
-    );
-    final periodSuffix = switch (dayBalanceAggregation) {
-      DayBalanceAggregation.monthly => 'mensile',
-      DayBalanceAggregation.weekly => 'settimanale',
-    };
-    final periodBalanceLabel = switch (periodBalanceInfo.balanceMinutes) {
-      > 0 => 'Credito $periodSuffix',
-      < 0 => 'Debito $periodSuffix',
-      _ => 'In pari $periodSuffix',
-    };
-    final periodBalanceColor = switch (periodBalanceInfo.balanceMinutes) {
-      > 0 => const Color(0xFF0B6E69),
-      < 0 => const Color(0xFF9D3D2F),
-      _ => neutralValueColor,
-    };
-    final periodBalanceValue = periodBalanceInfo.balanceMinutes == 0
-        ? '0:00'
-        : formatHoursInput(periodBalanceInfo.balanceMinutes.abs());
-    final periodBalanceBlock = Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        PopupMenuButton<DayBalanceAggregation>(
-          key: const ValueKey('calendar-live-period-balance-menu'),
-          tooltip: 'Scegli periodo saldo',
-          onSelected: onDayBalanceAggregationChanged,
-          itemBuilder: (context) => const [
-            PopupMenuItem(
-              value: DayBalanceAggregation.monthly,
-              child: Text('Mensile'),
-            ),
-            PopupMenuItem(
-              value: DayBalanceAggregation.weekly,
-              child: Text('Settimanale'),
+          if (workedHelperText != null) ...[
+            const SizedBox(height: 2),
+            Text(
+              workedHelperText,
+              style: helperStyle?.copyWith(
+                color: hasRemainingToProgrammedExit
+                    ? colorScheme.secondary
+                    : helperStyle.color,
+                fontWeight: hasRemainingToProgrammedExit
+                    ? FontWeight.w700
+                    : helperStyle.fontWeight,
+              ),
             ),
           ],
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Flexible(
-                child: Text(
-                  periodBalanceLabel,
-                  key: const ValueKey('calendar-live-period-balance-label'),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: labelStyle,
-                ),
-              ),
-              const SizedBox(width: 4),
-              Icon(
-                Icons.keyboard_arrow_down_rounded,
-                size: 16,
-                color: colorScheme.onSurfaceVariant,
-              ),
-            ],
+          if (unrecorded != null && onRegisterUnrecordedHours != null) ...[
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              key: const ValueKey('calendar-register-unrecorded-hours-button'),
+              onPressed: onRegisterUnrecordedHours,
+              icon: const Icon(Icons.playlist_add_check_rounded, size: 18),
+              label: Text('Registra ${formatHoursInput(unrecorded)}'),
+            ),
+          ],
+        ],
+      ),
+    );
+    final balanceBlock = explain(
+      ExplainableValue.dayBalance,
+      metricBlock(
+        label: dayBalanceLabel,
+        value: dayBalanceValue,
+        valueKey: const ValueKey('calendar-live-day-balance-value'),
+        valueColor: hasResultContext || isDayOff
+            ? dayBalanceColor
+            : neutralValueColor,
+      ),
+    );
+    final overtimeBlock = explain(
+      ExplainableValue.overtime,
+      metricBlock(
+        label: overtimeLabel,
+        value: overtimeValue,
+        valueKey: const ValueKey('calendar-live-overtime-value'),
+        valueColor: overtimeColor,
+        helperText: overtimeHelperText,
+      ),
+    );
+    final monthBlock = explain(
+      ExplainableValue.monthBalance,
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ExplainableLabel(label: 'Saldo mese', style: labelStyle),
+          const SizedBox(height: 3),
+          Text(
+            monthBalanceInfo.value,
+            key: const ValueKey('calendar-live-month-balance-value'),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: secondaryValueStyle?.copyWith(
+              fontSize: 16,
+              color: colorScheme.onSurface,
+            ),
           ),
-        ),
-        const SizedBox(height: 3),
-        Text(
-          periodBalanceValue,
-          key: const ValueKey('calendar-live-expected-value'),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: secondaryValueStyle?.copyWith(
-            fontSize: 16,
-            color: periodBalanceColor,
-          ),
-        ),
-      ],
+        ],
+      ),
+    );
+    final periodBalanceBlock = explain(
+      ExplainableValue.periodBalance,
+      QuickDayPeriodBalance(
+        info: periodBalanceInfo,
+        aggregation: dayBalanceAggregation,
+        onAggregationChanged: onDayBalanceAggregationChanged,
+        labelStyle: labelStyle,
+        valueStyle: secondaryValueStyle,
+        neutralColor: neutralValueColor,
+      ),
     );
 
     return Container(
