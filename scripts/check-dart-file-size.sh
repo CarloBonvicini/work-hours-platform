@@ -5,9 +5,15 @@
 #
 # Il backend ha lo stesso limite via lint (backend/eslint.config.js). Dart non
 # offre un equivalente, quindi qui si guarda il diff: i file nuovi devono nascere
-# sotto soglia, quelli gia' oversize non devono crescere. I file che non tocchi
-# non vengono mai segnalati: il debito esistente si riduce quando ci si lavora,
-# non con una lista di eccezioni da mantenere a mano.
+# sotto soglia, e i file gia' oversize non devono crescere *nel complesso*. I
+# file che non tocchi non vengono mai segnalati: il debito esistente si riduce
+# quando ci si lavora, non con una lista di eccezioni da mantenere a mano.
+#
+# Il bilancio e' sul diff intero, non file per file: estrarre un modulo nuovo
+# costa sempre qualche riga di registrazione a chi lo richiama (una `part`, un
+# mixin, una firma condivisa), e contarle come peggioramento spingerebbe a fare
+# l'opposto di quel che serve, cioe' lasciare tutto nel monolite. Quello che
+# conta e' che il totale delle righe nei file oversize scenda.
 #
 # Uso: scripts/check-dart-file-size.sh [base-ref]   (default: origin/main)
 
@@ -58,6 +64,8 @@ if [ -z "$changed_files" ]; then
 fi
 
 failures=0
+oversize_delta=0
+oversize_report=""
 
 while IFS= read -r file; do
   [ -n "$file" ] || continue
@@ -94,26 +102,42 @@ while IFS= read -r file; do
 
   if [ "$is_new" -eq 0 ] && previous_content="$(git show "$BASE_SHA:$file" 2>/dev/null)"; then
     previous="$(printf '%s\n' "$previous_content" | count_code_lines)"
-    if [ "$current" -le "$previous" ]; then
-      echo "ok (non peggiorato)  $file: $previous -> $current righe"
-      continue
+    delta=$((current - previous))
+    oversize_delta=$((oversize_delta + delta))
+    if [ "$delta" -le 0 ]; then
+      oversize_report="${oversize_report}  $file: $previous -> $current righe ($delta)
+"
+    else
+      oversize_report="${oversize_report}  $file: $previous -> $current righe (+$delta)
+"
     fi
-    echo "KO  $file: era gia' oltre le $MAX_LINES righe ed e' cresciuto ($previous -> $current)." >&2
-  else
-    echo "KO  $file: file nuovo con $current righe, oltre il limite di $MAX_LINES." >&2
+    continue
   fi
 
+  echo "KO  $file: file nuovo con $current righe, oltre il limite di $MAX_LINES." >&2
   failures=$((failures + 1))
 done <<EOF
 $changed_files
 EOF
 
+if [ -n "$oversize_report" ]; then
+  echo "File gia' oltre le $MAX_LINES righe toccati dal diff:"
+  printf '%s' "$oversize_report"
+  if [ "$oversize_delta" -gt 0 ]; then
+    echo "KO  nel complesso sono cresciuti di $oversize_delta righe." >&2
+    failures=$((failures + 1))
+  else
+    echo "ok  bilancio complessivo: $oversize_delta righe."
+  fi
+fi
+
 if [ "$failures" -gt 0 ]; then
   cat >&2 <<'MSG'
 
 Vedi "Soglie di dimensione" in AGENTS.md: si splitta per responsabilita, non per
-far scendere un contatore. Se il file ha una responsabilita' sola e non si puo'
-ridurre, spiegalo nel task invece di aggirare il controllo.
+far scendere un contatore. Il bilancio e' sul diff intero: se un file oversize
+cresce, compensa estraendo davvero da un altro, non limando righe. Se non si
+puo' ridurre, spiegalo nel task invece di aggirare il controllo.
 MSG
   exit 1
 fi

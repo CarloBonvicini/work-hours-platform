@@ -4,7 +4,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:work_hours_mobile/application/services/hour_input_parser.dart';
 import 'package:work_hours_mobile/application/services/theme_preference_store.dart';
-import 'package:work_hours_mobile/application/services/time_input_parser.dart';
 import 'package:work_hours_mobile/application/services/workday_start_store.dart';
 import 'package:work_hours_mobile/domain/models/day_schedule.dart';
 import 'package:work_hours_mobile/presentation/home/models/activity_item.dart';
@@ -12,6 +11,7 @@ import 'package:work_hours_mobile/domain/models/user_work_rules.dart';
 import 'package:work_hours_mobile/presentation/home/logic/calendar_dates.dart';
 import 'package:work_hours_mobile/presentation/home/logic/day_balance.dart';
 import 'package:work_hours_mobile/presentation/home/logic/day_exit_view.dart';
+import 'package:work_hours_mobile/presentation/home/logic/day_worked_view.dart';
 import 'package:work_hours_mobile/presentation/home/logic/quick_day_insights.dart';
 import 'package:work_hours_mobile/presentation/home/logic/quick_day_summary_label.dart';
 import 'package:work_hours_mobile/presentation/home/logic/workday_session_info.dart';
@@ -85,6 +85,7 @@ class CalendarCard extends StatelessWidget {
     required this.onUndoOverrideChange,
     required this.onRedoOverrideChange,
     required this.onMarkDayAsOff,
+    required this.onRegisterUnrecordedHours,
     required this.onRestoreWorkingDay,
     required this.onConfirmSuggestedExitMinutes,
     required this.onOpenWorkSettings,
@@ -169,6 +170,7 @@ class CalendarCard extends StatelessWidget {
   final Future<void> Function() onUndoOverrideChange;
   final Future<void> Function() onRedoOverrideChange;
   final VoidCallback onMarkDayAsOff;
+  final Future<void> Function(int minutes) onRegisterUnrecordedHours;
   final Future<void> Function() onRestoreWorkingDay;
   final Future<void> Function(int exitMinutes) onConfirmSuggestedExitMinutes;
   final VoidCallback onOpenWorkSettings;
@@ -198,80 +200,34 @@ class CalendarCard extends StatelessWidget {
     );
     final now = DateTime.now();
     final nowMinutes = (now.hour * 60) + now.minute;
-    final hasRecordedWorkContext =
-        (isSelectedDateToday && workdaySession != null) ||
-        dayMetrics.workedMinutes > 0 ||
-        dayMetrics.leaveMinutes > 0;
-    final hasQuickTimeWindow =
-        (quickEditorDaySchedule.startTime?.trim().isNotEmpty ?? false) ||
-        (quickEditorDaySchedule.endTime?.trim().isNotEmpty ?? false);
-    final hasQuickWorkedOverride =
-        hasQuickTimeWindow &&
-        (quickEditorDaySchedule.startTime != baseDaySchedule.startTime ||
-            quickEditorDaySchedule.endTime != baseDaySchedule.endTime);
-    final hasManualQuickStartInput = overrideStartTimeController.text
-        .trim()
-        .isNotEmpty;
-    final hasManualQuickEndInput = overrideEndTimeController.text
-        .trim()
-        .isNotEmpty;
-    final isQuickEditorDayOff = isExplicitDayOffSchedule(
-      quickEditorDaySchedule,
+    final workedView = resolveDayWorkedView(
+      quickEditorSchedule: quickEditorDaySchedule,
+      baseSchedule: baseDaySchedule,
+      workRules: workRules,
+      dayMetrics: dayMetrics,
+      session: workdaySession,
+      pauseWindow: quickEditorPauseWindow,
+      rawStartTimeText: overrideStartTimeController.text,
+      rawEndTimeText: overrideEndTimeController.text,
+      isToday: isSelectedDateToday,
+      nowMinutes: nowMinutes,
     );
-    final resolvedEndMinutesForToday =
-        parseTimeInput(overrideEndTimeController.text.trim()) ??
-        parseTimeInput(effectiveQuickEditorEndTime);
-    final hasElapsedManualExit =
-        !isQuickEditorDayOff &&
-        isSelectedDateToday &&
-        hasQuickWorkedOverride &&
-        resolvedEndMinutesForToday != null &&
-        resolvedEndMinutesForToday <= nowMinutes;
-    final liveWorkedMinutes = isSelectedDateToday
-        ? resolveLiveWorkedMinutes(
-            quickEditorSchedule: quickEditorDaySchedule,
-            workRules: workRules,
-            session: workdaySession,
-            pauseWindow: quickEditorPauseWindow,
-            nowMinutes: nowMinutes,
-            rawStartTimeText: overrideStartTimeController.text,
-            rawEndTimeText: overrideEndTimeController.text,
-            treatEndAsActual: hasElapsedManualExit,
-          )
-        // Un altro giorno ha solo le ore registrate: gli orari del piano, o di
-        // un giorno futuro, non sono ore fatte.
-        : dayMetrics.workedMinutes;
-    final resolvedStartMinutesForSuggestion =
-        parseTimeInput(overrideStartTimeController.text.trim()) ??
-        parseTimeInput(effectiveQuickEditorStartTime);
-    final hasStartForSuggestion =
-        !isQuickEditorDayOff && resolvedStartMinutesForSuggestion != null;
-    final hasQuickResultContext =
-        hasRecordedWorkContext ||
-        hasElapsedManualExit ||
-        (isSelectedDateToday &&
-            (hasManualQuickStartInput || hasManualQuickEndInput));
-    final hasExitSuggestionContext =
-        hasQuickResultContext || hasStartForSuggestion;
-    final displayedWorkedMinutes = hasQuickResultContext
-        ? liveWorkedMinutes
-        : 0;
     final controlInsights = buildQuickDayControlInsights(
       selectedDate: selectedDate,
       workRules: workRules,
       days: days,
       weekMetrics: weekMetrics,
       liveExpectedMinutes: liveExpectedMinutes,
-      liveWorkedMinutes: displayedWorkedMinutes,
+      liveWorkedMinutes: workedView.workedMinutes,
       liveLeaveMinutes: dayMetrics.leaveMinutes,
-      hasLiveResultContext: hasQuickResultContext,
+      hasLiveResultContext: workedView.hasResultContext,
     );
     final liveDayBalanceMinutes = controlInsights.controlledBalanceMinutes;
     final monthBalanceInfo = buildDisplayedMonthBalanceInfo(
       selectedDate: selectedDate,
       days: days,
       liveExpectedMinutes: liveExpectedMinutes,
-      liveWorkedMinutes: displayedWorkedMinutes,
+      liveWorkedMinutes: workedView.workedMinutes,
       liveLeaveMinutes: dayMetrics.leaveMinutes,
     );
     final periodBalanceInfo = buildDisplayedPeriodBalanceInfo(
@@ -280,7 +236,7 @@ class CalendarCard extends StatelessWidget {
       weekMetrics: weekMetrics,
       aggregation: appearanceSettings.dayBalanceAggregation,
       liveExpectedMinutes: liveExpectedMinutes,
-      liveWorkedMinutes: displayedWorkedMinutes,
+      liveWorkedMinutes: workedView.workedMinutes,
       liveLeaveMinutes: dayMetrics.leaveMinutes,
     );
     if (isSelectedDateToday && controlInsights.exceededOvertimeMinutes > 0) {
@@ -299,10 +255,10 @@ class CalendarCard extends StatelessWidget {
       scheduledEndTimeText: effectiveQuickEditorEndTime,
       rawStartTimeText: overrideStartTimeController.text,
       rawEndTimeText: overrideEndTimeController.text,
-      isDayOff: isQuickEditorDayOff,
+      isDayOff: workedView.isDayOff,
       isToday: isSelectedDateToday,
-      hasResultContext: hasQuickResultContext,
-      hasSuggestionContext: hasExitSuggestionContext,
+      hasResultContext: workedView.hasResultContext,
+      hasSuggestionContext: workedView.hasExitSuggestionContext,
       session: workdaySession,
       nowMinutes: nowMinutes,
       pendingConfirmationMinutes: pendingExitConfirmationMinutes,
@@ -314,7 +270,7 @@ class CalendarCard extends StatelessWidget {
     final isUsingStandardWorkTarget =
         quickEditorDaySchedule.targetMinutes == baseDaySchedule.targetMinutes;
     final canRestoreWorkingDay =
-        isQuickEditorDayOff && !isUsingStandardSchedule;
+        workedView.isDayOff && !isUsingStandardSchedule;
     // Tornare all'orario standard deve essere possibile anche quando
     // l'eccezione del giorno non e' una giornata libera.
     final canRestoreStandardSchedule =
@@ -357,7 +313,7 @@ class CalendarCard extends StatelessWidget {
             plannedStartTimeText: plannedDaySchedule.startTime ?? '',
             plannedEndTimeText: plannedDaySchedule.endTime ?? '',
             suggestedExitLabel: exitView.suggestedLabel,
-            hasExitSuggestionContext: hasExitSuggestionContext,
+            hasExitSuggestionContext: workedView.hasExitSuggestionContext,
             breakMinutes: effectiveQuickEditorBreakMinutes,
             showEndTime: appearanceSettings.showDayEndTime,
             showBreakMinutes: appearanceSettings.showDayBreakMinutes,
@@ -376,10 +332,10 @@ class CalendarCard extends StatelessWidget {
             ),
             onMarkDayAsOff: onMarkDayAsOff,
             onRestoreWorkingDay: onRestoreWorkingDay,
-            isDayOff: isQuickEditorDayOff,
+            isDayOff: workedView.isDayOff,
             canRestoreWorkingDay: canRestoreWorkingDay,
             canRestoreStandardSchedule: canRestoreStandardSchedule,
-            workedMinutes: displayedWorkedMinutes,
+            workedMinutes: workedView.workedMinutes,
             todayBalanceMinutes: liveDayBalanceMinutes,
             overtimeMinutes: controlInsights.todayOvertimeMinutes,
             exceededOvertimeMinutes: controlInsights.exceededOvertimeMinutes,
@@ -397,14 +353,20 @@ class CalendarCard extends StatelessWidget {
             ),
             remainingToProgrammedExitLabel: exitView.remainingLabel,
             expectedMinutes: liveExpectedMinutes,
-            hasResultContext: hasQuickResultContext,
+            unrecordedMinutes: workedView.unrecordedMinutes,
+            onRegisterUnrecordedHours: workedView.unrecordedMinutes == null
+                ? null
+                : () => unawaited(
+                    onRegisterUnrecordedHours(workedView.unrecordedMinutes!),
+                  ),
+            hasResultContext: workedView.hasResultContext,
             hasTheoreticalExit: exitView.isForecast,
             hasPendingExitConfirmation: exitView.hasPendingConfirmation,
             isUsingStandardWorkTarget: isUsingStandardWorkTarget,
             collapsedSummary: buildQuickDaySummaryLabel(
-              isDayOff: isQuickEditorDayOff,
-              hasResultContext: hasQuickResultContext,
-              workedMinutes: displayedWorkedMinutes,
+              isDayOff: workedView.isDayOff,
+              hasResultContext: workedView.hasResultContext,
+              workedMinutes: workedView.workedMinutes,
               startTimeText: effectiveQuickEditorStartTime,
               endTimeText: effectiveQuickEditorEndTime,
               plannedStartTimeText: plannedDaySchedule.startTime ?? '',
@@ -420,7 +382,7 @@ class CalendarCard extends StatelessWidget {
             isEndTimeFinalized:
                 effectiveQuickEditorEndTime.trim().isNotEmpty &&
                 (!isSelectedDateToday ||
-                    hasElapsedManualExit ||
+                    workedView.hasElapsedManualExit ||
                     (workdaySession?.isCompleted ?? false)),
             onConfirmTheoreticalExit: exitView.confirmableMinutes == null
                 ? null
@@ -450,18 +412,18 @@ class CalendarCard extends StatelessWidget {
                   }
 
                   final rawLiveBalanceMinutes =
-                      (displayedWorkedMinutes + metric.leaveMinutes) -
+                      (workedView.workedMinutes + metric.leaveMinutes) -
                       liveExpectedMinutes;
                   return DayMetrics(
                     date: metric.date,
                     expectedMinutes: liveExpectedMinutes,
-                    workedMinutes: displayedWorkedMinutes,
+                    workedMinutes: workedView.workedMinutes,
                     leaveMinutes: metric.leaveMinutes,
                     rawBalanceMinutes: rawLiveBalanceMinutes,
                     balanceMinutes: rawLiveBalanceMinutes,
                     hasOverride:
                         metric.hasOverride ||
-                        hasQuickWorkedOverride ||
+                        workedView.hasWorkedOverride ||
                         exitView.hasPendingConfirmation,
                     schedule: quickEditorDaySchedule,
                     overrideNote: metric.overrideNote,

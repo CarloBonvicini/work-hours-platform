@@ -74,6 +74,7 @@ part 'home_state/notifications_state.dart';
 part 'home_state/support_tickets_state.dart';
 part 'home_state/cloud_account_state.dart';
 part 'home_state/app_updates_state.dart';
+part 'home_state/day_hours_registration_state.dart';
 part 'home_state/workday_session_state.dart';
 part 'home_state/schedule_override_history_state.dart';
 part 'home_state/agenda_interaction_state.dart';
@@ -730,6 +731,8 @@ abstract class _HomeScreenStateBase extends State<HomeScreen>
 
   Future<void> _confirmSuggestedExitMinutes(int exitMinutes);
 
+  Future<void> _registerUnrecordedHours(int minutes);
+
   int _currentMinutesOfDay();
 
   Future<void> _finishWorkdayNow();
@@ -758,6 +761,7 @@ class _HomeScreenState extends _HomeScreenStateBase
         _SupportTicketsState,
         _CloudAccountState,
         _AppUpdatesState,
+        _DayHoursRegistrationState,
         _WorkdaySessionState,
         _ScheduleOverrideHistoryState,
         _AgendaInteractionState,

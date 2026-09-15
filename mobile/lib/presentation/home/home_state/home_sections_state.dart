@@ -130,6 +130,7 @@ mixin _HomeSectionsState on _HomeScreenStateBase {
       onUndoOverrideChange: _undoScheduleOverrideDraftChange,
       onRedoOverrideChange: _redoScheduleOverrideDraftChange,
       onMarkDayAsOff: _markSelectedDayAsDayOff,
+      onRegisterUnrecordedHours: _registerUnrecordedHours,
       onRestoreWorkingDay: _removeScheduleOverride,
       onConfirmSuggestedExitMinutes: _confirmSuggestedExitMinutes,
       onOpenWorkSettings: _openWorkSettingsSectionFromSummary,

@@ -7,6 +7,7 @@ import 'package:work_hours_mobile/domain/models/day_schedule.dart';
 import 'package:work_hours_mobile/domain/models/user_work_rules.dart';
 import 'package:work_hours_mobile/presentation/home/logic/agenda_segments.dart';
 import 'package:work_hours_mobile/presentation/home/logic/expected_exit.dart';
+import 'package:work_hours_mobile/presentation/home/logic/worked_minutes.dart';
 import 'package:work_hours_mobile/presentation/home/models/calendar_day.dart';
 
 bool matchesDaySchedule(DaySchedule left, DaySchedule right) {
@@ -48,11 +49,11 @@ int? resolveComputedWorkedMinutes({
     return null;
   }
 
-  final effectiveBreakMinutes = math.max(
-    schedule.breakMinutes,
-    minimumBreakMinutes,
+  return resolveWorkedMinutes(
+    presenceMinutes: endMinutes - startMinutes,
+    recordedBreakMinutes: schedule.breakMinutes,
+    minimumBreakMinutes: minimumBreakMinutes,
   );
-  return math.max(0, endMinutes - startMinutes - effectiveBreakMinutes);
 }
 
 int resolveDisplayedWorkedMinutes({
@@ -80,9 +81,20 @@ int resolveLiveWorkedMinutes({
     // Solo i segmenti della sessione: entrata timbrata e pause registrate.
     // Passare per l'agenda faceva vincere la finestra del piano, e l'uscita
     // prevista finiva contata come ora gia' lavorata.
-    return resolveSessionWorkedMinutes(
+    final segments = buildSessionMeasurementSegments(
       session: session,
       nowMinutes: nowMinutes,
+    );
+    final punchedBreakMinutes = sumSegmentMinutes(
+      segments,
+      AgendaMeasurementSegmentKind.pause,
+    );
+    return resolveWorkedMinutes(
+      presenceMinutes:
+          sumSegmentMinutes(segments, AgendaMeasurementSegmentKind.work) +
+          punchedBreakMinutes,
+      recordedBreakMinutes: punchedBreakMinutes,
+      minimumBreakMinutes: workRules.minimumBreakMinutes,
     );
   }
 
@@ -104,20 +116,20 @@ int resolveLiveWorkedMinutes({
       resolvedEndMinutes != null &&
       resolvedEndMinutes > resolvedStartMinutes &&
       resolvedEndMinutes <= nowMinutes) {
-    final breakMinutes = quickEditorSchedule.breakMinutes.clamp(
-      0,
-      resolvedEndMinutes - resolvedStartMinutes,
-    );
-    return math.max(
-      0,
-      resolvedEndMinutes - resolvedStartMinutes - breakMinutes,
+    return resolveWorkedMinutes(
+      presenceMinutes: resolvedEndMinutes - resolvedStartMinutes,
+      recordedBreakMinutes: quickEditorSchedule.breakMinutes,
+      minimumBreakMinutes: workRules.minimumBreakMinutes,
     );
   }
 
   // For today we keep the worked counter aligned with the current clock time.
   // The planned/scheduled end time does not freeze the live counter.
-  final runningMinutes = math.max(0, nowMinutes - resolvedStartMinutes);
-  return math.max(0, runningMinutes - quickEditorSchedule.breakMinutes);
+  return resolveWorkedMinutes(
+    presenceMinutes: math.max(0, nowMinutes - resolvedStartMinutes),
+    recordedBreakMinutes: quickEditorSchedule.breakMinutes,
+    minimumBreakMinutes: workRules.minimumBreakMinutes,
+  );
 }
 
 int? resolveSuggestedExitTotalMinutes({

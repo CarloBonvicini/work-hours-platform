@@ -8,6 +8,7 @@ import 'package:work_hours_mobile/domain/models/day_schedule.dart';
 import 'package:work_hours_mobile/domain/models/user_work_rules.dart';
 import 'package:work_hours_mobile/presentation/home/logic/agenda_segments.dart';
 import 'package:work_hours_mobile/presentation/home/logic/expected_exit.dart';
+import 'package:work_hours_mobile/presentation/home/logic/worked_minutes.dart';
 import 'package:work_hours_mobile/presentation/home/models/calendar_day.dart';
 
 enum WorkdaySessionStatus { notStarted, active, onBreak, completed }
@@ -111,6 +112,40 @@ int? _resolveSessionEndMinutes({
     ),
     actualBreakMinutes: currentBreakMinutes,
     minimumBreakMinutes: workRules?.minimumBreakMinutes ?? 0,
+  );
+}
+
+/// Cosa l'uscita scrive nel giorno: ore da registrare e pausa scalata.
+class SessionRegistration {
+  const SessionRegistration({
+    required this.workedMinutes,
+    required this.breakMinutes,
+  });
+
+  final int workedMinutes;
+  final int breakMinutes;
+}
+
+/// Ore e pausa che l'uscita registra per una timbratura chiusa.
+///
+/// Stessa regola del contatore dal vivo e del ricalcolo a giorno riaperto: la
+/// pausa che conta e' quella timbrata, mai meno del minimo delle regole. I tre
+/// numeri devono coincidere, altrimenti si vede il contatore salire e poi si
+/// trovano registrate ore diverse.
+SessionRegistration resolveSessionRegistration({
+  required WorkdaySession session,
+  required int minimumBreakMinutes,
+}) {
+  final breakMinutes = resolveCountedBreakMinutes(
+    recordedBreakMinutes: session.accumulatedBreakMinutes,
+    minimumBreakMinutes: minimumBreakMinutes,
+  );
+  final endMinutes = session.endMinutes;
+  return SessionRegistration(
+    workedMinutes: endMinutes == null
+        ? 0
+        : endMinutes - session.startMinutes - breakMinutes,
+    breakMinutes: breakMinutes,
   );
 }
 
