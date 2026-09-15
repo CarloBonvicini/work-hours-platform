@@ -45,6 +45,7 @@ import 'package:work_hours_mobile/presentation/home/logic/planned_day_schedule.d
 import 'package:work_hours_mobile/presentation/home/logic/rule_value_labels.dart';
 import 'package:work_hours_mobile/presentation/home/logic/schedule_draft.dart';
 import 'package:work_hours_mobile/presentation/home/logic/section_history.dart';
+import 'package:work_hours_mobile/presentation/theme/work_hours_colors.dart';
 import 'package:work_hours_mobile/presentation/home/widgets/common/back_navigation_scope.dart';
 import 'package:work_hours_mobile/presentation/home/logic/ticket_labels.dart';
 import 'package:work_hours_mobile/presentation/home/logic/workday_session_info.dart';

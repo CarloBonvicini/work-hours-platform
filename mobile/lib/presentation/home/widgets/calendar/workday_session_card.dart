@@ -324,7 +324,7 @@ class WorkdaySessionCard extends StatelessWidget {
     WorkdaySessionStatus.active => (
       label: 'Dentro',
       icon: Icons.badge_outlined,
-      color: const Color(0xFF0B6E69),
+      color: Theme.of(context).colorScheme.primary,
     ),
     WorkdaySessionStatus.onBreak => (
       label: 'In pausa',
@@ -334,7 +334,7 @@ class WorkdaySessionCard extends StatelessWidget {
     WorkdaySessionStatus.completed => (
       label: 'Chiusa',
       icon: Icons.check_circle_outline,
-      color: const Color(0xFF0B6E69),
+      color: Theme.of(context).colorScheme.primary,
     ),
   };
 }

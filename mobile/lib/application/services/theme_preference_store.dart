@@ -60,8 +60,8 @@ class AppAppearanceSettings {
 
   static const defaults = AppAppearanceSettings(
     themeMode: ThemeMode.light,
-    primaryColor: Color(0xFF0B6E69),
-    secondaryColor: Color(0xFFBF7A24),
+    primaryColor: Color(0xFF1C5CAB),
+    secondaryColor: Color(0xFF5F6B7A),
     fontFamily: AppFontFamily.system,
     textScale: 1,
     dayCalendarLayoutMode: DayCalendarLayoutMode.quickEditorFirst,

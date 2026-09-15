@@ -1,6 +1,7 @@
 // Griglia e riquadri dei valori del consuntivo.
 
 import 'package:flutter/material.dart';
+import 'package:work_hours_mobile/presentation/theme/work_hours_colors.dart';
 import 'package:work_hours_mobile/presentation/home/models/consuntivo_summary.dart';
 
 class ConsuntivoMetricGrid extends StatelessWidget {
@@ -87,7 +88,7 @@ class ConsuntivoMetricTile extends StatelessWidget {
             value,
             style: theme.textTheme.titleMedium?.copyWith(
               fontWeight: FontWeight.w800,
-              color: positive ? const Color(0xFF0B6E69) : null,
+              color: positive ? WorkHoursColors.of(context).credit : null,
             ),
           ),
         ],

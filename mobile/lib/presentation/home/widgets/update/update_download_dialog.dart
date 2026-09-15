@@ -2,6 +2,7 @@
 
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:work_hours_mobile/presentation/theme/work_hours_colors.dart';
 import 'package:work_hours_mobile/application/services/app_update_service.dart';
 import 'package:work_hours_mobile/application/services/update_launcher.dart';
 import 'package:work_hours_mobile/domain/models/app_update.dart';
@@ -207,7 +208,7 @@ class UpdateDownloadDialogState extends State<UpdateDownloadDialog> {
               Text(
                 _message!,
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: const Color(0xFF9D3D2F),
+                  color: WorkHoursColors.of(context).debit,
                 ),
               ),
             ],

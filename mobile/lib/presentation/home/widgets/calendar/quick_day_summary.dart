@@ -3,6 +3,7 @@
 import 'dart:async';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:work_hours_mobile/presentation/theme/work_hours_colors.dart';
 import 'package:work_hours_mobile/presentation/home/models/home_section.dart';
 import 'package:work_hours_mobile/application/services/hour_input_parser.dart';
 import 'package:work_hours_mobile/application/services/theme_preference_store.dart';
@@ -216,7 +217,7 @@ class QuickDayComputedSummary extends StatelessWidget {
       (false, false) => colorScheme.onSurfaceVariant,
       _ =>
         exceededOvertimeMinutes > 0
-            ? const Color(0xFF9D3D2F)
+            ? WorkHoursColors.of(context).debit
             : overtimeMinutes > 0
             ? colorScheme.secondary
             : colorScheme.onSurfaceVariant,

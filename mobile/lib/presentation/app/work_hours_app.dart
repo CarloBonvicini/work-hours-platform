@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:work_hours_mobile/presentation/theme/work_hours_colors.dart';
 import 'package:work_hours_mobile/application/services/account_service.dart';
 import 'package:work_hours_mobile/application/services/app_update_service.dart';
 import 'package:work_hours_mobile/application/services/dashboard_service.dart';
@@ -53,8 +54,8 @@ class WorkHoursApp extends StatefulWidget {
 }
 
 class _WorkHoursAppState extends State<WorkHoursApp> {
-  static const _lightCanvasColor = Color(0xFFF5F1E8);
-  static const _darkCanvasColor = Color(0xFF0D1414);
+  static const _lightCanvasColor = Color(0xFFFCFCFB);
+  static const _darkCanvasColor = Color(0xFF14181C);
 
   late AppAppearanceSettings _appearanceSettings;
 
@@ -139,19 +140,19 @@ class _WorkHoursAppState extends State<WorkHoursApp> {
       isDark ? 0.16 : 0.08,
     )!;
     final defaultInkColor = isDark
-        ? const Color(0xFFE8F0EF)
-        : const Color(0xFF1A2A2A);
+        ? const Color(0xFFE7EAEE)
+        : const Color(0xFF1A1D21);
     final inkColor = _appearanceSettings.textColor ?? defaultInkColor;
     final fieldColor = Color.lerp(
-      isDark ? const Color(0xFF162121) : Colors.white,
+      isDark ? const Color(0xFF1B2026) : Colors.white,
       primaryColor,
       isDark ? 0.1 : 0.04,
     )!;
     final borderColor = isDark
-        ? const Color(0xFF324343)
-        : const Color(0xFFD8CEC0);
+        ? const Color(0xFF333A42)
+        : const Color(0xFFD7DBE0);
     final selectedChipColor = Color.lerp(
-      isDark ? const Color(0xFF164E4B) : const Color(0xFFDCEFE8),
+      isDark ? const Color(0xFF1E3350) : const Color(0xFFDDE7F4),
       primaryColor,
       0.28,
     )!;
@@ -178,6 +179,9 @@ class _WorkHoursAppState extends State<WorkHoursApp> {
       brightness: brightness,
       fontFamily: resolvedFontFamily,
       colorScheme: colorScheme,
+      extensions: <ThemeExtension<dynamic>>[
+        isDark ? WorkHoursColors.dark : WorkHoursColors.light,
+      ],
       scaffoldBackgroundColor: canvasColor,
       textTheme: baseTextTheme,
       inputDecorationTheme: InputDecorationTheme(

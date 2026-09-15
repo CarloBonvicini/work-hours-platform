@@ -1,6 +1,7 @@
 // Credito o debito del periodo, con la scelta fra mese e settimana.
 
 import 'package:flutter/material.dart';
+import 'package:work_hours_mobile/presentation/theme/work_hours_colors.dart';
 import 'package:work_hours_mobile/application/services/hour_input_parser.dart';
 import 'package:work_hours_mobile/application/services/theme_preference_store.dart';
 import 'package:work_hours_mobile/presentation/home/logic/quick_day_insights.dart';
@@ -27,6 +28,7 @@ class QuickDayPeriodBalance extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final palette = WorkHoursColors.of(context);
     final periodSuffix = switch (aggregation) {
       DayBalanceAggregation.monthly => 'mensile',
       DayBalanceAggregation.weekly => 'settimanale',
@@ -37,8 +39,8 @@ class QuickDayPeriodBalance extends StatelessWidget {
       _ => 'In pari $periodSuffix',
     };
     final color = switch (info.balanceMinutes) {
-      > 0 => const Color(0xFF0B6E69),
-      < 0 => const Color(0xFF9D3D2F),
+      > 0 => palette.credit,
+      < 0 => palette.debit,
       _ => neutralColor,
     };
     final value = info.balanceMinutes == 0

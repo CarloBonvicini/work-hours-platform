@@ -1,6 +1,7 @@
 // Riquadro riassuntivo (hero) della giornata nell'editor rapido.
 
 import 'package:flutter/material.dart';
+import 'package:work_hours_mobile/presentation/theme/work_hours_colors.dart';
 import 'package:work_hours_mobile/application/services/hour_input_parser.dart';
 import 'package:work_hours_mobile/application/services/theme_preference_store.dart';
 import 'package:work_hours_mobile/presentation/home/logic/quick_day_insights.dart';
@@ -8,6 +9,7 @@ import 'package:work_hours_mobile/presentation/home/logic/value_explanations.dar
 import 'package:work_hours_mobile/presentation/home/models/home_section.dart';
 import 'package:work_hours_mobile/presentation/home/widgets/calendar/quick_day_period_balance.dart';
 import 'package:work_hours_mobile/presentation/home/widgets/common/explainable_value.dart';
+import 'package:work_hours_mobile/presentation/home/widgets/common/recorded_forecast_legend.dart';
 
 class QuickDayHero extends StatelessWidget {
   const QuickDayHero({
@@ -70,11 +72,12 @@ class QuickDayHero extends StatelessWidget {
       fontWeight: FontWeight.w700,
       letterSpacing: 0.2,
     );
-    final secondaryValueStyle = theme.textTheme.titleLarge?.copyWith(
-      fontSize: 18,
+    // Valori di contorno: leggibili, ma chiaramente non il protagonista.
+    final secondaryValueStyle = theme.textTheme.titleMedium?.copyWith(
+      fontSize: 16,
       height: 1.05,
-      color: colorScheme.onSurface,
-      fontWeight: FontWeight.w800,
+      color: colorScheme.onSurfaceVariant,
+      fontWeight: FontWeight.w700,
     );
     final helperStyle = theme.textTheme.bodySmall?.copyWith(
       color: colorScheme.onSurfaceVariant,
@@ -145,11 +148,15 @@ class QuickDayHero extends StatelessWidget {
           Text(
             workedValue,
             key: const ValueKey('calendar-live-worked-value'),
+            // L'unico numero grande della schermata. Prima erano cinque con lo
+            // stesso peso e nessuno diceva quale guardare per sapere se puoi
+            // andare a casa.
             style: theme.textTheme.headlineLarge?.copyWith(
-              fontSize: 30,
+              fontSize: 40,
               height: 1,
-              fontWeight: FontWeight.w900,
-              color: colorScheme.primary,
+              fontWeight: FontWeight.w800,
+              letterSpacing: -0.5,
+              color: colorScheme.onSurface,
             ),
           ),
           if (workedHelperText != null) ...[
@@ -314,14 +321,14 @@ class QuickDayHero extends StatelessWidget {
                 Icon(
                   Icons.warning_amber_rounded,
                   size: 16,
-                  color: const Color(0xFF9D3D2F),
+                  color: WorkHoursColors.of(context).debit,
                 ),
                 const SizedBox(width: 6),
                 Expanded(
                   child: Text(
                     limitWarningText!,
                     style: helperStyle?.copyWith(
-                      color: const Color(0xFF9D3D2F),
+                      color: WorkHoursColors.of(context).debit,
                       fontWeight: FontWeight.w700,
                     ),
                   ),
@@ -329,6 +336,8 @@ class QuickDayHero extends StatelessWidget {
               ],
             ),
           ],
+          const SizedBox(height: 10),
+          const RecordedForecastLegend(),
           const SizedBox(height: 10),
           Divider(
             height: 1,

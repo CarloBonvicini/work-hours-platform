@@ -2,10 +2,13 @@
 
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:work_hours_mobile/presentation/theme/work_hours_colors.dart';
+import 'package:work_hours_mobile/application/services/hour_input_parser.dart';
 import 'package:work_hours_mobile/presentation/home/widgets/calendar/quick_day_summary.dart';
 
-/// Arancio dell'uscita prevista che aspetta una conferma.
-const Color quickDayPendingExitColor = Color(0xFFBF7A24);
+/// Tinta dell'uscita prevista che aspetta una conferma.
+Color quickDayPendingExitColor(BuildContext context) =>
+    WorkHoursColors.of(context).forecast;
 
 class QuickDayScheduleFields extends StatelessWidget {
   const QuickDayScheduleFields({
@@ -94,7 +97,7 @@ class QuickDayScheduleFields extends StatelessWidget {
     );
   }
 
-  Widget _endField(Color plannedColor) {
+  Widget _endField(BuildContext context, Color plannedColor) {
     final isConfirmable = hasPendingExitConfirmation || hasTheoreticalExit;
     return QuickScheduleValue(
       label: _isForecastExit ? 'Uscita prevista' : 'Uscita',
@@ -116,10 +119,10 @@ class QuickDayScheduleFields extends StatelessWidget {
       // Ogni previsione si vede che e' tale: arancio se aspetta una conferma,
       // altrimenti attenuata come gli altri valori previsti.
       labelColorOverride: isConfirmable
-          ? quickDayPendingExitColor
+          ? quickDayPendingExitColor(context)
           : (_isForecastExit ? plannedColor : null),
       valueColorOverride: isConfirmable
-          ? quickDayPendingExitColor
+          ? quickDayPendingExitColor(context)
           : (_isForecastExit ? plannedColor : null),
       secondaryActionLabel: isConfirmable ? 'Conferma' : null,
       secondaryActionKey: const ValueKey(
@@ -137,7 +140,7 @@ class QuickDayScheduleFields extends StatelessWidget {
     final plannedColor = Theme.of(context).colorScheme.onSurfaceVariant;
     final values = <Widget>[
       _startField(plannedColor),
-      if (showEndTime) _endField(plannedColor),
+      if (showEndTime) _endField(context, plannedColor),
       QuickScheduleValue(
         label: isUsingStandardWorkTarget
             ? 'Ore di lavoro standard'
@@ -151,7 +154,9 @@ class QuickDayScheduleFields extends StatelessWidget {
       if (showBreakMinutes)
         QuickScheduleValue(
           label: 'Pausa',
-          value: breakMinutes == 0 ? '0 min' : '$breakMinutes min',
+          value: breakMinutes == 0
+              ? 'Nessuna'
+              : formatHoursInput(breakMinutes),
           valueKey: const ValueKey('calendar-override-break-value'),
           onTap: onPickBreakMinutes,
         ),
