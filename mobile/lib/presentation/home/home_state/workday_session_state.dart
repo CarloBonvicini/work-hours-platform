@@ -347,7 +347,7 @@ mixin _WorkdaySessionState on _HomeScreenStateBase {
     final schedule = _resolveEffectiveDayScheduleForDate(snapshot, _todayDate);
     final registration = resolveSessionRegistration(
       session: session,
-      schedule: schedule,
+      minimumBreakMinutes: snapshot.profile.workRules.minimumBreakMinutes,
     );
     final workedMinutes = registration.workedMinutes;
     if (workedMinutes <= 0) {

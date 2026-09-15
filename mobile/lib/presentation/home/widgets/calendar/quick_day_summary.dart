@@ -149,6 +149,7 @@ class QuickDayComputedSummary extends StatelessWidget {
     required this.remainingToProgrammedExitLabel,
     required this.expectedMinutes,
     required this.unrecordedMinutes,
+    required this.onRegisterUnrecordedHours,
     required this.onOpenWorkSettings,
     required this.isDayOff,
     required this.hasResultContext,
@@ -168,6 +169,7 @@ class QuickDayComputedSummary extends StatelessWidget {
   final String? remainingToProgrammedExitLabel;
   final int expectedMinutes;
   final int? unrecordedMinutes;
+  final VoidCallback? onRegisterUnrecordedHours;
   final VoidCallback onOpenWorkSettings;
   final bool isDayOff;
   final bool hasResultContext;
@@ -242,6 +244,7 @@ class QuickDayComputedSummary extends StatelessWidget {
       remainingToProgrammedExitLabel: remainingToProgrammedExitLabel,
       expectedMinutes: expectedMinutes,
       unrecordedMinutes: unrecordedMinutes,
+      onRegisterUnrecordedHours: onRegisterUnrecordedHours,
     );
   }
 }

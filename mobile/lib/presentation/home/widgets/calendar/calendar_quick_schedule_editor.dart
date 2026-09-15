@@ -52,6 +52,7 @@ class CalendarQuickScheduleEditor extends StatelessWidget {
     required this.remainingToProgrammedExitLabel,
     required this.expectedMinutes,
     required this.unrecordedMinutes,
+    required this.onRegisterUnrecordedHours,
     required this.hasResultContext,
     required this.hasTheoreticalExit,
     required this.hasPendingExitConfirmation,
@@ -111,6 +112,7 @@ class CalendarQuickScheduleEditor extends StatelessWidget {
   final String? remainingToProgrammedExitLabel;
   final int expectedMinutes;
   final int? unrecordedMinutes;
+  final VoidCallback? onRegisterUnrecordedHours;
   final bool hasResultContext;
   final bool hasTheoreticalExit;
   final bool hasPendingExitConfirmation;
@@ -327,6 +329,7 @@ class CalendarQuickScheduleEditor extends StatelessWidget {
                           remainingToProgrammedExitLabel,
                       expectedMinutes: expectedMinutes,
                       unrecordedMinutes: unrecordedMinutes,
+                      onRegisterUnrecordedHours: onRegisterUnrecordedHours,
                       onOpenWorkSettings: onOpenWorkSettings,
                       isDayOff: isDayOff,
                       hasResultContext: hasResultContext,

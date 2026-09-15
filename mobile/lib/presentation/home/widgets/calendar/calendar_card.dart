@@ -85,6 +85,7 @@ class CalendarCard extends StatelessWidget {
     required this.onUndoOverrideChange,
     required this.onRedoOverrideChange,
     required this.onMarkDayAsOff,
+    required this.onRegisterUnrecordedHours,
     required this.onRestoreWorkingDay,
     required this.onConfirmSuggestedExitMinutes,
     required this.onOpenWorkSettings,
@@ -169,6 +170,7 @@ class CalendarCard extends StatelessWidget {
   final Future<void> Function() onUndoOverrideChange;
   final Future<void> Function() onRedoOverrideChange;
   final VoidCallback onMarkDayAsOff;
+  final Future<void> Function(int minutes) onRegisterUnrecordedHours;
   final Future<void> Function() onRestoreWorkingDay;
   final Future<void> Function(int exitMinutes) onConfirmSuggestedExitMinutes;
   final VoidCallback onOpenWorkSettings;
@@ -352,6 +354,11 @@ class CalendarCard extends StatelessWidget {
             remainingToProgrammedExitLabel: exitView.remainingLabel,
             expectedMinutes: liveExpectedMinutes,
             unrecordedMinutes: workedView.unrecordedMinutes,
+            onRegisterUnrecordedHours: workedView.unrecordedMinutes == null
+                ? null
+                : () => unawaited(
+                    onRegisterUnrecordedHours(workedView.unrecordedMinutes!),
+                  ),
             hasResultContext: workedView.hasResultContext,
             hasTheoreticalExit: exitView.isForecast,
             hasPendingExitConfirmation: exitView.hasPendingConfirmation,

@@ -29,6 +29,7 @@ class QuickDayHero extends StatelessWidget {
     required this.remainingToProgrammedExitLabel,
     required this.expectedMinutes,
     required this.unrecordedMinutes,
+    required this.onRegisterUnrecordedHours,
   });
 
   final int workedMinutes;
@@ -52,6 +53,7 @@ class QuickDayHero extends StatelessWidget {
   final String? remainingToProgrammedExitLabel;
   final int expectedMinutes;
   final int? unrecordedMinutes;
+  final VoidCallback? onRegisterUnrecordedHours;
 
   @override
   Widget build(BuildContext context) {
@@ -146,6 +148,15 @@ class QuickDayHero extends StatelessWidget {
                   ? FontWeight.w700
                   : helperStyle.fontWeight,
             ),
+          ),
+        ],
+        if (unrecorded != null && onRegisterUnrecordedHours != null) ...[
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            key: const ValueKey('calendar-register-unrecorded-hours-button'),
+            onPressed: onRegisterUnrecordedHours,
+            icon: const Icon(Icons.playlist_add_check_rounded, size: 18),
+            label: Text('Registra ${formatHoursInput(unrecorded)}'),
           ),
         ],
       ],

@@ -18,8 +18,11 @@ Mantieni Work Hours Platform modulare, leggibile e facile da evolvere, evitando 
 - Riferimento: 400 righe per file, 40 per funzione (righe vuote e commenti esclusi).
 - Backend: sono bloccanti, le applica il lint (`backend/eslint.config.js`).
 - Mobile: le applica `scripts/check-dart-file-size.sh` sui soli file toccati dal diff
-  (in CI su ogni pull request). I file nuovi devono nascere sotto soglia, quelli gia
-  oversize non devono crescere. Lanciabile in locale: `./scripts/check-dart-file-size.sh`.
+  (in CI su ogni pull request). I file nuovi devono nascere sotto soglia; i file gia
+  oversize non devono crescere *nel complesso*, cioe' il bilancio si fa sul diff
+  intero e non file per file. Estrarre un modulo costa sempre qualche riga di
+  registrazione a chi lo richiama: contarla come peggioramento spingerebbe a
+  lasciare tutto nel monolite. Lanciabile in locale: `./scripts/check-dart-file-size.sh`.
 - Non spendere un task a spezzare un file solo perche ha passato la soglia: se la
   responsabilita e una sola, lascialo e dillo nel task.
 
