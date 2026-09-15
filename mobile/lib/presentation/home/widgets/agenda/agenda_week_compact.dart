@@ -3,6 +3,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:work_hours_mobile/presentation/theme/work_hours_colors.dart';
 import 'package:work_hours_mobile/application/services/dashboard_service.dart';
 import 'package:work_hours_mobile/application/services/hour_input_parser.dart';
 import 'package:work_hours_mobile/application/services/time_input_parser.dart';
@@ -137,8 +138,8 @@ class CompactWeekTimelineRow extends StatelessWidget {
         !hasRegisteredWorkOrLeave &&
         schedule.targetMinutes > 0;
     final workedLabelColor = workedDeltaMinutes >= 0
-        ? const Color(0xFF0B6E69)
-        : const Color(0xFF9D3D2F);
+        ? WorkHoursColors.of(context).credit
+        : WorkHoursColors.of(context).debit;
     final footerColor = isCurrentWithoutRegistrations
         ? colorScheme.onSurfaceVariant
         : workedLabelColor;

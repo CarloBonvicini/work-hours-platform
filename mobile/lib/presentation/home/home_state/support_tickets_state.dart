@@ -350,6 +350,7 @@ mixin _SupportTicketsState on _HomeScreenStateBase {
     await widget.supportTicketStore.upsertTrackedTicket(nextTrackedTicket);
   }
 
+  @override
   Future<void> _markTrackedTicketRepliesSeen(String ticketId) async {
     final thread = _ticketThreadsById[ticketId];
     if (thread == null) {
@@ -632,7 +633,7 @@ mixin _SupportTicketsState on _HomeScreenStateBase {
         ];
         _ticketThreadsById = nextThreadsById;
         _selectedTrackedTicketId = createdThread.id;
-        _selectedSection = HomeSection.ticket;
+        _goToSection(HomeSection.ticket);
         _unreadTicketReplyCount = _countUnreadAdminReplies([
           TrackedSupportTicket(
             id: createdThread.id,

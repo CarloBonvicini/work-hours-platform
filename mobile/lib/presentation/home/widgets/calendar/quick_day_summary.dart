@@ -3,6 +3,8 @@
 import 'dart:async';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:work_hours_mobile/presentation/theme/work_hours_colors.dart';
+import 'package:work_hours_mobile/presentation/home/models/home_section.dart';
 import 'package:work_hours_mobile/application/services/hour_input_parser.dart';
 import 'package:work_hours_mobile/application/services/theme_preference_store.dart';
 import 'package:work_hours_mobile/presentation/home/logic/hours_labels.dart';
@@ -150,6 +152,7 @@ class QuickDayComputedSummary extends StatelessWidget {
     required this.expectedMinutes,
     required this.unrecordedMinutes,
     required this.onRegisterUnrecordedHours,
+    required this.onOpenSettingsSection,
     required this.onOpenWorkSettings,
     required this.isDayOff,
     required this.hasResultContext,
@@ -170,6 +173,7 @@ class QuickDayComputedSummary extends StatelessWidget {
   final int expectedMinutes;
   final int? unrecordedMinutes;
   final VoidCallback? onRegisterUnrecordedHours;
+  final void Function(HomeSection section) onOpenSettingsSection;
   final VoidCallback onOpenWorkSettings;
   final bool isDayOff;
   final bool hasResultContext;
@@ -213,7 +217,7 @@ class QuickDayComputedSummary extends StatelessWidget {
       (false, false) => colorScheme.onSurfaceVariant,
       _ =>
         exceededOvertimeMinutes > 0
-            ? const Color(0xFF9D3D2F)
+            ? WorkHoursColors.of(context).debit
             : overtimeMinutes > 0
             ? colorScheme.secondary
             : colorScheme.onSurfaceVariant,
@@ -245,6 +249,7 @@ class QuickDayComputedSummary extends StatelessWidget {
       expectedMinutes: expectedMinutes,
       unrecordedMinutes: unrecordedMinutes,
       onRegisterUnrecordedHours: onRegisterUnrecordedHours,
+      onOpenSettingsSection: onOpenSettingsSection,
     );
   }
 }

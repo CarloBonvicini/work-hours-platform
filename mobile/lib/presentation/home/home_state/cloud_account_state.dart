@@ -66,7 +66,7 @@ mixin _CloudAccountState on _HomeScreenStateBase {
             }
 
             setState(() {
-              _selectedSection = HomeSection.profile;
+              _goToSection(HomeSection.profile);
             });
           },
         ),
@@ -254,7 +254,7 @@ mixin _CloudAccountState on _HomeScreenStateBase {
     }
 
     setState(() {
-      _selectedSection = HomeSection.profile;
+      _goToSection(HomeSection.profile);
       _accountAuthMode = AccountAuthMode.register;
     });
   }

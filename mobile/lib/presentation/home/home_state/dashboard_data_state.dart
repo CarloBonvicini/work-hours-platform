@@ -136,7 +136,7 @@ mixin _DashboardDataState on _HomeScreenStateBase {
   @override
   void _openWorkQuickEntryForDate(DateTime date, {int? prefilledMinutes}) {
     setState(() {
-      _selectedSection = HomeSection.quickEntry;
+      _goToSection(HomeSection.quickEntry);
       _selectedEntryMode = QuickEntryMode.work;
       _entryDateController.text = DashboardService.defaultEntryDateOf(date);
       _entryMinutesController.text = prefilledMinutes == null
@@ -149,7 +149,7 @@ mixin _DashboardDataState on _HomeScreenStateBase {
   @override
   void _openLeaveQuickEntryForDate(DateTime date, {int? prefilledMinutes}) {
     setState(() {
-      _selectedSection = HomeSection.quickEntry;
+      _goToSection(HomeSection.quickEntry);
       _selectedEntryMode = QuickEntryMode.leave;
       _selectedLeaveType = LeaveType.permit;
       _entryDateController.text = DashboardService.defaultEntryDateOf(date);
@@ -316,7 +316,7 @@ mixin _DashboardDataState on _HomeScreenStateBase {
         .firstOrNull;
     setState(() {
       _editingEntry = (kind: item.kind, id: item.entryId);
-      _selectedSection = HomeSection.quickEntry;
+      _goToSection(HomeSection.quickEntry);
       _selectedEntryMode = item.kind == ActivityEntryKind.work
           ? QuickEntryMode.work
           : QuickEntryMode.leave;

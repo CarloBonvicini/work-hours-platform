@@ -4,6 +4,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:work_hours_mobile/presentation/theme/work_hours_colors.dart';
 import 'package:printing/printing.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:work_hours_mobile/presentation/home/logic/consuntivo_export.dart';
@@ -238,7 +239,7 @@ class ConsuntivoSection extends StatelessWidget {
                                     style: theme.textTheme.labelMedium
                                         ?.copyWith(
                                           color: permission.enabled
-                                              ? const Color(0xFF0B6E69)
+                                              ? WorkHoursColors.of(context).credit
                                               : colorScheme.onSurfaceVariant,
                                           fontWeight: FontWeight.w700,
                                         ),
@@ -339,10 +340,10 @@ class ConsuntivoSection extends StatelessWidget {
 
   Color _balanceColor(ThemeData theme, int value) {
     if (value > 0) {
-      return const Color(0xFF0B6E69);
+      return WorkHoursColors.ofTheme(theme).credit;
     }
     if (value < 0) {
-      return const Color(0xFFB42318);
+      return WorkHoursColors.ofTheme(theme).debit;
     }
     return theme.colorScheme.onSurfaceVariant;
   }

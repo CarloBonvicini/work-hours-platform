@@ -44,6 +44,9 @@ import 'package:work_hours_mobile/presentation/home/logic/initial_setup_answers.
 import 'package:work_hours_mobile/presentation/home/logic/planned_day_schedule.dart';
 import 'package:work_hours_mobile/presentation/home/logic/rule_value_labels.dart';
 import 'package:work_hours_mobile/presentation/home/logic/schedule_draft.dart';
+import 'package:work_hours_mobile/presentation/home/logic/section_history.dart';
+import 'package:work_hours_mobile/presentation/theme/work_hours_colors.dart';
+import 'package:work_hours_mobile/presentation/home/widgets/common/back_navigation_scope.dart';
 import 'package:work_hours_mobile/presentation/home/logic/ticket_labels.dart';
 import 'package:work_hours_mobile/presentation/home/logic/workday_session_info.dart';
 import 'package:work_hours_mobile/presentation/home/models/activity_item.dart';
@@ -67,6 +70,7 @@ import 'package:work_hours_mobile/presentation/home/widgets/support/support_tick
 import 'package:work_hours_mobile/presentation/home/widgets/update/update_dialog.dart';
 import 'package:work_hours_mobile/presentation/home/widgets/update/update_download_dialog.dart';
 
+part 'home_state/section_navigation_state.dart';
 part 'home_state/home_sections_state.dart';
 part 'home_state/permission_rules_state.dart';
 part 'home_state/wheel_pickers_state.dart';
@@ -262,6 +266,7 @@ abstract class _HomeScreenStateBase extends State<HomeScreen>
 
   late bool _hasCompletedInitialSetup;
   HomeSection _selectedSection = HomeSection.calendar;
+  final SectionHistory _sectionHistory = SectionHistory();
   ConsuntivoRangeOption _consuntivoRange = ConsuntivoRangeOption.oneMonth;
   SupportTicketCategory _selectedTicketCategory = SupportTicketCategory.bug;
   List<TrackedSupportTicket> _trackedTickets = const [];
@@ -413,6 +418,8 @@ abstract class _HomeScreenStateBase extends State<HomeScreen>
   Future<void> _changeConsuntivoRange(ConsuntivoRangeOption nextRange);
 
   Future<void> _ensureConsuntivoDataLoaded();
+
+  Future<void> _markTrackedTicketRepliesSeen(String ticketId);
 
   Future<void> _shiftConsuntivoAnchorMonth(int step);
 
@@ -733,6 +740,8 @@ abstract class _HomeScreenStateBase extends State<HomeScreen>
 
   Future<void> _registerUnrecordedHours(int minutes);
 
+  void _goToSection(HomeSection section);
+
   int _currentMinutesOfDay();
 
   Future<void> _finishWorkdayNow();
@@ -754,6 +763,7 @@ abstract class _HomeScreenStateBase extends State<HomeScreen>
 
 class _HomeScreenState extends _HomeScreenStateBase
     with
+        _SectionNavigationState,
         _HomeSectionsState,
         _PermissionRulesState,
         _WheelPickersState,
@@ -889,62 +899,46 @@ class _HomeScreenState extends _HomeScreenStateBase
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
-    return Scaffold(
-      body: SafeArea(
-        child: Align(
-          alignment: Alignment.topCenter,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 1080),
-            child: ListView(
-              physics: _isAgendaInteracting
-                  ? const NeverScrollableScrollPhysics()
-                  : null,
-              padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
-              children: [
-                HomeHeader(
-                  selectedSection: _selectedSection,
-                  hasCloudAccount: _accountSession != null,
-                  unreadTicketReplyCount: _unreadTicketReplyCount,
-                  onSelectSection: (section) {
-                    setState(() {
-                      _selectedSection = section;
-                      if (section == HomeSection.calendar &&
-                          _calendarView == CalendarView.day) {
-                        _calendarView = CalendarView.month;
-                      }
-                    });
-                    if (section == HomeSection.ticket) {
-                      unawaited(_refreshTrackedSupportTickets());
-                      final selectedTicketId = _selectedTrackedTicketId;
-                      if (selectedTicketId != null) {
-                        unawaited(
-                          _markTrackedTicketRepliesSeen(selectedTicketId),
-                        );
-                      }
-                    }
-                    if (section == HomeSection.consuntivo) {
-                      unawaited(_ensureConsuntivoDataLoaded());
-                    }
-                  },
-                  onOpenRegistration: _openAccountRegistrationFlow,
-                ),
-                const SizedBox(height: 16),
-                if (_errorMessage != null) ...[
-                  ErrorCard(message: _errorMessage!, onRetry: _refreshAll),
-                  const SizedBox(height: 16),
-                ],
-                if (snapshot != null) ...[
-                  AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 220),
-                    switchInCurve: Curves.easeOut,
-                    switchOutCurve: Curves.easeIn,
-                    child: KeyedSubtree(
-                      key: ValueKey(_selectedSection),
-                      child: _buildSelectedSection(snapshot),
-                    ),
+    return BackNavigationScope(
+      canGoBack: _sectionHistory.canGoBack,
+      onBack: _handleBackRequest,
+      child: Scaffold(
+        body: SafeArea(
+          child: Align(
+            alignment: Alignment.topCenter,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 1080),
+              child: ListView(
+                physics: _isAgendaInteracting
+                    ? const NeverScrollableScrollPhysics()
+                    : null,
+                padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
+                children: [
+                  HomeHeader(
+                    selectedSection: _selectedSection,
+                    hasCloudAccount: _accountSession != null,
+                    unreadTicketReplyCount: _unreadTicketReplyCount,
+                    onSelectSection: _selectSectionFromHeader,
+                    onOpenRegistration: _openAccountRegistrationFlow,
                   ),
+                  const SizedBox(height: 16),
+                  if (_errorMessage != null) ...[
+                    ErrorCard(message: _errorMessage!, onRetry: _refreshAll),
+                    const SizedBox(height: 16),
+                  ],
+                  if (snapshot != null) ...[
+                    AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 220),
+                      switchInCurve: Curves.easeOut,
+                      switchOutCurve: Curves.easeIn,
+                      child: KeyedSubtree(
+                        key: ValueKey(_selectedSection),
+                        child: _buildSelectedSection(snapshot),
+                      ),
+                    ),
+                  ],
                 ],
-              ],
+              ),
             ),
           ),
         ),

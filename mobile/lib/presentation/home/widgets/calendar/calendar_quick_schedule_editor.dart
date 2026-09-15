@@ -2,6 +2,7 @@
 
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:work_hours_mobile/presentation/home/models/home_section.dart';
 import 'package:work_hours_mobile/application/services/theme_preference_store.dart';
 import 'package:work_hours_mobile/presentation/home/logic/quick_day_insights.dart';
 import 'package:work_hours_mobile/presentation/home/models/activity_item.dart';
@@ -53,6 +54,7 @@ class CalendarQuickScheduleEditor extends StatelessWidget {
     required this.expectedMinutes,
     required this.unrecordedMinutes,
     required this.onRegisterUnrecordedHours,
+    required this.onOpenSettingsSection,
     required this.hasResultContext,
     required this.hasTheoreticalExit,
     required this.hasPendingExitConfirmation,
@@ -113,6 +115,7 @@ class CalendarQuickScheduleEditor extends StatelessWidget {
   final int expectedMinutes;
   final int? unrecordedMinutes;
   final VoidCallback? onRegisterUnrecordedHours;
+  final void Function(HomeSection section) onOpenSettingsSection;
   final bool hasResultContext;
   final bool hasTheoreticalExit;
   final bool hasPendingExitConfirmation;
@@ -330,6 +333,7 @@ class CalendarQuickScheduleEditor extends StatelessWidget {
                       expectedMinutes: expectedMinutes,
                       unrecordedMinutes: unrecordedMinutes,
                       onRegisterUnrecordedHours: onRegisterUnrecordedHours,
+                      onOpenSettingsSection: onOpenSettingsSection,
                       onOpenWorkSettings: onOpenWorkSettings,
                       isDayOff: isDayOff,
                       hasResultContext: hasResultContext,

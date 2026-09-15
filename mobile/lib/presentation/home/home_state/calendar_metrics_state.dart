@@ -233,6 +233,7 @@ mixin _CalendarMetricsState on _HomeScreenStateBase {
   }
 
   List<ActivityItem> _buildAllActivities(DashboardSnapshot snapshot) {
+    final palette = WorkHoursColors.ofTheme(Theme.of(context));
     final workItems = snapshot.workEntries.map(
       (entry) => ActivityItem(
         key: 'work-${entry.id}',
@@ -244,7 +245,7 @@ mixin _CalendarMetricsState on _HomeScreenStateBase {
             ? entry.note!
             : 'Registrazione lavoro',
         minutes: entry.minutes,
-        accentColor: const Color(0xFF0B6E69),
+        accentColor: palette.credit,
         icon: Icons.work_outline,
       ),
     );
@@ -260,7 +261,7 @@ mixin _CalendarMetricsState on _HomeScreenStateBase {
             ? entry.note!
             : 'Assenza registrata',
         minutes: entry.minutes,
-        accentColor: const Color(0xFFBF7A24),
+        accentColor: palette.forecast,
         icon: entry.type == LeaveType.vacation
             ? Icons.beach_access_outlined
             : Icons.event_available_outlined,
