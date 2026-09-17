@@ -32,7 +32,10 @@ services:
       - ./updates:/app/updates
       - ./tickets:/app/tickets
     ports:
-      - "8080:8080"
+      # Solo loopback: in produzione l'API e' raggiunta da cloudflared sull'host
+      # (127.0.0.1:8080). Le porte pubblicate da Docker bypassano ufw, quindi il
+      # bind e' l'unico modo per non esporla su LAN/IPv6.
+      - "127.0.0.1:8080:8080"
     expose:
       - "8080"
     labels:
